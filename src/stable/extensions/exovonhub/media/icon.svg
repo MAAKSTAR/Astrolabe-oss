@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+  <defs>
+    <!-- Cyan neon gradient -->
+    <linearGradient id="cyan-glow" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#06b6d4" />
+      <stop offset="100%" stop-color="#0891b2" />
+    </linearGradient>
+    
+    <!-- Violet/pink neon gradient -->
+    <linearGradient id="pink-violet" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#8b5cf6" />
+      <stop offset="50%" stop-color="#d946ef" />
+      <stop offset="100%" stop-color="#ec4899" />
+    </linearGradient>
+
+    <!-- Glowing filter effect -->
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="3" result="blur" />
+      <feMerge>
+        <feMergeNode in="blur" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background outer hexagon outline (soft glow) -->
+  <polygon points="50,5 90,28 90,72 50,95 10,72 10,28" 
+           fill="none" 
+           stroke="url(#pink-violet)" 
+           stroke-width="1.5" 
+           stroke-opacity="0.3" />
+
+  <!-- Mid hexagon with cyan gradient -->
+  <polygon points="50,12 83,31 83,69 50,88 17,69 17,31" 
+           fill="none" 
+           stroke="url(#cyan-glow)" 
+           stroke-width="2.5" 
+           filter="url(#glow)" />
+
+  <!-- Inner floating hexagon -->
+  <polygon points="50,22 74,36 74,64 50,78 26,64 26,36" 
+           fill="rgba(15, 17, 28, 0.7)" 
+           stroke="url(#pink-violet)" 
+           stroke-width="2" 
+           filter="url(#glow)" />
+
+  <!-- Central stylized futuristic rocket shape -->
+  <g transform="translate(0, 0)">
+    <!-- Rocket main body -->
+    <path d="M50,28 C53,38 56,48 56,60 L44,60 C44,48 47,38 50,28 Z" 
+          fill="url(#cyan-glow)" 
+          filter="url(#glow)" />
+          
+    <!-- Left stabilizer wing -->
+    <path d="M44,52 L36,64 C35,66 38,66 40,65 L44,58 Z" 
+          fill="url(#pink-violet)" />
+          
+    <!-- Right stabilizer wing -->
+    <path d="M56,52 L64,64 C65,66 62,66 60,65 L56,58 Z" 
+          fill="url(#pink-violet)" />
+
+    <!-- Rocket cockpit window -->
+    <circle cx="50" cy="42" r="2.5" fill="#ffffff" />
+
+    <!-- Fire propulsion flame trail -->
+    <path d="M47,63 L50,75 L53,63 C52,65 48,65 47,63 Z" 
+          fill="#ff007f" 
+          filter="url(#glow)" 
+          opacity="0.9" />
+          
+    <path d="M49,63 L50,70 L51,63 Z" 
+          fill="#ffea00" />
+  </g>
+</svg>

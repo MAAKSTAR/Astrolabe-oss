@@ -1,4 +1,15 @@
 {
+  "nameShort": "Astrolabe",
+  "nameLong": "Astrolabe",
+  "applicationName": "astrolabe-ide",
+  "dataFolderName": ".astrolabe-ide",
+  "win32MutexName": "astrolabe-ide",
+  "win32DirName": "Astrolabe",
+  "win32NameVersion": "Astrolabe",
+  "win32RegValueName": "Astrolabe",
+  "win32AppUserModelId": "Astrolabe.AstrolabeIDE",
+  "win32ShellNameShort": "Astrolabe",
+  "darwinBundleIdentifier": "com.astrolabe.ide",
   "extensionAllowedBadgeProviders": [
     "api.bintray.com",
     "api.travis-ci.com",

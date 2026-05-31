@@ -1,0 +1,113 @@
+{
+  "name": "exovonhub",
+  "displayName": "exovonhub",
+  "publisher": "exovon",
+  "description": "",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "*",
+    "onView:exovonhub.sidebar"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "exovonhub-sidebar-container",
+          "title": "Exovon Hub",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "exovonhub-sidebar-container": [
+        {
+          "type": "webview",
+          "id": "exovonhub.sidebar",
+          "name": "Exovon Hub"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "exovonhub.helloWorld",
+        "title": "Hello World"
+      }
+    ],
+    "configuration": {
+      "title": "Exovon Hub",
+      "properties": {
+        "exovonhub.preferredModel": {
+          "type": "string",
+          "enum": [
+            "gemma-4-31b-it",
+            "gemini-3.5-flash",
+            "gemini-3.1-pro"
+          ],
+          "enumItemLabels": [
+            "Gemma 4 31B IT (Default)",
+            "Gemini 3.5 Flash Premium",
+            "Gemini 3.1 Pro Premium"
+          ],
+          "default": "gemma-4-31b-it",
+          "description": "Select the preferred AI model for the Exovon Agent Chat"
+        },
+        "exovonhub.googleApiKey": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "API Key for Google Gen AI. **For breach security, we strongly recommend NOT setting this here** and instead using the `GEMINI_API_KEY` environment variable."
+        },
+        "exovonhub.autonomousMode": {
+          "type": "boolean",
+          "default": false,
+          "description": "If enabled, the agent will execute all file writes and command lines autonomously in a speculative shadow workspace (.exovon-shadow) without asking for individual approvals, presenting a clean visual diff upon completion."
+        },
+        "exovonhub.tavilyApiKey": {
+          "type": "string",
+          "default": "",
+          "description": "API Key for Tavily Semantic Search. This is the default preferred engine for clean, parsed LLM-ready web searches."
+        },
+        "exovonhub.exaApiKey": {
+          "type": "string",
+          "default": "",
+          "description": "API Key for Exa AI Search. A neural semantic search engine alternative."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run package",
+    "install-webview": "cd webview-ui && npm install",
+    "build-webview": "cd webview-ui && npm run build",
+    "compile": "npm run build-webview && webpack",
+    "watch": "webpack --watch",
+    "package": "npm run build-webview && webpack --mode production --devtool hidden-source-map",
+    "compile-tests": "tsc -p . --outDir out",
+    "watch-tests": "tsc -p . -w --outDir out",
+    "pretest": "npm run compile-tests && npm run compile && npm run lint",
+    "lint": "eslint src",
+    "test": "vscode-test"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.10",
+    "@types/node": "22.x",
+    "@types/vscode": "^1.120.0",
+    "@vscode/test-cli": "^0.0.12",
+    "@vscode/test-electron": "^2.5.2",
+    "eslint": "^9.39.3",
+    "ts-loader": "^9.5.4",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.56.1",
+    "webpack": "^5.105.3",
+    "webpack-cli": "^6.0.1"
+  },
+  "dependencies": {
+    "@google/genai": "^2.6.0"
+  }
+}
