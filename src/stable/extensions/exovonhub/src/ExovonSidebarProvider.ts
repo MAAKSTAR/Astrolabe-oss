@@ -55,7 +55,9 @@ export class ExovonSidebarProvider implements vscode.WebviewViewProvider {
           try {
             const files = await vscode.workspace.findFiles('**/*', '**/node_modules/**');
             filesCount = files.length;
-          } catch (e) {}
+          } catch (e) {
+            console.error('[ExovonSidebarProvider] Failed to fetch layout context:', e);
+          }
 
           const config = vscode.workspace.getConfiguration('exovonhub');
           const isAutonomous = config.get<boolean>('autonomousMode') || false;
@@ -142,7 +144,9 @@ ${warningLines.join('\n')}
                   const truncated = decoded.length > 5000 ? decoded.slice(0, 5000) + '\n[TRUNCATED...]' : decoded;
                   contextParts.push(`[Context File: ${fileName}]\n\`\`\`\n${truncated}\n\`\`\``);
                 }
-              } catch (e) {}
+              } catch (e) {
+                console.error('[ExovonSidebarProvider] Failed to parse AST blocks:', e);
+              }
             }
             if (contextParts.length > 0) {
               contextFilesContent = `\n[USER-SELECTED CONTEXT FILES]\n${contextParts.join('\n\n')}\n[/USER-SELECTED CONTEXT FILES]\n`;
@@ -236,7 +240,8 @@ Developer Action Request: "${prompt}"
           const selectedModel = data.model || 'gemma-4-31b-it';
           
           // Run orchestrator with injected diagnostics & file lines matrix context
-          orchestrator.execute(richPrompt, selectedModel);
+          const apiKey = await this._context.secrets.get('exovonhub.googleApiKey');
+          orchestrator.execute(richPrompt, selectedModel, apiKey);
           break;
         }
 
@@ -313,6 +318,17 @@ Developer Action Request: "${prompt}"
         case 'openUrl': {
           if (data.url) {
             vscode.env.openExternal(vscode.Uri.parse(data.url));
+          }
+          break;
+        }
+
+        case 'requestContextFile': {
+          const file = await vscode.window.showInputBox({
+            prompt: 'Enter workspace file name to add to context:',
+            placeHolder: 'e.g., package.json'
+          });
+          if (file) {
+            webviewView.webview.postMessage({ type: 'contextFileAdded', fileName: file });
           }
           break;
         }
@@ -401,7 +417,7 @@ Developer Action Request: "${prompt}"
     webviewHtml = webviewHtml.replace(/\scrossorigin(="")?/g, '');
 
     // Inject compatible CSP meta tag
-    const cspMeta = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src ${webview.cspSource} 'unsafe-inline' 'unsafe-eval'; img-src ${webview.cspSource} https: data:; connect-src ${webview.cspSource} https:;">`;
+    const cspMeta = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src ${webview.cspSource}; img-src ${webview.cspSource} https: data:; connect-src ${webview.cspSource} https:;">`;
     webviewHtml = webviewHtml.replace('<head>', `<head>\n    ${cspMeta}`);
 
     return webviewHtml;

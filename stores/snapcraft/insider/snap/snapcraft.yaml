@@ -4,7 +4,7 @@ summary: Code editing. Redefined.
 description: |
   Binary releases of Visual Studio Code - Insiders without branding/telemetry/licensing
 
-base: core20
+base: core22
 grade: stable
 confinement: classic
 compression: lzo
@@ -81,7 +81,7 @@ parts:
     override-prime: |
       set -eux
       snapcraftctl prime
-      for snap in "core20"; do
+      for snap in "core22"; do
         cd "/snap/${snap}/current/usr/lib/${SNAPCRAFT_ARCH_TRIPLET}"
         find . -type f,l -name "*.so*" -exec bash -c "rm -f ${SNAPCRAFT_PRIME}/{}*" \;
       done

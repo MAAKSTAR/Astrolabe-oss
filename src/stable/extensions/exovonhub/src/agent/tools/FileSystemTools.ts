@@ -29,11 +29,6 @@ export class FileSystemTools implements FileSystemToolsInterface {
   constructor() {
     this.workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
     this.targetRoot = this.workspaceRoot;
-    
-    // Initialize Merkle Indexing in background
-    if (this.workspaceRoot) {
-      this.initializeMerkleTree().catch(e => console.error('Failed to init Merkle Tree:', e));
-    }
   }
 
   public getWorkspaceRoot(): string {
@@ -132,7 +127,7 @@ export class FileSystemTools implements FileSystemToolsInterface {
           const dirHash = await this.buildTree(fullPath);
           if (dirHash) combinedHashes += dirHash;
         } else if (entry.isFile()) {
-          const fileHash = this.computeFileHash(fullPath);
+          const fileHash = await this.computeFileHash(fullPath);
           if (fileHash) {
             this.fileHashes.set(fullPath, fileHash);
             combinedHashes += fileHash;
@@ -148,9 +143,9 @@ export class FileSystemTools implements FileSystemToolsInterface {
     }
   }
 
-  private computeFileHash(filePath: string): string | null {
+  private async computeFileHash(filePath: string): Promise<string | null> {
     try {
-      const content = fs.readFileSync(filePath);
+      const content = await fs.promises.readFile(filePath);
       return crypto.createHash('sha256').update(content).digest('hex');
     } catch (e) {
       return null;
@@ -165,11 +160,11 @@ export class FileSystemTools implements FileSystemToolsInterface {
       this.fsWatcher.dispose();
     }
 
-    this.fsWatcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(this.workspaceRoot, '**/*'));
+    this.fsWatcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(this.workspaceRoot, '**/*.{ts,js,tsx,jsx,css,html,json,md,py,go,rs,java,c,cpp}'));
 
     const updateFile = async (uri: vscode.Uri) => {
       if (this.shouldIgnore(uri.fsPath)) return;
-      const hash = this.computeFileHash(uri.fsPath);
+      const hash = await this.computeFileHash(uri.fsPath);
       if (hash) {
         this.fileHashes.set(uri.fsPath, hash);
         await this.propagateHashUpdate(path.dirname(uri.fsPath));
@@ -198,11 +193,31 @@ export class FileSystemTools implements FileSystemToolsInterface {
   private async propagateHashUpdate(dirPath: string): Promise<void> {
     if (!dirPath.startsWith(this.workspaceRoot)) return;
     
-    await this.buildTree(dirPath); // Re-evaluate this specific directory
+    try {
+      const entries = await fs.promises.readdir(dirPath, { withFileTypes: true });
+      const sortedEntries = entries.sort((a, b) => a.name.localeCompare(b.name));
+      
+      let combinedHashes = '';
+      for (const entry of sortedEntries) {
+        const fullPath = path.join(dirPath, entry.name);
+        if (entry.isDirectory()) {
+          const cachedDirHash = this.dirHashes.get(fullPath);
+          if (cachedDirHash) combinedHashes += cachedDirHash;
+        } else if (entry.isFile()) {
+          const cachedFileHash = this.fileHashes.get(fullPath);
+          if (cachedFileHash) combinedHashes += cachedFileHash;
+        }
+      }
+      
+      const dirHash = crypto.createHash('sha256').update(combinedHashes).digest('hex');
+      this.dirHashes.set(dirPath, dirHash);
 
-    const parentDir = path.dirname(dirPath);
-    if (parentDir.length >= this.workspaceRoot.length) {
-      await this.propagateHashUpdate(parentDir);
+      const parentDir = path.dirname(dirPath);
+      if (parentDir.length >= this.workspaceRoot.length) {
+        await this.propagateHashUpdate(parentDir);
+      }
+    } catch (e) {
+      // Ignore unreadable
     }
   }
 
@@ -213,6 +228,12 @@ export class FileSystemTools implements FileSystemToolsInterface {
     if (this.isIndexing) {
       return 'Status: Indexing in progress. Hash unavailable until complete.';
     }
+    
+    // Lazy initialize on first call
+    if (!this.fsWatcher && this.workspaceRoot) {
+      await this.initializeMerkleTree();
+    }
+
     const rootHash = this.dirHashes.get(this.workspaceRoot);
     return rootHash ? `Workspace Root Merkle Hash: ${rootHash}` : 'Error: Workspace hash not found.';
   }
@@ -256,7 +277,7 @@ export class FileSystemTools implements FileSystemToolsInterface {
       const shadowFile = path.resolve(this.shadowPath, relativePath);
       if (fs.existsSync(shadowFile)) {
         // Safety check
-        if (!shadowFile.startsWith(this.shadowPath)) {
+        if (shadowFile !== this.shadowPath && !shadowFile.startsWith(this.shadowPath + path.sep)) {
           throw new Error(`Access Denied: Path "${relativePath}" escapes the sandbox root.`);
         }
         return shadowFile;
@@ -264,7 +285,7 @@ export class FileSystemTools implements FileSystemToolsInterface {
     }
     // Fall through to real workspace for reads
     const realPath = path.resolve(this.workspaceRoot, relativePath);
-    if (!realPath.startsWith(this.workspaceRoot)) {
+    if (realPath !== this.workspaceRoot && !realPath.startsWith(this.workspaceRoot + path.sep)) {
       throw new Error(`Access Denied: Path "${relativePath}" is outside the workspace root.`);
     }
     return realPath;
@@ -273,13 +294,13 @@ export class FileSystemTools implements FileSystemToolsInterface {
   private resolveWritePath(relativePath: string): string {
     if (this.shadowInitialized) {
       const shadowFile = path.resolve(this.shadowPath, relativePath);
-      if (!shadowFile.startsWith(this.shadowPath)) {
+      if (shadowFile !== this.shadowPath && !shadowFile.startsWith(this.shadowPath + path.sep)) {
         throw new Error(`Access Denied: Path "${relativePath}" escapes the sandbox root.`);
       }
       return shadowFile;
     }
     const realPath = path.resolve(this.workspaceRoot, relativePath);
-    if (!realPath.startsWith(this.workspaceRoot)) {
+    if (realPath !== this.workspaceRoot && !realPath.startsWith(this.workspaceRoot + path.sep)) {
       throw new Error(`Access Denied: Path "${relativePath}" is outside the workspace root.`);
     }
     return realPath;
@@ -494,27 +515,33 @@ export class FileSystemTools implements FileSystemToolsInterface {
   public async semanticSearch(query: string, includePattern: string = '**/*'): Promise<string> {
     try {
       const results: Array<{ file: string; type: string; name: string; matchLines: string }> = [];
-      const excludePattern = '**/node_modules/**,**/dist/**,**/.git/**,**/out/**,**/.exovon-shadow/**';
       
-      const files = await vscode.workspace.findFiles(includePattern, excludePattern, 1000);
+      // Fast pre-filter using ripgrep to find files containing the query
+      const grepResult = await this.grepSearch(query, includePattern);
+      if (grepResult.startsWith('Error') || grepResult.startsWith('No matches')) {
+        return grepResult;
+      }
       
-      for (const file of files) {
-        const ext = path.extname(file.fsPath).toLowerCase();
-        
-        // Fast pre-filter: does the file even contain the query?
-        const contentBuffer = await vscode.workspace.fs.readFile(file);
-        const content = new TextDecoder('utf-8').decode(contentBuffer);
-        
-        if (!content.toLowerCase().includes(query.toLowerCase())) {
-          continue;
-        }
+      let parsedFiles = [];
+      try {
+        parsedFiles = JSON.parse(grepResult);
+      } catch (e) {
+        return grepResult; // If parsing failed, fallback to returning raw grep
+      }
 
-        const relativeFile = path.relative(this.workspaceRoot, file.fsPath);
-
+      // Deduplicate files
+      const uniqueRelativeFiles = Array.from(new Set<string>(parsedFiles.map((m: any) => m.file)));
+      
+      for (const relativeFile of uniqueRelativeFiles) {
+        const fullPath = path.resolve(this.workspaceRoot, relativeFile);
+        const ext = path.extname(fullPath).toLowerCase();
+        
         if (['.ts', '.tsx', '.js', '.jsx'].includes(ext)) {
-          // Use AST Chunking
           try {
-            const chunks = ASTChunker.extractChunks(file.fsPath, content);
+            const contentBuffer = await vscode.workspace.fs.readFile(vscode.Uri.file(fullPath));
+            const content = new TextDecoder('utf-8').decode(contentBuffer);
+            
+            const chunks = ASTChunker.extractChunks(fullPath, content);
             for (const chunk of chunks) {
               if (chunk.name.toLowerCase().includes(query.toLowerCase()) || chunk.content.toLowerCase().includes(query.toLowerCase())) {
                 results.push({
@@ -523,11 +550,11 @@ export class FileSystemTools implements FileSystemToolsInterface {
                   name: chunk.name,
                   matchLines: chunk.content
                 });
-                if (results.length >= 10) break; // Return top 10 full AST blocks to prevent context overflow
+                if (results.length >= 10) break;
               }
             }
           } catch (e) {
-            // Ignore AST errors and fallback
+            // Ignore AST errors for specific files
           }
         }
         
@@ -539,7 +566,7 @@ export class FileSystemTools implements FileSystemToolsInterface {
       }
       
       // Fallback to standard grepSearch if no AST matches or non-JS files
-      return await this.grepSearch(query, includePattern);
+      return grepResult;
       
     } catch (error: any) {
       return `Error during semantic search: ${error.message}`;
@@ -560,7 +587,9 @@ export class FileSystemTools implements FileSystemToolsInterface {
 
       // Try native ripgrep first (bundled with VS Code)
       try {
-        const { execFileSync } = require('child_process');
+        const { execFile } = require('child_process');
+        const util = require('util');
+        const execFileAsync = util.promisify(execFile);
         const rgPath = (vscode as any).env?.ripgrepPath || 'rg';
         const rgArgs = [
           '--json',
@@ -575,11 +604,13 @@ export class FileSystemTools implements FileSystemToolsInterface {
           this.workspaceRoot
         ];
 
-        const output = execFileSync(rgPath, rgArgs, {
+        const { stdout } = await execFileAsync(rgPath, rgArgs, {
           timeout: 10000,
           maxBuffer: 1024 * 256,
           encoding: 'utf-8'
         });
+
+        const output = stdout;
 
         for (const line of output.split('\n')) {
           if (!line.trim()) { continue; }

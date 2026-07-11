@@ -19,3 +19,6 @@ stores/snapcraft/stable/*.snap
 *.log
 *_console.log
 
+
+# Exovon Workspace Sandbox
+.exovon-shadow/

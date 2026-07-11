@@ -21,7 +21,19 @@ export function activate(context: vscode.ExtensionContext) {
 		vscode.window.showInformationMessage('Hello World from Exovon Hub Suite!');
 	});
 
-	context.subscriptions.push(commandDisposable);
+	const setApiKeyDisposable = vscode.commands.registerCommand('exovonhub.setApiKey', async () => {
+		const apiKey = await vscode.window.showInputBox({
+			prompt: 'Enter your Google Gen AI API Key',
+			password: true,
+			ignoreFocusOut: true
+		});
+		if (apiKey) {
+			await context.secrets.store('exovonhub.googleApiKey', apiKey);
+			vscode.window.showInformationMessage('Exovon Hub: API Key securely stored!');
+		}
+	});
+
+	context.subscriptions.push(commandDisposable, setApiKeyDisposable);
 }
 
 export function deactivate() {

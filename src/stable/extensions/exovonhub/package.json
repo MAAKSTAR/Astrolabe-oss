@@ -1,18 +1,24 @@
 {
   "name": "exovonhub",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/exovon/exovon"
+  },
   "displayName": "exovonhub",
   "publisher": "exovon",
   "description": "",
-  "version": "0.0.1",
+  "version": "0.0.6",
   "engines": {
-    "vscode": "^1.80.0"
+    "vscode": "^1.89.0"
   },
+  "extensionDependencies": [
+    "vscode.git"
+  ],
   "categories": [
     "Other"
   ],
   "activationEvents": [
-    "*",
-    "onView:exovonhub.sidebar"
+    "onStartupFinished"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -30,7 +36,8 @@
         {
           "type": "webview",
           "id": "exovonhub.sidebar",
-          "name": "Exovon Hub"
+          "name": "Exovon Hub",
+          "icon": "media/icon.svg"
         }
       ]
     },
@@ -38,8 +45,98 @@
       {
         "command": "exovonhub.helloWorld",
         "title": "Hello World"
+      },
+      {
+        "command": "exovonhub.openSidebar",
+        "title": "Exovon: Open Agent",
+        "icon": "$(hubot)"
+      },
+      {
+        "command": "exovon.focusAgentInput",
+        "title": "Exovon: Focus Agent Input"
+      },
+      {
+        "command": "exovon.cancelAgent",
+        "title": "Exovon: Cancel Agent"
+      },
+      {
+        "command": "exovon.sendProblems",
+        "title": "Exovon: Send Problems to Agent",
+        "icon": "$(sparkle)"
+      },
+      {
+        "command": "exovon.createComment",
+        "title": "Submit Feedback",
+        "icon": "$(check)"
+      },
+      {
+        "command": "exovon.deleteCommentThread",
+        "title": "Discard Feedback",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "exovon.pasteAuthToken",
+        "title": "Exovon: Paste Auth Token"
+      },
+      {
+        "command": "exovon.acceptFileDiff",
+        "title": "Accept",
+        "icon": "$(check)"
+      },
+      {
+        "command": "exovon.rejectFileDiff",
+        "title": "Reject",
+        "icon": "$(close)"
       }
     ],
+    "keybindings": [
+      {
+        "command": "exovon.focusAgentInput",
+        "key": "ctrl+shift+e",
+        "mac": "cmd+shift+e"
+      },
+      {
+        "command": "exovon.cancelAgent",
+        "key": "escape",
+        "when": "exovonhubSidebarVisible"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "exovonhub.openSidebar",
+          "group": "navigation",
+          "when": "true"
+        },
+        {
+          "command": "exovon.acceptFileDiff",
+          "group": "navigation@1",
+          "when": "isInDiffEditor && resourcePath =~ /\\.exovon-shadow/"
+        },
+        {
+          "command": "exovon.rejectFileDiff",
+          "group": "navigation@2",
+          "when": "isInDiffEditor && resourcePath =~ /\\.exovon-shadow/"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "exovon.sendProblems",
+          "when": "view == workbench.panel.markers.view",
+          "group": "navigation"
+        }
+      ],
+      "comments/commentThread/context": [
+        {
+          "command": "exovon.createComment",
+          "group": "navigation@1"
+        },
+        {
+          "command": "exovon.deleteCommentThread",
+          "group": "navigation@2"
+        }
+      ]
+    },
     "configuration": {
       "title": "Exovon Hub",
       "properties": {
@@ -77,6 +174,11 @@
           "type": "string",
           "default": "",
           "description": "API Key for Exa AI Search. A neural semantic search engine alternative."
+        },
+        "exovonhub.premiumEnabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable premium model access. When disabled, the agent always uses Gemma 4 31B IT (free). When enabled, users can select Gemini 3.5 Flash or Gemini 3.1 Pro."
         }
       }
     }
@@ -88,6 +190,13 @@
     "compile": "npm run build-webview && webpack",
     "watch": "webpack --watch",
     "package": "npm run build-webview && webpack --mode production --devtool hidden-source-map",
+    "package:win-x64": "vsce package --target win32-x64",
+    "package:win-arm64": "vsce package --target win32-arm64",
+    "package:mac-x64": "vsce package --target darwin-x64",
+    "package:mac-arm64": "vsce package --target darwin-arm64",
+    "package:linux-x64": "vsce package --target linux-x64",
+    "package:linux-arm64": "vsce package --target linux-arm64",
+    "package:all": "npm run package:win-x64 && npm run package:win-arm64 && npm run package:mac-x64 && npm run package:mac-arm64 && npm run package:linux-x64 && npm run package:linux-arm64",
     "compile-tests": "tsc -p . --outDir out",
     "watch-tests": "tsc -p . -w --outDir out",
     "pretest": "npm run compile-tests && npm run compile && npm run lint",
@@ -95,19 +204,33 @@
     "test": "vscode-test"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/diff": "^7.0.2",
     "@types/mocha": "^10.0.10",
     "@types/node": "22.x",
-    "@types/vscode": "^1.120.0",
+    "@types/vscode": "^1.89.0",
     "@vscode/test-cli": "^0.0.12",
     "@vscode/test-electron": "^2.5.2",
+    "electron-rebuild": "^3.2.9",
     "eslint": "^9.39.3",
     "ts-loader": "^9.5.4",
-    "typescript": "^5.9.3",
     "typescript-eslint": "^8.56.1",
     "webpack": "^5.105.3",
     "webpack-cli": "^6.0.1"
   },
   "dependencies": {
-    "@google/genai": "^2.6.0"
+    "@google/genai": "^2.6.0",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@xenova/transformers": "^2.17.2",
+    "better-sqlite3": "^12.10.0",
+    "diff": "^9.0.0",
+    "node-llama-cpp": "^3.18.1",
+    "sqlite-vec": "^0.1.9",
+    "tar": "^6.2.0",
+    "tree-sitter-javascript": "^0.25.0",
+    "tree-sitter-python": "^0.25.0",
+    "tree-sitter-typescript": "^0.23.2",
+    "typescript": "^5.9.3",
+    "web-tree-sitter": "^0.26.9"
   }
 }

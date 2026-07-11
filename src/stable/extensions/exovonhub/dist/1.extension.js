@@ -1,17 +1,7 @@
 exports.id = 1;
 exports.ids = [1];
-exports.modules = [
-/* 0 */,
-/* 1 */,
-/* 2 */,
-/* 3 */,
-/* 4 */,
-/* 5 */,
-/* 6 */,
-/* 7 */,
-/* 8 */,
-/* 9 */,
-/* 10 */
+exports.modules = Array(30).concat([
+/* 30 */
 /***/ ((__unused_webpack___webpack_module__, __webpack_exports__, __webpack_require__) => {
 
 "use strict";
@@ -165,14 +155,14 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony export */   mcpToTool: () => (/* binding */ mcpToTool),
 /* harmony export */   setDefaultBaseUrls: () => (/* binding */ setDefaultBaseUrls)
 /* harmony export */ });
-/* harmony import */ var p_retry__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(11);
-/* harmony import */ var google_auth_library__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(15);
-/* harmony import */ var fs__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(3);
-/* harmony import */ var fs_promises__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(96);
-/* harmony import */ var node_stream__WEBPACK_IMPORTED_MODULE_4__ = __webpack_require__(97);
-/* harmony import */ var node_stream_promises__WEBPACK_IMPORTED_MODULE_5__ = __webpack_require__(98);
-/* harmony import */ var ws__WEBPACK_IMPORTED_MODULE_6__ = __webpack_require__(99);
-/* harmony import */ var path__WEBPACK_IMPORTED_MODULE_7__ = __webpack_require__(5);
+/* harmony import */ var p_retry__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(31);
+/* harmony import */ var google_auth_library__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(35);
+/* harmony import */ var fs__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(2);
+/* harmony import */ var fs_promises__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(114);
+/* harmony import */ var node_stream__WEBPACK_IMPORTED_MODULE_4__ = __webpack_require__(115);
+/* harmony import */ var node_stream_promises__WEBPACK_IMPORTED_MODULE_5__ = __webpack_require__(116);
+/* harmony import */ var ws__WEBPACK_IMPORTED_MODULE_6__ = __webpack_require__(117);
+/* harmony import */ var path__WEBPACK_IMPORTED_MODULE_7__ = __webpack_require__(3);
 
 
 
@@ -22159,12 +22149,12 @@ function getApiKeyFromEnv() {
 
 
 /***/ }),
-/* 11 */
+/* 31 */
 /***/ ((module, __unused_webpack_exports, __webpack_require__) => {
 
 "use strict";
 
-const retry = __webpack_require__(12);
+const retry = __webpack_require__(32);
 
 const networkErrorMsgs = [
 	'Failed to fetch', // Chrome
@@ -22251,16 +22241,16 @@ module.exports.AbortError = AbortError;
 
 
 /***/ }),
-/* 12 */
+/* 32 */
 /***/ ((module, __unused_webpack_exports, __webpack_require__) => {
 
-module.exports = __webpack_require__(13);
+module.exports = __webpack_require__(33);
 
 /***/ }),
-/* 13 */
+/* 33 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
-var RetryOperation = __webpack_require__(14);
+var RetryOperation = __webpack_require__(34);
 
 exports.operation = function(options) {
   var timeouts = exports.timeouts(options);
@@ -22363,7 +22353,7 @@ exports.wrap = function(obj, options, methods) {
 
 
 /***/ }),
-/* 14 */
+/* 34 */
 /***/ ((module) => {
 
 function RetryOperation(timeouts, options) {
@@ -22531,7 +22521,7 @@ RetryOperation.prototype.mainError = function() {
 
 
 /***/ }),
-/* 15 */
+/* 35 */
 /***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 "use strict";
@@ -22565,64 +22555,64 @@ exports.GoogleAuth = exports.auth = exports.PassThroughClient = exports.External
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-const googleauth_1 = __webpack_require__(16);
+const googleauth_1 = __webpack_require__(36);
 Object.defineProperty(exports, "GoogleAuth", ({ enumerable: true, get: function () { return googleauth_1.GoogleAuth; } }));
 // Export common deps to ensure types/instances are the exact match. Useful
 // for consistently configuring the library across versions.
-exports.gcpMetadata = __webpack_require__(27);
-exports.gaxios = __webpack_require__(17);
-var authclient_1 = __webpack_require__(54);
+exports.gcpMetadata = __webpack_require__(47);
+exports.gaxios = __webpack_require__(37);
+var authclient_1 = __webpack_require__(72);
 Object.defineProperty(exports, "AuthClient", ({ enumerable: true, get: function () { return authclient_1.AuthClient; } }));
 Object.defineProperty(exports, "DEFAULT_UNIVERSE", ({ enumerable: true, get: function () { return authclient_1.DEFAULT_UNIVERSE; } }));
-var computeclient_1 = __webpack_require__(46);
+var computeclient_1 = __webpack_require__(64);
 Object.defineProperty(exports, "Compute", ({ enumerable: true, get: function () { return computeclient_1.Compute; } }));
-var envDetect_1 = __webpack_require__(59);
+var envDetect_1 = __webpack_require__(77);
 Object.defineProperty(exports, "GCPEnv", ({ enumerable: true, get: function () { return envDetect_1.GCPEnv; } }));
-var iam_1 = __webpack_require__(93);
+var iam_1 = __webpack_require__(111);
 Object.defineProperty(exports, "IAMAuth", ({ enumerable: true, get: function () { return iam_1.IAMAuth; } }));
-var idtokenclient_1 = __webpack_require__(58);
+var idtokenclient_1 = __webpack_require__(76);
 Object.defineProperty(exports, "IdTokenClient", ({ enumerable: true, get: function () { return idtokenclient_1.IdTokenClient; } }));
-var jwtaccess_1 = __webpack_require__(75);
+var jwtaccess_1 = __webpack_require__(93);
 Object.defineProperty(exports, "JWTAccess", ({ enumerable: true, get: function () { return jwtaccess_1.JWTAccess; } }));
-var jwtclient_1 = __webpack_require__(60);
+var jwtclient_1 = __webpack_require__(78);
 Object.defineProperty(exports, "JWT", ({ enumerable: true, get: function () { return jwtclient_1.JWT; } }));
-var impersonated_1 = __webpack_require__(77);
+var impersonated_1 = __webpack_require__(95);
 Object.defineProperty(exports, "Impersonated", ({ enumerable: true, get: function () { return impersonated_1.Impersonated; } }));
-var oauth2client_1 = __webpack_require__(47);
+var oauth2client_1 = __webpack_require__(65);
 Object.defineProperty(exports, "CodeChallengeMethod", ({ enumerable: true, get: function () { return oauth2client_1.CodeChallengeMethod; } }));
 Object.defineProperty(exports, "OAuth2Client", ({ enumerable: true, get: function () { return oauth2client_1.OAuth2Client; } }));
 Object.defineProperty(exports, "ClientAuthentication", ({ enumerable: true, get: function () { return oauth2client_1.ClientAuthentication; } }));
-var loginticket_1 = __webpack_require__(57);
+var loginticket_1 = __webpack_require__(75);
 Object.defineProperty(exports, "LoginTicket", ({ enumerable: true, get: function () { return loginticket_1.LoginTicket; } }));
-var refreshclient_1 = __webpack_require__(76);
+var refreshclient_1 = __webpack_require__(94);
 Object.defineProperty(exports, "UserRefreshClient", ({ enumerable: true, get: function () { return refreshclient_1.UserRefreshClient; } }));
-var awsclient_1 = __webpack_require__(86);
+var awsclient_1 = __webpack_require__(104);
 Object.defineProperty(exports, "AwsClient", ({ enumerable: true, get: function () { return awsclient_1.AwsClient; } }));
-var awsrequestsigner_1 = __webpack_require__(87);
+var awsrequestsigner_1 = __webpack_require__(105);
 Object.defineProperty(exports, "AwsRequestSigner", ({ enumerable: true, get: function () { return awsrequestsigner_1.AwsRequestSigner; } }));
-var identitypoolclient_1 = __webpack_require__(82);
+var identitypoolclient_1 = __webpack_require__(100);
 Object.defineProperty(exports, "IdentityPoolClient", ({ enumerable: true, get: function () { return identitypoolclient_1.IdentityPoolClient; } }));
-var externalclient_1 = __webpack_require__(78);
+var externalclient_1 = __webpack_require__(96);
 Object.defineProperty(exports, "ExternalAccountClient", ({ enumerable: true, get: function () { return externalclient_1.ExternalAccountClient; } }));
-var baseexternalclient_1 = __webpack_require__(79);
+var baseexternalclient_1 = __webpack_require__(97);
 Object.defineProperty(exports, "BaseExternalAccountClient", ({ enumerable: true, get: function () { return baseexternalclient_1.BaseExternalAccountClient; } }));
-var downscopedclient_1 = __webpack_require__(94);
+var downscopedclient_1 = __webpack_require__(112);
 Object.defineProperty(exports, "DownscopedClient", ({ enumerable: true, get: function () { return downscopedclient_1.DownscopedClient; } }));
-var pluggable_auth_client_1 = __webpack_require__(89);
+var pluggable_auth_client_1 = __webpack_require__(107);
 Object.defineProperty(exports, "PluggableAuthClient", ({ enumerable: true, get: function () { return pluggable_auth_client_1.PluggableAuthClient; } }));
 Object.defineProperty(exports, "ExecutableError", ({ enumerable: true, get: function () { return pluggable_auth_client_1.ExecutableError; } }));
-var externalAccountAuthorizedUserClient_1 = __webpack_require__(92);
+var externalAccountAuthorizedUserClient_1 = __webpack_require__(110);
 Object.defineProperty(exports, "EXTERNAL_ACCOUNT_AUTHORIZED_USER_TYPE", ({ enumerable: true, get: function () { return externalAccountAuthorizedUserClient_1.EXTERNAL_ACCOUNT_AUTHORIZED_USER_TYPE; } }));
 Object.defineProperty(exports, "ExternalAccountAuthorizedUserClient", ({ enumerable: true, get: function () { return externalAccountAuthorizedUserClient_1.ExternalAccountAuthorizedUserClient; } }));
-var passthrough_1 = __webpack_require__(95);
+var passthrough_1 = __webpack_require__(113);
 Object.defineProperty(exports, "PassThroughClient", ({ enumerable: true, get: function () { return passthrough_1.PassThroughClient; } }));
-__exportStar(__webpack_require__(61), exports);
+__exportStar(__webpack_require__(79), exports);
 const auth = new googleauth_1.GoogleAuth();
 exports.auth = auth;
 //# sourceMappingURL=index.js.map
 
 /***/ }),
-/* 16 */
+/* 36 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -22642,24 +22632,24 @@ exports.auth = auth;
 // limitations under the License.
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.GoogleAuth = exports.GoogleAuthExceptionMessages = void 0;
-const child_process_1 = __webpack_require__(8);
-const fs = __webpack_require__(3);
-const gaxios_1 = __webpack_require__(17);
-const gcpMetadata = __webpack_require__(27);
-const os = __webpack_require__(33);
-const path = __webpack_require__(5);
-const crypto_1 = __webpack_require__(40);
-const computeclient_1 = __webpack_require__(46);
-const idtokenclient_1 = __webpack_require__(58);
-const envDetect_1 = __webpack_require__(59);
-const jwtclient_1 = __webpack_require__(60);
-const refreshclient_1 = __webpack_require__(76);
-const impersonated_1 = __webpack_require__(77);
-const externalclient_1 = __webpack_require__(78);
-const baseexternalclient_1 = __webpack_require__(79);
-const authclient_1 = __webpack_require__(54);
-const externalAccountAuthorizedUserClient_1 = __webpack_require__(92);
-const util_1 = __webpack_require__(53);
+const child_process_1 = __webpack_require__(27);
+const fs = __webpack_require__(2);
+const gaxios_1 = __webpack_require__(37);
+const gcpMetadata = __webpack_require__(47);
+const os = __webpack_require__(11);
+const path = __webpack_require__(3);
+const crypto_1 = __webpack_require__(59);
+const computeclient_1 = __webpack_require__(64);
+const idtokenclient_1 = __webpack_require__(76);
+const envDetect_1 = __webpack_require__(77);
+const jwtclient_1 = __webpack_require__(78);
+const refreshclient_1 = __webpack_require__(94);
+const impersonated_1 = __webpack_require__(95);
+const externalclient_1 = __webpack_require__(96);
+const baseexternalclient_1 = __webpack_require__(97);
+const authclient_1 = __webpack_require__(72);
+const externalAccountAuthorizedUserClient_1 = __webpack_require__(110);
+const util_1 = __webpack_require__(71);
 exports.GoogleAuthExceptionMessages = {
     API_KEY_WITH_CREDENTIALS: 'API Keys and Credentials are mutually exclusive authentication methods and cannot be used together.',
     NO_PROJECT_ID_FOUND: 'Unable to detect a Project Id in the current environment. \n' +
@@ -23527,7 +23517,7 @@ exports.GoogleAuth = GoogleAuth;
 //# sourceMappingURL=googleauth.js.map
 
 /***/ }),
-/* 17 */
+/* 37 */
 /***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 "use strict";
@@ -23561,11 +23551,11 @@ var __exportStar = (this && this.__exportStar) || function(m, exports) {
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.instance = exports.Gaxios = exports.GaxiosError = void 0;
 exports.request = request;
-const gaxios_js_1 = __webpack_require__(18);
+const gaxios_js_1 = __webpack_require__(38);
 Object.defineProperty(exports, "Gaxios", ({ enumerable: true, get: function () { return gaxios_js_1.Gaxios; } }));
-var common_js_1 = __webpack_require__(21);
+var common_js_1 = __webpack_require__(41);
 Object.defineProperty(exports, "GaxiosError", ({ enumerable: true, get: function () { return common_js_1.GaxiosError; } }));
-__exportStar(__webpack_require__(26), exports);
+__exportStar(__webpack_require__(46), exports);
 /**
  * The default instance used when the `request` method is directly
  * invoked.
@@ -23581,7 +23571,7 @@ async function request(opts) {
 //# sourceMappingURL=index.js.map
 
 /***/ }),
-/* 18 */
+/* 38 */
 /***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 "use strict";
@@ -23604,13 +23594,13 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 var _a;
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.Gaxios = void 0;
-const extend_1 = __importDefault(__webpack_require__(19));
-const https_1 = __webpack_require__(20);
-const common_js_1 = __webpack_require__(21);
-const retry_js_1 = __webpack_require__(24);
-const stream_1 = __webpack_require__(25);
-const interceptor_js_1 = __webpack_require__(26);
-const randomUUID = async () => globalThis.crypto?.randomUUID() || (await Promise.resolve(/* import() */).then(__webpack_require__.t.bind(__webpack_require__, 45, 23))).randomUUID();
+const extend_1 = __importDefault(__webpack_require__(39));
+const https_1 = __webpack_require__(40);
+const common_js_1 = __webpack_require__(41);
+const retry_js_1 = __webpack_require__(44);
+const stream_1 = __webpack_require__(45);
+const interceptor_js_1 = __webpack_require__(46);
+const randomUUID = async () => globalThis.crypto?.randomUUID() || (await Promise.resolve(/* import() */).then(__webpack_require__.t.bind(__webpack_require__, 7, 23))).randomUUID();
 const HTTP_STATUS_NO_CONTENT = 204;
 class Gaxios {
     agentCache = new Map();
@@ -24107,14 +24097,14 @@ class Gaxios {
      * @returns A proxy agent
      */
     static async #getProxyAgent() {
-        this.#proxyAgent ||= (await __webpack_require__.e(/* import() */ 2).then(__webpack_require__.t.bind(__webpack_require__, 118, 23))).HttpsProxyAgent;
+        this.#proxyAgent ||= (await __webpack_require__.e(/* import() */ 2).then(__webpack_require__.t.bind(__webpack_require__, 136, 23))).HttpsProxyAgent;
         return this.#proxyAgent;
     }
     static async #getFetch() {
         const hasWindow = typeof window !== 'undefined' && !!window;
         this.#fetch ||= hasWindow
             ? window.fetch
-            : (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 133))).default;
+            : (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 151))).default;
         return this.#fetch;
     }
     /**
@@ -24151,7 +24141,7 @@ _a = Gaxios;
 //# sourceMappingURL=gaxios.js.map
 
 /***/ }),
-/* 19 */
+/* 39 */
 /***/ ((module) => {
 
 "use strict";
@@ -24275,8 +24265,8 @@ module.exports = function extend() {
 
 
 /***/ }),
-/* 20 */,
-/* 21 */
+/* 40 */,
+/* 41 */
 /***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 "use strict";
@@ -24299,8 +24289,8 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.GaxiosError = exports.GAXIOS_ERROR_SYMBOL = void 0;
 exports.defaultErrorRedactor = defaultErrorRedactor;
-const extend_1 = __importDefault(__webpack_require__(19));
-const util_cjs_1 = __importDefault(__webpack_require__(22));
+const extend_1 = __importDefault(__webpack_require__(39));
+const util_cjs_1 = __importDefault(__webpack_require__(42));
 const pkg = util_cjs_1.default.pkg;
 /**
  * Support `instanceof` operator for `GaxiosError`s in different versions of this library.
@@ -24593,7 +24583,7 @@ function defaultErrorRedactor(data) {
 //# sourceMappingURL=common.js.map
 
 /***/ }),
-/* 22 */
+/* 42 */
 /***/ ((module, __unused_webpack_exports, __webpack_require__) => {
 
 "use strict";
@@ -24610,19 +24600,19 @@ function defaultErrorRedactor(data) {
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-const pkg = __webpack_require__(23);
+const pkg = __webpack_require__(43);
 module.exports = { pkg };
 //# sourceMappingURL=util.cjs.map
 
 /***/ }),
-/* 23 */
+/* 43 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = /*#__PURE__*/JSON.parse('{"name":"gaxios","version":"7.1.4","description":"A simple common HTTP client specifically for Google APIs and services.","main":"build/cjs/src/index.js","types":"build/cjs/src/index.d.ts","files":["build/"],"exports":{".":{"import":{"types":"./build/esm/src/index.d.ts","default":"./build/esm/src/index.js"},"require":{"types":"./build/cjs/src/index.d.ts","default":"./build/cjs/src/index.js"}}},"scripts":{"lint":"gts check --no-inline-config","test":"c8 mocha build/esm/test","presystem-test":"npm run compile","system-test":"mocha build/esm/system-test --timeout 80000","compile":"tsc -b ./tsconfig.json ./tsconfig.cjs.json && node utils/enable-esm.mjs","fix":"gts fix","prepare":"npm run compile","pretest":"npm run compile","webpack":"webpack","prebrowser-test":"npm run compile","browser-test":"node build/browser-test/browser-test-runner.js","docs":"jsdoc -c .jsdoc.js","docs-test":"linkinator docs","predocs-test":"npm run docs","samples-test":"cd samples/ && npm link ../ && npm test && cd ../","prelint":"cd samples; npm link ../; npm install","clean":"gts clean"},"repository":{"type":"git","directory":"packages/gaxios","url":"https://github.com/googleapis/google-cloud-node-core.git"},"keywords":["google"],"engines":{"node":">=18"},"author":"Google, LLC","license":"Apache-2.0","devDependencies":{"@babel/plugin-proposal-private-methods":"^7.18.6","@types/cors":"^2.8.6","@types/express":"^5.0.0","@types/extend":"^3.0.1","@types/mocha":"^10.0.10","@types/multiparty":"4.2.1","@types/mv":"^2.1.0","@types/ncp":"^2.0.8","@types/node":"^22.13.1","@types/sinon":"^17.0.3","@types/tmp":"^0.2.6","assert":"^2.0.0","browserify":"^17.0.0","c8":"^10.1.3","cors":"^2.8.5","express":"^5.0.0","gts":"^6.0.2","is-docker":"^3.0.0","jsdoc":"^4.0.4","jsdoc-fresh":"^5.0.0","jsdoc-region-tag":"^4.0.0","karma":"^6.0.0","karma-chrome-launcher":"^3.0.0","karma-coverage":"^2.0.0","karma-firefox-launcher":"^2.0.0","karma-mocha":"^2.0.0","karma-remap-coverage":"^0.1.5","karma-sourcemap-loader":"^0.4.0","karma-webpack":"^5.0.1","linkinator":"^6.1.2","mocha":"^11.1.0","multiparty":"^4.2.1","mv":"^2.1.1","ncp":"^2.0.0","nock":"^14.0.5","null-loader":"^4.0.1","pack-n-play":"^4.0.0","puppeteer":"^24.0.0","sinon":"^21.0.0","stream-browserify":"^3.0.0","tmp":"0.2.5","ts-loader":"^9.5.2","typescript":"5.8.3","webpack":"^5.97.1","webpack-cli":"^6.0.1"},"dependencies":{"extend":"^3.0.2","https-proxy-agent":"^7.0.1","node-fetch":"^3.3.2"},"homepage":"https://github.com/googleapis/google-cloud-node-core/tree/main/packages/gaxios"}');
 
 /***/ }),
-/* 24 */
+/* 44 */
 /***/ ((__unused_webpack_module, exports) => {
 
 "use strict";
@@ -24793,8 +24783,8 @@ function getNextRetryDelay(config) {
 //# sourceMappingURL=retry.js.map
 
 /***/ }),
-/* 25 */,
-/* 26 */
+/* 45 */,
+/* 46 */
 /***/ ((__unused_webpack_module, exports) => {
 
 "use strict";
@@ -24822,7 +24812,7 @@ exports.GaxiosInterceptorManager = GaxiosInterceptorManager;
 //# sourceMappingURL=interceptor.js.map
 
 /***/ }),
-/* 27 */
+/* 47 */
 /***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 "use strict";
@@ -24889,10 +24879,10 @@ exports.requestTimeout = requestTimeout;
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-const gaxios_1 = __webpack_require__(17);
-const jsonBigint = __webpack_require__(28);
-const gcp_residency_1 = __webpack_require__(32);
-const logger = __importStar(__webpack_require__(34));
+const gaxios_1 = __webpack_require__(37);
+const jsonBigint = __webpack_require__(48);
+const gcp_residency_1 = __webpack_require__(52);
+const logger = __importStar(__webpack_require__(53));
 exports.BASE_PATH = '/computeMetadata/v1';
 exports.HOST_ADDRESS = 'http://169.254.169.254';
 exports.SECONDARY_HOST_ADDRESS = 'http://metadata.google.internal.';
@@ -25226,15 +25216,15 @@ function setGCPResidency(value = null) {
 function requestTimeout() {
     return getGCPResidency() ? 0 : 3000;
 }
-__exportStar(__webpack_require__(32), exports);
+__exportStar(__webpack_require__(52), exports);
 //# sourceMappingURL=index.js.map
 
 /***/ }),
-/* 28 */
+/* 48 */
 /***/ ((module, __unused_webpack_exports, __webpack_require__) => {
 
-var json_stringify = (__webpack_require__(29).stringify);
-var json_parse     = __webpack_require__(31);
+var json_stringify = (__webpack_require__(49).stringify);
+var json_parse     = __webpack_require__(51);
 
 module.exports = function(options) {
     return  {
@@ -25248,10 +25238,10 @@ module.exports.stringify = json_stringify;
 
 
 /***/ }),
-/* 29 */
+/* 49 */
 /***/ ((module, __unused_webpack_exports, __webpack_require__) => {
 
-var BigNumber = __webpack_require__(30);
+var BigNumber = __webpack_require__(50);
 
 /*
     json2.js
@@ -25638,7 +25628,7 @@ var JSON = module.exports;
 
 
 /***/ }),
-/* 30 */
+/* 50 */
 /***/ (function(module, exports, __webpack_require__) {
 
 var __WEBPACK_AMD_DEFINE_RESULT__;;(function (globalObject) {
@@ -28558,7 +28548,7 @@ var __WEBPACK_AMD_DEFINE_RESULT__;;(function (globalObject) {
 
 
 /***/ }),
-/* 31 */
+/* 51 */
 /***/ ((module, __unused_webpack_exports, __webpack_require__) => {
 
 var BigNumber = null;
@@ -28768,7 +28758,7 @@ var json_parse = function (options) {
       if (!isFinite(number)) {
         error('Bad number');
       } else {
-        if (BigNumber == null) BigNumber = __webpack_require__(30);
+        if (BigNumber == null) BigNumber = __webpack_require__(50);
         //if (number > 9007199254740992 || number < -9007199254740992)
         // Bignumber has stricter check: everything with length > 15 digits disallowed
         if (string.length > 15)
@@ -29007,7 +28997,7 @@ module.exports = json_parse;
 
 
 /***/ }),
-/* 32 */
+/* 52 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -29034,8 +29024,8 @@ exports.isGoogleComputeEngineLinux = isGoogleComputeEngineLinux;
 exports.isGoogleComputeEngineMACAddress = isGoogleComputeEngineMACAddress;
 exports.isGoogleComputeEngine = isGoogleComputeEngine;
 exports.detectGCPResidency = detectGCPResidency;
-const fs_1 = __webpack_require__(3);
-const os_1 = __webpack_require__(33);
+const fs_1 = __webpack_require__(2);
+const os_1 = __webpack_require__(11);
 /**
  * Known paths unique to Google Compute Engine Linux instances
  */
@@ -29127,8 +29117,7 @@ function detectGCPResidency() {
 //# sourceMappingURL=gcp-residency.js.map
 
 /***/ }),
-/* 33 */,
-/* 34 */
+/* 53 */
 /***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 "use strict";
@@ -29161,11 +29150,11 @@ var __exportStar = (this && this.__exportStar) || function(m, exports) {
     for (var p in m) if (p !== "default" && !Object.prototype.hasOwnProperty.call(exports, p)) __createBinding(exports, m, p);
 };
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-__exportStar(__webpack_require__(35), exports);
+__exportStar(__webpack_require__(54), exports);
 //# sourceMappingURL=index.js.map
 
 /***/ }),
-/* 35 */
+/* 54 */
 /***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 "use strict";
@@ -29223,10 +29212,10 @@ exports.getDebugBackend = getDebugBackend;
 exports.getStructuredBackend = getStructuredBackend;
 exports.setBackend = setBackend;
 exports.log = log;
-const events_1 = __webpack_require__(36);
-const process = __importStar(__webpack_require__(37));
-const util = __importStar(__webpack_require__(38));
-const colours_1 = __webpack_require__(39);
+const events_1 = __webpack_require__(55);
+const process = __importStar(__webpack_require__(56));
+const util = __importStar(__webpack_require__(57));
+const colours_1 = __webpack_require__(58);
 // Some functions (as noted) are based on the Node standard library, from
 // the following file:
 //
@@ -29608,10 +29597,10 @@ function log(namespace, parent) {
 //# sourceMappingURL=logging-utils.js.map
 
 /***/ }),
-/* 36 */,
-/* 37 */,
-/* 38 */,
-/* 39 */
+/* 55 */,
+/* 56 */,
+/* 57 */,
+/* 58 */
 /***/ ((__unused_webpack_module, exports) => {
 
 "use strict";
@@ -29698,7 +29687,7 @@ Colours.refresh();
 //# sourceMappingURL=colours.js.map
 
 /***/ }),
-/* 40 */
+/* 59 */
 /***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 "use strict";
@@ -29734,9 +29723,9 @@ var __exportStar = (this && this.__exportStar) || function(m, exports) {
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.createCrypto = createCrypto;
 exports.hasBrowserCrypto = hasBrowserCrypto;
-const crypto_1 = __webpack_require__(41);
-const crypto_2 = __webpack_require__(44);
-__exportStar(__webpack_require__(43), exports);
+const crypto_1 = __webpack_require__(60);
+const crypto_2 = __webpack_require__(63);
+__exportStar(__webpack_require__(62), exports);
 // Crypto interface will provide required crypto functions.
 // Use `createCrypto()` factory function to create an instance
 // of Crypto. It will either use Node.js `crypto` module, or
@@ -29758,7 +29747,7 @@ function hasBrowserCrypto() {
 //# sourceMappingURL=crypto.js.map
 
 /***/ }),
-/* 41 */
+/* 60 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -29781,8 +29770,8 @@ Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.BrowserCrypto = void 0;
 // This file implements crypto functions we need using in-browser
 // SubtleCrypto interface `window.crypto.subtle`.
-const base64js = __webpack_require__(42);
-const shared_1 = __webpack_require__(43);
+const base64js = __webpack_require__(61);
+const shared_1 = __webpack_require__(62);
 class BrowserCrypto {
     constructor() {
         if (typeof window === 'undefined' ||
@@ -29891,7 +29880,7 @@ exports.BrowserCrypto = BrowserCrypto;
 //# sourceMappingURL=crypto.js.map
 
 /***/ }),
-/* 42 */
+/* 61 */
 /***/ ((__unused_webpack_module, exports) => {
 
 "use strict";
@@ -30048,7 +30037,7 @@ function fromByteArray (uint8) {
 
 
 /***/ }),
-/* 43 */
+/* 62 */
 /***/ ((__unused_webpack_module, exports) => {
 
 "use strict";
@@ -30086,7 +30075,7 @@ function fromArrayBufferToHex(arrayBuffer) {
 //# sourceMappingURL=shared.js.map
 
 /***/ }),
-/* 44 */
+/* 63 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -30106,7 +30095,7 @@ function fromArrayBufferToHex(arrayBuffer) {
 // limitations under the License.
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.NodeCrypto = void 0;
-const crypto = __webpack_require__(45);
+const crypto = __webpack_require__(7);
 class NodeCrypto {
     async sha256DigestBase64(str) {
         return crypto.createHash('sha256').update(str).digest('base64');
@@ -30180,8 +30169,7 @@ function toBuffer(arrayBuffer) {
 //# sourceMappingURL=crypto.js.map
 
 /***/ }),
-/* 45 */,
-/* 46 */
+/* 64 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -30201,9 +30189,9 @@ function toBuffer(arrayBuffer) {
 // limitations under the License.
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.Compute = void 0;
-const gaxios_1 = __webpack_require__(17);
-const gcpMetadata = __webpack_require__(27);
-const oauth2client_1 = __webpack_require__(47);
+const gaxios_1 = __webpack_require__(37);
+const gcpMetadata = __webpack_require__(47);
+const oauth2client_1 = __webpack_require__(65);
 class Compute extends oauth2client_1.OAuth2Client {
     serviceAccountEmail;
     scopes;
@@ -30305,7 +30293,7 @@ exports.Compute = Compute;
 //# sourceMappingURL=computeclient.js.map
 
 /***/ }),
-/* 47 */
+/* 65 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -30325,14 +30313,14 @@ exports.Compute = Compute;
 // limitations under the License.
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.OAuth2Client = exports.ClientAuthentication = exports.CertificateFormat = exports.CodeChallengeMethod = void 0;
-const gaxios_1 = __webpack_require__(17);
-const querystring = __webpack_require__(48);
-const stream = __webpack_require__(25);
-const formatEcdsa = __webpack_require__(49);
-const util_1 = __webpack_require__(53);
-const crypto_1 = __webpack_require__(40);
-const authclient_1 = __webpack_require__(54);
-const loginticket_1 = __webpack_require__(57);
+const gaxios_1 = __webpack_require__(37);
+const querystring = __webpack_require__(66);
+const stream = __webpack_require__(45);
+const formatEcdsa = __webpack_require__(67);
+const util_1 = __webpack_require__(71);
+const crypto_1 = __webpack_require__(59);
+const authclient_1 = __webpack_require__(72);
+const loginticket_1 = __webpack_require__(75);
 var CodeChallengeMethod;
 (function (CodeChallengeMethod) {
     CodeChallengeMethod["Plain"] = "plain";
@@ -31131,16 +31119,16 @@ exports.OAuth2Client = OAuth2Client;
 //# sourceMappingURL=oauth2client.js.map
 
 /***/ }),
-/* 48 */,
-/* 49 */
+/* 66 */,
+/* 67 */
 /***/ ((module, __unused_webpack_exports, __webpack_require__) => {
 
 "use strict";
 
 
-var Buffer = (__webpack_require__(50).Buffer);
+var Buffer = (__webpack_require__(68).Buffer);
 
-var getParamBytesForAlg = __webpack_require__(52);
+var getParamBytesForAlg = __webpack_require__(70);
 
 var MAX_OCTET = 0x80,
 	CLASS_UNIVERSAL = 0,
@@ -31326,11 +31314,11 @@ module.exports = {
 
 
 /***/ }),
-/* 50 */
+/* 68 */
 /***/ ((module, exports, __webpack_require__) => {
 
 /* eslint-disable node/no-deprecated-api */
-var buffer = __webpack_require__(51)
+var buffer = __webpack_require__(69)
 var Buffer = buffer.Buffer
 
 // alternative to using Object.keys for old browsers
@@ -31394,8 +31382,8 @@ SafeBuffer.allocUnsafeSlow = function (size) {
 
 
 /***/ }),
-/* 51 */,
-/* 52 */
+/* 69 */,
+/* 70 */
 /***/ ((module) => {
 
 "use strict";
@@ -31425,7 +31413,7 @@ module.exports = getParamBytesForAlg;
 
 
 /***/ }),
-/* 53 */
+/* 71 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -31450,9 +31438,9 @@ exports.originalOrCamelOptions = originalOrCamelOptions;
 exports.removeUndefinedValuesInObject = removeUndefinedValuesInObject;
 exports.isValidFile = isValidFile;
 exports.getWellKnownCertificateConfigFileLocation = getWellKnownCertificateConfigFileLocation;
-const fs = __webpack_require__(3);
-const os = __webpack_require__(33);
-const path = __webpack_require__(5);
+const fs = __webpack_require__(2);
+const os = __webpack_require__(11);
+const path = __webpack_require__(3);
 const WELL_KNOWN_CERTIFICATE_CONFIG_FILE = 'certificate_config.json';
 const CLOUDSDK_CONFIG_DIRECTORY = 'gcloud';
 /**
@@ -31607,7 +31595,7 @@ function _isWindows() {
 //# sourceMappingURL=util.js.map
 
 /***/ }),
-/* 54 */
+/* 72 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -31627,11 +31615,11 @@ function _isWindows() {
 // limitations under the License.
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.AuthClient = exports.DEFAULT_EAGER_REFRESH_THRESHOLD_MILLIS = exports.DEFAULT_UNIVERSE = void 0;
-const events_1 = __webpack_require__(36);
-const gaxios_1 = __webpack_require__(17);
-const util_1 = __webpack_require__(53);
-const google_logging_utils_1 = __webpack_require__(34);
-const shared_cjs_1 = __webpack_require__(55);
+const events_1 = __webpack_require__(55);
+const gaxios_1 = __webpack_require__(37);
+const util_1 = __webpack_require__(71);
+const google_logging_utils_1 = __webpack_require__(53);
+const shared_cjs_1 = __webpack_require__(73);
 /**
  * The default cloud universe
  *
@@ -31899,7 +31887,7 @@ exports.AuthClient = AuthClient;
 //# sourceMappingURL=authclient.js.map
 
 /***/ }),
-/* 55 */
+/* 73 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -31918,7 +31906,7 @@ exports.AuthClient = AuthClient;
 // limitations under the License.
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.USER_AGENT = exports.PRODUCT_NAME = exports.pkg = void 0;
-const pkg = __webpack_require__(56);
+const pkg = __webpack_require__(74);
 exports.pkg = pkg;
 const PRODUCT_NAME = 'google-api-nodejs-client';
 exports.PRODUCT_NAME = PRODUCT_NAME;
@@ -31927,14 +31915,14 @@ exports.USER_AGENT = USER_AGENT;
 //# sourceMappingURL=shared.cjs.map
 
 /***/ }),
-/* 56 */
+/* 74 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = /*#__PURE__*/JSON.parse('{"name":"google-auth-library","version":"10.6.2","author":"Google Inc.","description":"Google APIs Authentication Client Library for Node.js","engines":{"node":">=18"},"main":"./build/src/index.js","types":"./build/src/index.d.ts","repository":{"type":"git","directory":"packages/google-auth-library-nodejs","url":"https://github.com/googleapis/google-cloud-node-core.git"},"keywords":["google","api","google apis","client","client library"],"dependencies":{"base64-js":"^1.3.0","ecdsa-sig-formatter":"^1.0.11","gaxios":"^7.1.4","gcp-metadata":"8.1.2","google-logging-utils":"1.1.3","jws":"^4.0.0"},"devDependencies":{"@types/base64-js":"^1.2.5","@types/jws":"^3.1.0","@types/mocha":"^10.0.10","@types/mv":"^2.1.0","@types/ncp":"^2.0.8","@types/node":"^24.0.0","@types/sinon":"^21.0.0","assert-rejects":"^1.0.0","c8":"^10.1.3","codecov":"^3.8.3","gts":"^6.0.2","is-docker":"^3.0.0","jsdoc":"^4.0.4","jsdoc-fresh":"^5.0.0","jsdoc-region-tag":"^4.0.0","karma":"^6.0.0","karma-chrome-launcher":"^3.0.0","karma-coverage":"^2.0.0","karma-firefox-launcher":"^2.0.0","karma-mocha":"^2.0.0","karma-sourcemap-loader":"^0.4.0","karma-webpack":"^5.0.1","keypair":"^1.0.4","mocha":"^11.1.0","mv":"^2.1.1","ncp":"^2.0.0","nock":"^14.0.5","null-loader":"^4.0.1","puppeteer":"^24.0.0","sinon":"^21.0.0","ts-loader":"^9.5.2","typescript":"5.8.3","webpack":"^5.97.1","webpack-cli":"^6.0.1"},"files":["build/src","!build/src/**/*.map"],"scripts":{"test":"c8 mocha build/test","clean":"gts clean","prepare":"npm run compile","lint":"gts check --no-inline-config","compile":"tsc -p .","fix":"gts fix","pretest":"npm run compile -- --sourceMap","docs":"jsdoc -c .jsdoc.js","samples-setup":"cd samples/ && npm link ../ && npm run setup && cd ../","samples-test":"cd samples/ && npm link ../ && npm test && cd ../","system-test":"mocha build/system-test --timeout 60000","presystem-test":"npm run compile -- --sourceMap","webpack":"webpack","browser-test":"karma start","docs-test":"echo \'disabled until linkinator is fixed\'","predocs-test":"npm run docs","prelint":"cd samples; npm link ../; npm install"},"license":"Apache-2.0","homepage":"https://github.com/googleapis/google-cloud-node-core/tree/main/packages/google-auth-library-nodejs"}');
 
 /***/ }),
-/* 57 */
+/* 75 */
 /***/ ((__unused_webpack_module, exports) => {
 
 "use strict";
@@ -32000,7 +31988,7 @@ exports.LoginTicket = LoginTicket;
 //# sourceMappingURL=loginticket.js.map
 
 /***/ }),
-/* 58 */
+/* 76 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -32020,7 +32008,7 @@ exports.LoginTicket = LoginTicket;
 // limitations under the License.
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.IdTokenClient = void 0;
-const oauth2client_1 = __webpack_require__(47);
+const oauth2client_1 = __webpack_require__(65);
 class IdTokenClient extends oauth2client_1.OAuth2Client {
     targetAudience;
     idTokenProvider;
@@ -32062,7 +32050,7 @@ exports.IdTokenClient = IdTokenClient;
 //# sourceMappingURL=idtokenclient.js.map
 
 /***/ }),
-/* 59 */
+/* 77 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -32084,7 +32072,7 @@ Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.GCPEnv = void 0;
 exports.clear = clear;
 exports.getEnv = getEnv;
-const gcpMetadata = __webpack_require__(27);
+const gcpMetadata = __webpack_require__(47);
 var GCPEnv;
 (function (GCPEnv) {
     GCPEnv["APP_ENGINE"] = "APP_ENGINE";
@@ -32165,7 +32153,7 @@ async function isComputeEngine() {
 //# sourceMappingURL=envDetect.js.map
 
 /***/ }),
-/* 60 */
+/* 78 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -32185,11 +32173,11 @@ async function isComputeEngine() {
 // limitations under the License.
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.JWT = void 0;
-const googleToken_1 = __webpack_require__(61);
-const getCredentials_1 = __webpack_require__(72);
-const jwtaccess_1 = __webpack_require__(75);
-const oauth2client_1 = __webpack_require__(47);
-const authclient_1 = __webpack_require__(54);
+const googleToken_1 = __webpack_require__(79);
+const getCredentials_1 = __webpack_require__(90);
+const jwtaccess_1 = __webpack_require__(93);
+const oauth2client_1 = __webpack_require__(65);
+const authclient_1 = __webpack_require__(72);
 class JWT extends oauth2client_1.OAuth2Client {
     email;
     keyFile;
@@ -32472,7 +32460,7 @@ exports.JWT = JWT;
 //# sourceMappingURL=jwtclient.js.map
 
 /***/ }),
-/* 61 */
+/* 79 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -32492,9 +32480,9 @@ exports.JWT = JWT;
 // limitations under the License.
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.GoogleToken = void 0;
-const gaxios_1 = __webpack_require__(17);
-const tokenHandler_1 = __webpack_require__(62);
-const revokeToken_1 = __webpack_require__(74);
+const gaxios_1 = __webpack_require__(37);
+const tokenHandler_1 = __webpack_require__(80);
+const revokeToken_1 = __webpack_require__(92);
 /**
  * The GoogleToken class is used to manage authentication with Google's OAuth 2.0 authorization server.
  * It handles fetching, caching, and refreshing of access tokens.
@@ -32603,15 +32591,15 @@ exports.GoogleToken = GoogleToken;
 //# sourceMappingURL=googleToken.js.map
 
 /***/ }),
-/* 62 */
+/* 80 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.TokenHandler = void 0;
-const getToken_1 = __webpack_require__(63);
-const getCredentials_1 = __webpack_require__(72);
+const getToken_1 = __webpack_require__(81);
+const getCredentials_1 = __webpack_require__(90);
 /**
  * Manages the fetching and caching of access tokens.
  */
@@ -32706,7 +32694,7 @@ exports.TokenHandler = TokenHandler;
 //# sourceMappingURL=tokenHandler.js.map
 
 /***/ }),
-/* 63 */
+/* 81 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -32726,7 +32714,7 @@ exports.TokenHandler = TokenHandler;
 // limitations under the License.
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.getToken = getToken;
-const jwsSign_1 = __webpack_require__(64);
+const jwsSign_1 = __webpack_require__(82);
 /** The URL for Google's OAuth 2.0 token endpoint. */
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 /** The grant type for JWT-based authorization. */
@@ -32778,7 +32766,7 @@ async function getToken(tokenOptions) {
 //# sourceMappingURL=getToken.js.map
 
 /***/ }),
-/* 64 */
+/* 82 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -32799,7 +32787,7 @@ async function getToken(tokenOptions) {
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.buildPayloadForJwsSign = buildPayloadForJwsSign;
 exports.getJwsSign = getJwsSign;
-const jws_1 = __webpack_require__(65);
+const jws_1 = __webpack_require__(83);
 /** The default algorithm for signing JWTs. */
 const ALG_RS256 = 'RS256';
 /** The URL for Google's OAuth 2.0 token endpoint. */
@@ -32838,12 +32826,12 @@ function getJwsSign(tokenOptions) {
 //# sourceMappingURL=jwsSign.js.map
 
 /***/ }),
-/* 65 */
+/* 83 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 /*global exports*/
-var SignStream = __webpack_require__(66);
-var VerifyStream = __webpack_require__(71);
+var SignStream = __webpack_require__(84);
+var VerifyStream = __webpack_require__(89);
 
 var ALGORITHMS = [
   'HS256', 'HS384', 'HS512',
@@ -32866,16 +32854,16 @@ exports.createVerify = function createVerify(opts) {
 
 
 /***/ }),
-/* 66 */
+/* 84 */
 /***/ ((module, __unused_webpack_exports, __webpack_require__) => {
 
 /*global module*/
-var Buffer = (__webpack_require__(50).Buffer);
-var DataStream = __webpack_require__(67);
-var jwa = __webpack_require__(68);
-var Stream = __webpack_require__(25);
-var toString = __webpack_require__(70);
-var util = __webpack_require__(38);
+var Buffer = (__webpack_require__(68).Buffer);
+var DataStream = __webpack_require__(85);
+var jwa = __webpack_require__(86);
+var Stream = __webpack_require__(45);
+var toString = __webpack_require__(88);
+var util = __webpack_require__(57);
 
 function base64url(string, encoding) {
   return Buffer
@@ -32955,13 +32943,13 @@ module.exports = SignStream;
 
 
 /***/ }),
-/* 67 */
+/* 85 */
 /***/ ((module, __unused_webpack_exports, __webpack_require__) => {
 
 /*global module, process*/
-var Buffer = (__webpack_require__(50).Buffer);
-var Stream = __webpack_require__(25);
-var util = __webpack_require__(38);
+var Buffer = (__webpack_require__(68).Buffer);
+var Stream = __webpack_require__(45);
+var util = __webpack_require__(57);
 
 function DataStream(data) {
   this.buffer = null;
@@ -33016,13 +33004,13 @@ module.exports = DataStream;
 
 
 /***/ }),
-/* 68 */
+/* 86 */
 /***/ ((module, __unused_webpack_exports, __webpack_require__) => {
 
-var Buffer = (__webpack_require__(50).Buffer);
-var crypto = __webpack_require__(45);
-var formatEcdsa = __webpack_require__(49);
-var util = __webpack_require__(38);
+var Buffer = (__webpack_require__(68).Buffer);
+var crypto = __webpack_require__(7);
+var formatEcdsa = __webpack_require__(67);
+var util = __webpack_require__(57);
 
 var MSG_INVALID_ALGORITHM = '"%s" is not a valid algorithm.\n  Supported algorithms are:\n  "HS256", "HS384", "HS512", "RS256", "RS384", "RS512", "PS256", "PS384", "PS512", "ES256", "ES384", "ES512" and "none".'
 var MSG_INVALID_SECRET = 'secret must be a string or buffer';
@@ -33164,7 +33152,7 @@ var timingSafeEqual = 'timingSafeEqual' in crypto ? function timingSafeEqual(a, 
   return crypto.timingSafeEqual(a, b)
 } : function timingSafeEqual(a, b) {
   if (!bufferEqual) {
-    bufferEqual = __webpack_require__(69);
+    bufferEqual = __webpack_require__(87);
   }
 
   return bufferEqual(a, b)
@@ -33288,14 +33276,14 @@ module.exports = function jwa(algorithm) {
 
 
 /***/ }),
-/* 69 */
+/* 87 */
 /***/ ((module, __unused_webpack_exports, __webpack_require__) => {
 
 "use strict";
 /*jshint node:true */
 
-var Buffer = (__webpack_require__(51).Buffer); // browserify
-var SlowBuffer = (__webpack_require__(51).SlowBuffer);
+var Buffer = (__webpack_require__(69).Buffer); // browserify
+var SlowBuffer = (__webpack_require__(69).SlowBuffer);
 
 module.exports = bufferEq;
 
@@ -33336,11 +33324,11 @@ bufferEq.restore = function() {
 
 
 /***/ }),
-/* 70 */
+/* 88 */
 /***/ ((module, __unused_webpack_exports, __webpack_require__) => {
 
 /*global module*/
-var Buffer = (__webpack_require__(51).Buffer);
+var Buffer = (__webpack_require__(69).Buffer);
 
 module.exports = function toString(obj) {
   if (typeof obj === 'string')
@@ -33352,16 +33340,16 @@ module.exports = function toString(obj) {
 
 
 /***/ }),
-/* 71 */
+/* 89 */
 /***/ ((module, __unused_webpack_exports, __webpack_require__) => {
 
 /*global module*/
-var Buffer = (__webpack_require__(50).Buffer);
-var DataStream = __webpack_require__(67);
-var jwa = __webpack_require__(68);
-var Stream = __webpack_require__(25);
-var toString = __webpack_require__(70);
-var util = __webpack_require__(38);
+var Buffer = (__webpack_require__(68).Buffer);
+var DataStream = __webpack_require__(85);
+var jwa = __webpack_require__(86);
+var Stream = __webpack_require__(45);
+var toString = __webpack_require__(88);
+var util = __webpack_require__(57);
 var JWS_REGEX = /^[a-zA-Z0-9\-_]+?\.[a-zA-Z0-9\-_]+?\.([a-zA-Z0-9\-_]+)?$/;
 
 function isObject(thing) {
@@ -33483,7 +33471,7 @@ module.exports = VerifyStream;
 
 
 /***/ }),
-/* 72 */
+/* 90 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -33503,10 +33491,10 @@ module.exports = VerifyStream;
 // limitations under the License.
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.getCredentials = getCredentials;
-const path = __webpack_require__(5);
-const fs = __webpack_require__(3);
-const util_1 = __webpack_require__(38);
-const errorWithCode_1 = __webpack_require__(73);
+const path = __webpack_require__(3);
+const fs = __webpack_require__(2);
+const util_1 = __webpack_require__(57);
+const errorWithCode_1 = __webpack_require__(91);
 const readFile = fs.readFile
     ? (0, util_1.promisify)(fs.readFile)
     : async () => {
@@ -33621,7 +33609,7 @@ async function getCredentials(keyFilePath) {
 //# sourceMappingURL=getCredentials.js.map
 
 /***/ }),
-/* 73 */
+/* 91 */
 /***/ ((__unused_webpack_module, exports) => {
 
 "use strict";
@@ -33652,7 +33640,7 @@ exports.ErrorWithCode = ErrorWithCode;
 //# sourceMappingURL=errorWithCode.js.map
 
 /***/ }),
-/* 74 */
+/* 92 */
 /***/ ((__unused_webpack_module, exports) => {
 
 "use strict";
@@ -33692,7 +33680,7 @@ async function revokeToken(accessToken, transporter) {
 //# sourceMappingURL=revokeToken.js.map
 
 /***/ }),
-/* 75 */
+/* 93 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -33712,8 +33700,8 @@ async function revokeToken(accessToken, transporter) {
 // limitations under the License.
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.JWTAccess = void 0;
-const jws = __webpack_require__(65);
-const util_1 = __webpack_require__(53);
+const jws = __webpack_require__(83);
+const util_1 = __webpack_require__(71);
 const DEFAULT_HEADER = {
     alg: 'RS256',
     typ: 'JWT',
@@ -33899,7 +33887,7 @@ exports.JWTAccess = JWTAccess;
 //# sourceMappingURL=jwtaccess.js.map
 
 /***/ }),
-/* 76 */
+/* 94 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -33919,8 +33907,8 @@ exports.JWTAccess = JWTAccess;
 // limitations under the License.
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.UserRefreshClient = exports.USER_REFRESH_ACCOUNT_TYPE = void 0;
-const oauth2client_1 = __webpack_require__(47);
-const authclient_1 = __webpack_require__(54);
+const oauth2client_1 = __webpack_require__(65);
+const authclient_1 = __webpack_require__(72);
 exports.USER_REFRESH_ACCOUNT_TYPE = 'authorized_user';
 class UserRefreshClient extends oauth2client_1.OAuth2Client {
     // TODO: refactor tests to make this private
@@ -34065,7 +34053,7 @@ exports.UserRefreshClient = UserRefreshClient;
 //# sourceMappingURL=refreshclient.js.map
 
 /***/ }),
-/* 77 */
+/* 95 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -34087,9 +34075,9 @@ exports.UserRefreshClient = UserRefreshClient;
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.Impersonated = exports.IMPERSONATED_ACCOUNT_TYPE = void 0;
-const oauth2client_1 = __webpack_require__(47);
-const gaxios_1 = __webpack_require__(17);
-const util_1 = __webpack_require__(53);
+const oauth2client_1 = __webpack_require__(65);
+const gaxios_1 = __webpack_require__(37);
+const util_1 = __webpack_require__(71);
 exports.IMPERSONATED_ACCOUNT_TYPE = 'impersonated_service_account';
 class Impersonated extends oauth2client_1.OAuth2Client {
     sourceClient;
@@ -34268,7 +34256,7 @@ exports.Impersonated = Impersonated;
 //# sourceMappingURL=impersonated.js.map
 
 /***/ }),
-/* 78 */
+/* 96 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -34288,10 +34276,10 @@ exports.Impersonated = Impersonated;
 // limitations under the License.
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.ExternalAccountClient = void 0;
-const baseexternalclient_1 = __webpack_require__(79);
-const identitypoolclient_1 = __webpack_require__(82);
-const awsclient_1 = __webpack_require__(86);
-const pluggable_auth_client_1 = __webpack_require__(89);
+const baseexternalclient_1 = __webpack_require__(97);
+const identitypoolclient_1 = __webpack_require__(100);
+const awsclient_1 = __webpack_require__(104);
+const pluggable_auth_client_1 = __webpack_require__(107);
 /**
  * Dummy class with no constructor. Developers are expected to use fromJSON.
  */
@@ -34342,7 +34330,7 @@ exports.ExternalAccountClient = ExternalAccountClient;
 //# sourceMappingURL=externalclient.js.map
 
 /***/ }),
-/* 79 */
+/* 97 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -34362,12 +34350,12 @@ exports.ExternalAccountClient = ExternalAccountClient;
 // limitations under the License.
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.BaseExternalAccountClient = exports.CLOUD_RESOURCE_MANAGER = exports.EXTERNAL_ACCOUNT_TYPE = exports.EXPIRATION_TIME_OFFSET = void 0;
-const gaxios_1 = __webpack_require__(17);
-const stream = __webpack_require__(25);
-const authclient_1 = __webpack_require__(54);
-const sts = __webpack_require__(80);
-const util_1 = __webpack_require__(53);
-const shared_cjs_1 = __webpack_require__(55);
+const gaxios_1 = __webpack_require__(37);
+const stream = __webpack_require__(45);
+const authclient_1 = __webpack_require__(72);
+const sts = __webpack_require__(98);
+const util_1 = __webpack_require__(71);
+const shared_cjs_1 = __webpack_require__(73);
 /**
  * The required token exchange grant_type: rfc8693#section-2.1
  */
@@ -34825,7 +34813,7 @@ exports.BaseExternalAccountClient = BaseExternalAccountClient;
 //# sourceMappingURL=baseexternalclient.js.map
 
 /***/ }),
-/* 80 */
+/* 98 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -34845,10 +34833,10 @@ exports.BaseExternalAccountClient = BaseExternalAccountClient;
 // limitations under the License.
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.StsCredentials = void 0;
-const gaxios_1 = __webpack_require__(17);
-const authclient_1 = __webpack_require__(54);
-const oauth2common_1 = __webpack_require__(81);
-const util_1 = __webpack_require__(53);
+const gaxios_1 = __webpack_require__(37);
+const authclient_1 = __webpack_require__(72);
+const oauth2common_1 = __webpack_require__(99);
+const util_1 = __webpack_require__(71);
 /**
  * Implements the OAuth 2.0 token exchange based on
  * https://tools.ietf.org/html/rfc8693
@@ -34938,7 +34926,7 @@ exports.StsCredentials = StsCredentials;
 //# sourceMappingURL=stscredentials.js.map
 
 /***/ }),
-/* 81 */
+/* 99 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -34959,8 +34947,8 @@ exports.StsCredentials = StsCredentials;
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.OAuthClientAuthHandler = void 0;
 exports.getErrorFromOAuthErrorResponse = getErrorFromOAuthErrorResponse;
-const gaxios_1 = __webpack_require__(17);
-const crypto_1 = __webpack_require__(40);
+const gaxios_1 = __webpack_require__(37);
+const crypto_1 = __webpack_require__(59);
 /** List of HTTP methods that accept request bodies. */
 const METHODS_SUPPORTING_REQUEST_BODY = ['PUT', 'POST', 'PATCH'];
 /**
@@ -35133,7 +35121,7 @@ function getErrorFromOAuthErrorResponse(resp, err) {
 //# sourceMappingURL=oauth2common.js.map
 
 /***/ }),
-/* 82 */
+/* 100 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -35153,13 +35141,13 @@ function getErrorFromOAuthErrorResponse(resp, err) {
 // limitations under the License.
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.IdentityPoolClient = void 0;
-const baseexternalclient_1 = __webpack_require__(79);
-const util_1 = __webpack_require__(53);
-const filesubjecttokensupplier_1 = __webpack_require__(83);
-const urlsubjecttokensupplier_1 = __webpack_require__(84);
-const certificatesubjecttokensupplier_1 = __webpack_require__(85);
-const stscredentials_1 = __webpack_require__(80);
-const gaxios_1 = __webpack_require__(17);
+const baseexternalclient_1 = __webpack_require__(97);
+const util_1 = __webpack_require__(71);
+const filesubjecttokensupplier_1 = __webpack_require__(101);
+const urlsubjecttokensupplier_1 = __webpack_require__(102);
+const certificatesubjecttokensupplier_1 = __webpack_require__(103);
+const stscredentials_1 = __webpack_require__(98);
+const gaxios_1 = __webpack_require__(37);
 /**
  * Defines the Url-sourced and file-sourced external account clients mainly
  * used for K8s and Azure workloads.
@@ -35270,7 +35258,7 @@ exports.IdentityPoolClient = IdentityPoolClient;
 //# sourceMappingURL=identitypoolclient.js.map
 
 /***/ }),
-/* 83 */
+/* 101 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -35290,8 +35278,8 @@ exports.IdentityPoolClient = IdentityPoolClient;
 // limitations under the License.
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.FileSubjectTokenSupplier = void 0;
-const util_1 = __webpack_require__(38);
-const fs = __webpack_require__(3);
+const util_1 = __webpack_require__(57);
+const fs = __webpack_require__(2);
 // fs.readfile is undefined in browser karma tests causing
 // `npm run browser-test` to fail as test.oauth2.ts imports this file via
 // src/index.ts.
@@ -35360,7 +35348,7 @@ exports.FileSubjectTokenSupplier = FileSubjectTokenSupplier;
 //# sourceMappingURL=filesubjecttokensupplier.js.map
 
 /***/ }),
-/* 84 */
+/* 102 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -35380,7 +35368,7 @@ exports.FileSubjectTokenSupplier = FileSubjectTokenSupplier;
 // limitations under the License.
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.UrlSubjectTokenSupplier = void 0;
-const authclient_1 = __webpack_require__(54);
+const authclient_1 = __webpack_require__(72);
 /**
  * Internal subject token supplier implementation used when a URL
  * is configured in the credential configuration used to build an {@link IdentityPoolClient}
@@ -35437,7 +35425,7 @@ exports.UrlSubjectTokenSupplier = UrlSubjectTokenSupplier;
 //# sourceMappingURL=urlsubjecttokensupplier.js.map
 
 /***/ }),
-/* 85 */
+/* 103 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -35457,10 +35445,10 @@ exports.UrlSubjectTokenSupplier = UrlSubjectTokenSupplier;
 // limitations under the License.
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.CertificateSubjectTokenSupplier = exports.InvalidConfigurationError = exports.CertificateSourceUnavailableError = exports.CERTIFICATE_CONFIGURATION_ENV_VARIABLE = void 0;
-const util_1 = __webpack_require__(53);
-const fs = __webpack_require__(3);
-const crypto_1 = __webpack_require__(45);
-const https = __webpack_require__(20);
+const util_1 = __webpack_require__(71);
+const fs = __webpack_require__(2);
+const crypto_1 = __webpack_require__(7);
+const https = __webpack_require__(40);
 exports.CERTIFICATE_CONFIGURATION_ENV_VARIABLE = 'GOOGLE_API_CERTIFICATE_CONFIG';
 /**
  * Thrown when the certificate source cannot be located or accessed.
@@ -35666,7 +35654,7 @@ exports.CertificateSubjectTokenSupplier = CertificateSubjectTokenSupplier;
 //# sourceMappingURL=certificatesubjecttokensupplier.js.map
 
 /***/ }),
-/* 86 */
+/* 104 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -35686,11 +35674,11 @@ exports.CertificateSubjectTokenSupplier = CertificateSubjectTokenSupplier;
 // limitations under the License.
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.AwsClient = void 0;
-const awsrequestsigner_1 = __webpack_require__(87);
-const baseexternalclient_1 = __webpack_require__(79);
-const defaultawssecuritycredentialssupplier_1 = __webpack_require__(88);
-const util_1 = __webpack_require__(53);
-const gaxios_1 = __webpack_require__(17);
+const awsrequestsigner_1 = __webpack_require__(105);
+const baseexternalclient_1 = __webpack_require__(97);
+const defaultawssecuritycredentialssupplier_1 = __webpack_require__(106);
+const util_1 = __webpack_require__(71);
+const gaxios_1 = __webpack_require__(37);
 /**
  * AWS external account client. This is used for AWS workloads, where
  * AWS STS GetCallerIdentity serialized signed requests are exchanged for
@@ -35826,7 +35814,7 @@ exports.AwsClient = AwsClient;
 //# sourceMappingURL=awsclient.js.map
 
 /***/ }),
-/* 87 */
+/* 105 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -35846,8 +35834,8 @@ exports.AwsClient = AwsClient;
 // limitations under the License.
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.AwsRequestSigner = void 0;
-const gaxios_1 = __webpack_require__(17);
-const crypto_1 = __webpack_require__(40);
+const gaxios_1 = __webpack_require__(37);
+const crypto_1 = __webpack_require__(59);
 /** AWS Signature Version 4 signing algorithm identifier.  */
 const AWS_ALGORITHM = 'AWS4-HMAC-SHA256';
 /**
@@ -36045,7 +36033,7 @@ async function generateAuthenticationHeaderMap(options) {
 //# sourceMappingURL=awsrequestsigner.js.map
 
 /***/ }),
-/* 88 */
+/* 106 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -36065,7 +36053,7 @@ async function generateAuthenticationHeaderMap(options) {
 // limitations under the License.
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.DefaultAwsSecurityCredentialsSupplier = void 0;
-const authclient_1 = __webpack_require__(54);
+const authclient_1 = __webpack_require__(72);
 /**
  * Internal AWS security credentials supplier implementation used by {@link AwsClient}
  * when a credential source is provided instead of a user defined supplier.
@@ -36250,7 +36238,7 @@ exports.DefaultAwsSecurityCredentialsSupplier = DefaultAwsSecurityCredentialsSup
 //# sourceMappingURL=defaultawssecuritycredentialssupplier.js.map
 
 /***/ }),
-/* 89 */
+/* 107 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -36270,10 +36258,10 @@ exports.DefaultAwsSecurityCredentialsSupplier = DefaultAwsSecurityCredentialsSup
 // limitations under the License.
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.PluggableAuthClient = exports.ExecutableError = void 0;
-const baseexternalclient_1 = __webpack_require__(79);
-const executable_response_1 = __webpack_require__(90);
-const pluggable_auth_handler_1 = __webpack_require__(91);
-var pluggable_auth_handler_2 = __webpack_require__(91);
+const baseexternalclient_1 = __webpack_require__(97);
+const executable_response_1 = __webpack_require__(108);
+const pluggable_auth_handler_1 = __webpack_require__(109);
+var pluggable_auth_handler_2 = __webpack_require__(109);
 Object.defineProperty(exports, "ExecutableError", ({ enumerable: true, get: function () { return pluggable_auth_handler_2.ExecutableError; } }));
 /**
  * The default executable timeout when none is provided, in milliseconds.
@@ -36476,7 +36464,7 @@ exports.PluggableAuthClient = PluggableAuthClient;
 //# sourceMappingURL=pluggable-auth-client.js.map
 
 /***/ }),
-/* 90 */
+/* 108 */
 /***/ ((__unused_webpack_module, exports) => {
 
 "use strict";
@@ -36660,7 +36648,7 @@ exports.InvalidSubjectTokenError = InvalidSubjectTokenError;
 //# sourceMappingURL=executable-response.js.map
 
 /***/ }),
-/* 91 */
+/* 109 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -36680,9 +36668,9 @@ exports.InvalidSubjectTokenError = InvalidSubjectTokenError;
 // limitations under the License.
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.PluggableAuthHandler = exports.ExecutableError = void 0;
-const executable_response_1 = __webpack_require__(90);
-const childProcess = __webpack_require__(8);
-const fs = __webpack_require__(3);
+const executable_response_1 = __webpack_require__(108);
+const childProcess = __webpack_require__(27);
+const fs = __webpack_require__(2);
 /**
  * Error thrown from the executable run by PluggableAuthClient.
  */
@@ -36840,7 +36828,7 @@ exports.PluggableAuthHandler = PluggableAuthHandler;
 //# sourceMappingURL=pluggable-auth-handler.js.map
 
 /***/ }),
-/* 92 */
+/* 110 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -36860,11 +36848,11 @@ exports.PluggableAuthHandler = PluggableAuthHandler;
 // limitations under the License.
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.ExternalAccountAuthorizedUserClient = exports.EXTERNAL_ACCOUNT_AUTHORIZED_USER_TYPE = void 0;
-const authclient_1 = __webpack_require__(54);
-const oauth2common_1 = __webpack_require__(81);
-const gaxios_1 = __webpack_require__(17);
-const stream = __webpack_require__(25);
-const baseexternalclient_1 = __webpack_require__(79);
+const authclient_1 = __webpack_require__(72);
+const oauth2common_1 = __webpack_require__(99);
+const gaxios_1 = __webpack_require__(37);
+const stream = __webpack_require__(45);
+const baseexternalclient_1 = __webpack_require__(97);
 /**
  * The credentials JSON file type for external account authorized user clients.
  */
@@ -37079,7 +37067,7 @@ exports.ExternalAccountAuthorizedUserClient = ExternalAccountAuthorizedUserClien
 //# sourceMappingURL=externalAccountAuthorizedUserClient.js.map
 
 /***/ }),
-/* 93 */
+/* 111 */
 /***/ ((__unused_webpack_module, exports) => {
 
 "use strict";
@@ -37129,7 +37117,7 @@ exports.IAMAuth = IAMAuth;
 //# sourceMappingURL=iam.js.map
 
 /***/ }),
-/* 94 */
+/* 112 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -37149,10 +37137,10 @@ exports.IAMAuth = IAMAuth;
 // limitations under the License.
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.DownscopedClient = exports.EXPIRATION_TIME_OFFSET = exports.MAX_ACCESS_BOUNDARY_RULES_COUNT = void 0;
-const gaxios_1 = __webpack_require__(17);
-const stream = __webpack_require__(25);
-const authclient_1 = __webpack_require__(54);
-const sts = __webpack_require__(80);
+const gaxios_1 = __webpack_require__(37);
+const stream = __webpack_require__(45);
+const authclient_1 = __webpack_require__(72);
+const sts = __webpack_require__(98);
 /**
  * The required token exchange grant_type: rfc8693#section-2.1
  */
@@ -37408,7 +37396,7 @@ exports.DownscopedClient = DownscopedClient;
 //# sourceMappingURL=downscopedclient.js.map
 
 /***/ }),
-/* 95 */
+/* 113 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -37428,7 +37416,7 @@ exports.DownscopedClient = DownscopedClient;
 // limitations under the License.
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.PassThroughClient = void 0;
-const authclient_1 = __webpack_require__(54);
+const authclient_1 = __webpack_require__(72);
 /**
  * An AuthClient without any Authentication information. Useful for:
  * - Anonymous access
@@ -37474,10 +37462,10 @@ exports.PassThroughClient = PassThroughClient;
 //# sourceMappingURL=passthrough.js.map
 
 /***/ }),
-/* 96 */,
-/* 97 */,
-/* 98 */,
-/* 99 */
+/* 114 */,
+/* 115 */,
+/* 116 */,
+/* 117 */
 /***/ ((__unused_webpack___webpack_module__, __webpack_exports__, __webpack_require__) => {
 
 "use strict";
@@ -37493,14 +37481,14 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony export */   extension: () => (/* reexport default export from named module */ _lib_extension_js__WEBPACK_IMPORTED_MODULE_1__),
 /* harmony export */   subprotocol: () => (/* reexport default export from named module */ _lib_subprotocol_js__WEBPACK_IMPORTED_MODULE_5__)
 /* harmony export */ });
-/* harmony import */ var _lib_stream_js__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(100);
-/* harmony import */ var _lib_extension_js__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(115);
-/* harmony import */ var _lib_permessage_deflate_js__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(106);
-/* harmony import */ var _lib_receiver_js__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(111);
-/* harmony import */ var _lib_sender_js__WEBPACK_IMPORTED_MODULE_4__ = __webpack_require__(113);
-/* harmony import */ var _lib_subprotocol_js__WEBPACK_IMPORTED_MODULE_5__ = __webpack_require__(116);
-/* harmony import */ var _lib_websocket_js__WEBPACK_IMPORTED_MODULE_6__ = __webpack_require__(101);
-/* harmony import */ var _lib_websocket_server_js__WEBPACK_IMPORTED_MODULE_7__ = __webpack_require__(117);
+/* harmony import */ var _lib_stream_js__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(118);
+/* harmony import */ var _lib_extension_js__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(133);
+/* harmony import */ var _lib_permessage_deflate_js__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(124);
+/* harmony import */ var _lib_receiver_js__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(129);
+/* harmony import */ var _lib_sender_js__WEBPACK_IMPORTED_MODULE_4__ = __webpack_require__(131);
+/* harmony import */ var _lib_subprotocol_js__WEBPACK_IMPORTED_MODULE_5__ = __webpack_require__(134);
+/* harmony import */ var _lib_websocket_js__WEBPACK_IMPORTED_MODULE_6__ = __webpack_require__(119);
+/* harmony import */ var _lib_websocket_server_js__WEBPACK_IMPORTED_MODULE_7__ = __webpack_require__(135);
 
 
 
@@ -37516,15 +37504,15 @@ __webpack_require__.r(__webpack_exports__);
 
 
 /***/ }),
-/* 100 */
+/* 118 */
 /***/ ((module, __unused_webpack_exports, __webpack_require__) => {
 
 "use strict";
 /* eslint no-unused-vars: ["error", { "varsIgnorePattern": "^WebSocket$" }] */
 
 
-const WebSocket = __webpack_require__(101);
-const { Duplex } = __webpack_require__(25);
+const WebSocket = __webpack_require__(119);
+const { Duplex } = __webpack_require__(45);
 
 /**
  * Emits the `'close'` event on a stream.
@@ -37684,7 +37672,7 @@ module.exports = createWebSocketStream;
 
 
 /***/ }),
-/* 101 */
+/* 119 */
 /***/ ((module, __unused_webpack_exports, __webpack_require__) => {
 
 "use strict";
@@ -37692,19 +37680,19 @@ module.exports = createWebSocketStream;
 
 
 
-const EventEmitter = __webpack_require__(36);
-const https = __webpack_require__(20);
-const http = __webpack_require__(102);
-const net = __webpack_require__(103);
-const tls = __webpack_require__(104);
-const { randomBytes, createHash } = __webpack_require__(45);
-const { Duplex, Readable } = __webpack_require__(25);
-const { URL } = __webpack_require__(105);
+const EventEmitter = __webpack_require__(55);
+const https = __webpack_require__(40);
+const http = __webpack_require__(120);
+const net = __webpack_require__(121);
+const tls = __webpack_require__(122);
+const { randomBytes, createHash } = __webpack_require__(7);
+const { Duplex, Readable } = __webpack_require__(45);
+const { URL } = __webpack_require__(123);
 
-const PerMessageDeflate = __webpack_require__(106);
-const Receiver = __webpack_require__(111);
-const Sender = __webpack_require__(113);
-const { isBlob } = __webpack_require__(112);
+const PerMessageDeflate = __webpack_require__(124);
+const Receiver = __webpack_require__(129);
+const Sender = __webpack_require__(131);
+const { isBlob } = __webpack_require__(130);
 
 const {
   BINARY_TYPES,
@@ -37716,12 +37704,12 @@ const {
   kStatusCode,
   kWebSocket,
   NOOP
-} = __webpack_require__(109);
+} = __webpack_require__(127);
 const {
   EventTarget: { addEventListener, removeEventListener }
-} = __webpack_require__(114);
-const { format, parse } = __webpack_require__(115);
-const { toBuffer } = __webpack_require__(108);
+} = __webpack_require__(132);
+const { format, parse } = __webpack_require__(133);
+const { toBuffer } = __webpack_require__(126);
 
 const kAborted = Symbol('kAborted');
 const protocolVersions = [8, 13];
@@ -39098,21 +39086,21 @@ function socketOnError() {
 
 
 /***/ }),
-/* 102 */,
-/* 103 */,
-/* 104 */,
-/* 105 */,
-/* 106 */
+/* 120 */,
+/* 121 */,
+/* 122 */,
+/* 123 */,
+/* 124 */
 /***/ ((module, __unused_webpack_exports, __webpack_require__) => {
 
 "use strict";
 
 
-const zlib = __webpack_require__(107);
+const zlib = __webpack_require__(125);
 
-const bufferUtil = __webpack_require__(108);
-const Limiter = __webpack_require__(110);
-const { kStatusCode } = __webpack_require__(109);
+const bufferUtil = __webpack_require__(126);
+const Limiter = __webpack_require__(128);
+const { kStatusCode } = __webpack_require__(127);
 
 const FastBuffer = Buffer[Symbol.species];
 const TRAILER = Buffer.from([0x00, 0x00, 0xff, 0xff]);
@@ -39637,14 +39625,14 @@ function inflateOnError(err) {
 
 
 /***/ }),
-/* 107 */,
-/* 108 */
+/* 125 */,
+/* 126 */
 /***/ ((module, __unused_webpack_exports, __webpack_require__) => {
 
 "use strict";
 
 
-const { EMPTY_BUFFER } = __webpack_require__(109);
+const { EMPTY_BUFFER } = __webpack_require__(127);
 
 const FastBuffer = Buffer[Symbol.species];
 
@@ -39776,7 +39764,7 @@ if (!process.env.WS_NO_BUFFER_UTIL) {
 
 
 /***/ }),
-/* 109 */
+/* 127 */
 /***/ ((module) => {
 
 "use strict";
@@ -39802,7 +39790,7 @@ module.exports = {
 
 
 /***/ }),
-/* 110 */
+/* 128 */
 /***/ ((module) => {
 
 "use strict";
@@ -39864,23 +39852,23 @@ module.exports = Limiter;
 
 
 /***/ }),
-/* 111 */
+/* 129 */
 /***/ ((module, __unused_webpack_exports, __webpack_require__) => {
 
 "use strict";
 
 
-const { Writable } = __webpack_require__(25);
+const { Writable } = __webpack_require__(45);
 
-const PerMessageDeflate = __webpack_require__(106);
+const PerMessageDeflate = __webpack_require__(124);
 const {
   BINARY_TYPES,
   EMPTY_BUFFER,
   kStatusCode,
   kWebSocket
-} = __webpack_require__(109);
-const { concat, toArrayBuffer, unmask } = __webpack_require__(108);
-const { isValidStatusCode, isValidUTF8 } = __webpack_require__(112);
+} = __webpack_require__(127);
+const { concat, toArrayBuffer, unmask } = __webpack_require__(126);
+const { isValidStatusCode, isValidUTF8 } = __webpack_require__(130);
 
 const FastBuffer = Buffer[Symbol.species];
 
@@ -40631,15 +40619,15 @@ module.exports = Receiver;
 
 
 /***/ }),
-/* 112 */
+/* 130 */
 /***/ ((module, __unused_webpack_exports, __webpack_require__) => {
 
 "use strict";
 
 
-const { isUtf8 } = __webpack_require__(51);
+const { isUtf8 } = __webpack_require__(69);
 
-const { hasBlob } = __webpack_require__(109);
+const { hasBlob } = __webpack_require__(127);
 
 //
 // Allowed token characters:
@@ -40790,7 +40778,7 @@ if (isUtf8) {
 
 
 /***/ }),
-/* 113 */
+/* 131 */
 /***/ ((module, __unused_webpack_exports, __webpack_require__) => {
 
 "use strict";
@@ -40798,16 +40786,16 @@ if (isUtf8) {
 
 
 
-const { Duplex } = __webpack_require__(25);
-const { randomFillSync } = __webpack_require__(45);
+const { Duplex } = __webpack_require__(45);
+const { randomFillSync } = __webpack_require__(7);
 const {
   types: { isUint8Array }
-} = __webpack_require__(38);
+} = __webpack_require__(57);
 
-const PerMessageDeflate = __webpack_require__(106);
-const { EMPTY_BUFFER, kWebSocket, NOOP } = __webpack_require__(109);
-const { isBlob, isValidStatusCode } = __webpack_require__(112);
-const { mask: applyMask, toBuffer } = __webpack_require__(108);
+const PerMessageDeflate = __webpack_require__(124);
+const { EMPTY_BUFFER, kWebSocket, NOOP } = __webpack_require__(127);
+const { isBlob, isValidStatusCode } = __webpack_require__(130);
+const { mask: applyMask, toBuffer } = __webpack_require__(126);
 
 const kByteLength = Symbol('kByteLength');
 const maskBuffer = Buffer.alloc(4);
@@ -41404,13 +41392,13 @@ function onError(sender, err, cb) {
 
 
 /***/ }),
-/* 114 */
+/* 132 */
 /***/ ((module, __unused_webpack_exports, __webpack_require__) => {
 
 "use strict";
 
 
-const { kForOnEventAttribute, kListener } = __webpack_require__(109);
+const { kForOnEventAttribute, kListener } = __webpack_require__(127);
 
 const kCode = Symbol('kCode');
 const kData = Symbol('kData');
@@ -41703,13 +41691,13 @@ function callListener(listener, thisArg, event) {
 
 
 /***/ }),
-/* 115 */
+/* 133 */
 /***/ ((module, __unused_webpack_exports, __webpack_require__) => {
 
 "use strict";
 
 
-const { tokenChars } = __webpack_require__(112);
+const { tokenChars } = __webpack_require__(130);
 
 /**
  * Adds an offer to the map of extension offers or a parameter to the map of
@@ -41913,13 +41901,13 @@ module.exports = { format, parse };
 
 
 /***/ }),
-/* 116 */
+/* 134 */
 /***/ ((module, __unused_webpack_exports, __webpack_require__) => {
 
 "use strict";
 
 
-const { tokenChars } = __webpack_require__(112);
+const { tokenChars } = __webpack_require__(130);
 
 /**
  * Parses the `Sec-WebSocket-Protocol` header into a set of subprotocol names.
@@ -41982,7 +41970,7 @@ module.exports = { parse };
 
 
 /***/ }),
-/* 117 */
+/* 135 */
 /***/ ((module, __unused_webpack_exports, __webpack_require__) => {
 
 "use strict";
@@ -41990,16 +41978,16 @@ module.exports = { parse };
 
 
 
-const EventEmitter = __webpack_require__(36);
-const http = __webpack_require__(102);
-const { Duplex } = __webpack_require__(25);
-const { createHash } = __webpack_require__(45);
+const EventEmitter = __webpack_require__(55);
+const http = __webpack_require__(120);
+const { Duplex } = __webpack_require__(45);
+const { createHash } = __webpack_require__(7);
 
-const extension = __webpack_require__(115);
-const PerMessageDeflate = __webpack_require__(106);
-const subprotocol = __webpack_require__(116);
-const WebSocket = __webpack_require__(101);
-const { CLOSE_TIMEOUT, GUID, kWebSocket } = __webpack_require__(109);
+const extension = __webpack_require__(133);
+const PerMessageDeflate = __webpack_require__(124);
+const subprotocol = __webpack_require__(134);
+const WebSocket = __webpack_require__(119);
+const { CLOSE_TIMEOUT, GUID, kWebSocket } = __webpack_require__(127);
 
 const keyRegex = /^[+/0-9A-Za-z]{22}==$/;
 
@@ -42551,6 +42539,6 @@ function abortHandshakeOrEmitwsClientError(
 
 
 /***/ })
-];
+]);
 ;
 //# sourceMappingURL=1.extension.js.map

@@ -39,43 +39,74 @@ export class TerminalTools implements TerminalToolsInterface {
 
       // 2. Execute natively
       return new Promise<string>((resolve) => {
-        child_process.exec(
-          command,
-          { 
-            cwd: this.targetRoot,
-            timeout: 60000,
-            maxBuffer: 1024 * 512
-          },
-          (error, stdout, stderr) => {
-            let output = stdout.trim() || '';
-            let errors = stderr.trim() || '';
-            
-            const TRUNCATE_LIMIT = 2500;
-            if (output.length > TRUNCATE_LIMIT) {
-              output = `[TRUNCATED TO PRESERVE TOKEN BOUNDARIES - Last ${TRUNCATE_LIMIT} characters]:\n... ${output.slice(-TRUNCATE_LIMIT)}`;
-            }
-            if (errors.length > TRUNCATE_LIMIT) {
-              errors = `[TRUNCATED TO PRESERVE TOKEN BOUNDARIES - Last ${TRUNCATE_LIMIT} characters]:\n... ${errors.slice(-TRUNCATE_LIMIT)}`;
-            }
+        const proc = child_process.spawn(command, {
+          cwd: this.targetRoot,
+          shell: true,
+        });
 
-            if (error) {
-              resolve(JSON.stringify({
-                status: 'failed',
-                exitCode: error.code,
-                error: error.message,
-                stderr: errors,
-                stdout: output
-              }, null, 2));
-            } else {
-              resolve(JSON.stringify({
-                status: 'success',
-                exitCode: 0,
-                stdout: output,
-                stderr: errors
-              }, null, 2));
-            }
+        let stdoutData = '';
+        let stderrData = '';
+
+        proc.stdout.on('data', (data) => {
+          stdoutData += data.toString();
+        });
+
+        proc.stderr.on('data', (data) => {
+          stderrData += data.toString();
+        });
+
+        const timeout = setTimeout(() => {
+          proc.kill('SIGKILL');
+          resolve(JSON.stringify({
+            status: 'failed',
+            exitCode: -1,
+            error: 'Command timed out after 60s',
+            stderr: stderrData,
+            stdout: stdoutData
+          }, null, 2));
+        }, 60000);
+
+        proc.on('close', (code) => {
+          clearTimeout(timeout);
+          let output = stdoutData.trim() || '';
+          let errors = stderrData.trim() || '';
+          
+          const TRUNCATE_LIMIT = 2500;
+          if (output.length > TRUNCATE_LIMIT) {
+            output = `[TRUNCATED TO PRESERVE TOKEN BOUNDARIES - Last ${TRUNCATE_LIMIT} characters]:\n... ${output.slice(-TRUNCATE_LIMIT)}`;
           }
-        );
+          if (errors.length > TRUNCATE_LIMIT) {
+            errors = `[TRUNCATED TO PRESERVE TOKEN BOUNDARIES - Last ${TRUNCATE_LIMIT} characters]:\n... ${errors.slice(-TRUNCATE_LIMIT)}`;
+          }
+
+          if (code !== 0) {
+            resolve(JSON.stringify({
+              status: 'failed',
+              exitCode: code,
+              error: `Process exited with code ${code}`,
+              stderr: errors,
+              stdout: output
+            }, null, 2));
+          } else {
+            resolve(JSON.stringify({
+              status: 'success',
+              exitCode: 0,
+              stdout: output,
+              stderr: errors
+            }, null, 2));
+          }
+        });
+
+        proc.on('error', (err) => {
+          clearTimeout(timeout);
+          resolve(JSON.stringify({
+            status: 'failed',
+            exitCode: -1,
+            error: err.message,
+            stderr: stderrData,
+            stdout: stdoutData
+          }, null, 2));
+        });
       });
     } catch (error: any) {
       return `Error executing command: ${error.message}`;

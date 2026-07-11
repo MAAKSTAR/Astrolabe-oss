@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html>
+<head><title>Test</title></head>
+<body>
+    <h1>Hover me!</h1>
+    <div id="test">Hello React</div>
+    <script>
+        // Mock React Fiber
+        const el = document.getElementById('test');
+        el['__reactFiber$123'] = {
+            return: {
+                type: function TestComponent() {}
+            }
+        };
+    </script>
+    <script>
+        // Paste the inspector script here
+        (function() {
+            if (window.__exovonInspectorInitialized) return;
+            window.__exovonInspectorInitialized = true;
+            
+            // ... truncated logic ...
+            window.testPass = true;
+        })();
+    </script>
+</body>
+</html>

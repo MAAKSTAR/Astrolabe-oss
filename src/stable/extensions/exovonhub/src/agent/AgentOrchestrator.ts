@@ -7,6 +7,22 @@ import { WebSearchTools } from './tools/WebSearchTools';
 
 let GoogleGenAIClass: any = null;
 
+export interface GenAIPart {
+  text?: string;
+  functionCall?: {
+    name: string;
+    args: Record<string, any>;
+  };
+  functionResponse?: {
+    name: string;
+    response: { result: any };
+  };
+}
+
+export interface GenAIMessage {
+  role: 'user' | 'model' | 'system';
+  parts: GenAIPart[];
+}
 export interface PlanStep {
   id: string;
   text: string;
@@ -38,19 +54,8 @@ export class AgentOrchestrator {
     private onUpdate: (update: AgentUpdate) => void
   ) {
     this.fsTools = new FileSystemTools();
-    // Dynamic approval callback with strict whitelist for autonomous mode
+    // Dynamic approval callback with strict whitelist for autonomous mode removed for SEC-1
     this.terminalTools = new TerminalTools(async (cmd) => {
-      const config = vscode.workspace.getConfiguration('exovonhub');
-      const isAutonomous = config.get<boolean>('autonomousMode') || false;
-      
-      const firstWord = cmd.trim().split(/\s+/)[0].toLowerCase();
-      const whitelist = ['npm', 'node', 'cat', 'ls', 'grep', 'git', 'echo', 'mkdir', 'touch', 'npx', 'tsc', 'python', 'python3', 'pip'];
-      const isWhitelisted = whitelist.includes(firstWord) && !cmd.includes('|') && !cmd.includes('&&') && !cmd.includes(';') && !cmd.includes('`') && !cmd.includes('$');
-
-      if (isAutonomous && isWhitelisted) {
-        this.onUpdate({ type: 'log', text: `⚡ [AUTO-APPROVED] Shell execution: "${cmd}"`, logType: 'info' });
-        return true;
-      }
       return this.approvalCallback(cmd);
     });
   }
@@ -75,11 +80,11 @@ export class AgentOrchestrator {
   /**
    * Loads the API key and imports the Gen AI SDK dynamically at runtime to support CommonJS compatibility
    */
-  private async init() {
+  private async init(secureApiKey?: string) {
     if (this.ai) { return; }
 
     const config = vscode.workspace.getConfiguration('exovonhub');
-    this.apiKey = config.get<string>('googleApiKey') || process.env.GEMINI_API_KEY || '';
+    this.apiKey = secureApiKey || config.get<string>('googleApiKey') || process.env.GEMINI_API_KEY || '';
 
     if (this.apiKey) {
       if (!GoogleGenAIClass) {
@@ -93,9 +98,9 @@ export class AgentOrchestrator {
   /**
    * Initiates the Plan-Execute-Verify agent loop
    */
-  public async execute(prompt: string, model: string = 'gemma-4-31b-it') {
+  public async execute(prompt: string, model: string = 'gemma-4-31b-it', secureApiKey?: string) {
     try {
-      await this.init();
+      await this.init(secureApiKey);
       // Initialize the speculative Shadow Sandbox
       this.onUpdate({ type: 'log', text: 'Initializing isolated speculative sandbox workspace...', logType: 'info' });
       const sandboxStatus = await this.fsTools.enableShadowWorkspace();
@@ -146,9 +151,7 @@ export class AgentOrchestrator {
 
       this.onUpdate({ type: 'plan', planSteps: currentPlan });
       
-      // Prompt injection hardened system prompt with explicit boundary markers
-      const systemPrompt = `<|SYSTEM_BOUNDARY_START|>
-You are a senior agentic coding assistant for the Exovon IDE.
+      const systemPrompt = `You are a senior agentic coding assistant for the Exovon IDE.
 You are helping the user optimize, inspect, and deploy their workspace.
 Execute the tasks by invoking the provided tools in a step-by-step Plan-Execute-Verify loop.
 For every action, describe what you are doing first, then call the tool.
@@ -169,12 +172,18 @@ Available tools:
 - deleteFile(relativePath: string): Deletes a file.
 - semanticSearch(query: string, includePattern?: string): Search codebase files (returns full semantic AST chunks for TS/JS files).
 - getWorkspaceHash(): Returns the O(1) cryptographic Merkle hash of the workspace to verify state changes.
-- runCommand(command: string): Executes a terminal command (requires user approval).
-<|SYSTEM_BOUNDARY_END|>`;
+- runCommand(command: string): Executes a terminal command (requires user approval).`;
+
+      // BP-6: Prompt sanitization
+      let safePrompt = prompt;
+      const PROMPT_LIMIT = 20000;
+      if (safePrompt.length > PROMPT_LIMIT) {
+        safePrompt = safePrompt.slice(0, PROMPT_LIMIT) + '\n\n[PROMPT TRUNCATED FOR LENGTH]';
+      }
 
       // Set up the message history for GenAI SDK
-      let messages: any[] = [
-        { role: 'user', parts: [{ text: `${systemPrompt}\n\n<|USER_PROMPT_START|>\n${prompt}\n<|USER_PROMPT_END|>` }] }
+      let messages: GenAIMessage[] = [
+        { role: 'user', parts: [{ text: `<|USER_PROMPT_START|>\n${safePrompt}\n<|USER_PROMPT_END|>` }] }
       ];
 
       let completed = false;
@@ -208,6 +217,7 @@ Available tools:
           model: resolvedModel,
           contents: messages,
           config: {
+            systemInstruction: systemPrompt,
             tools: [{
               functionDeclarations: [
                 {
@@ -308,10 +318,12 @@ Available tools:
         });
 
         // 3. AGGREGATE TEXT CHUNKS & FUNCTION CALLS FROM STREAM
-        let modelParts: any[] = [];
+        let modelParts: GenAIPart[] = [];
         let streamingText = '';
 
         for await (const chunk of responseStream) {
+          if (this._cancelled) break; // BOMB-5: Abort stream instantly
+
           const candidate = chunk.candidates?.[0];
           if (candidate?.content?.parts) {
             for (const part of candidate.content.parts) {
@@ -325,7 +337,7 @@ Available tools:
           }
         }
 
-        const functionCalls = modelParts.filter((part: any) => 'functionCall' in part);
+        const functionCalls = modelParts.filter((part) => 'functionCall' in part);
 
         if (functionCalls && functionCalls.length > 0) {
           // Push integrated content chunk history
@@ -334,10 +346,11 @@ Available tools:
             parts: modelParts
           });
 
-          const toolResponseParts: any[] = [];
+          const toolResponseParts: GenAIPart[] = [];
 
           for (const callPart of functionCalls) {
-            const call = (callPart as any).functionCall;
+            const call = callPart.functionCall;
+            if (!call) continue;
             const toolName = call.name;
             const toolArgs = JSON.stringify(call.args);
             const toolId = `tool-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -511,7 +524,9 @@ Available tools:
               if (fs.existsSync(origPath)) {
                 originalContent = fs.readFileSync(origPath, 'utf8');
               }
-            } catch (e) {}
+            } catch (e) {
+              console.error('[AgentOrchestrator] Error restoring unapproved file:', e);
+            }
             
             let modifiedContent = '';
             try {
@@ -519,7 +534,9 @@ Available tools:
               if (fs.existsSync(sandPath)) {
                 modifiedContent = fs.readFileSync(sandPath, 'utf8');
               }
-            } catch (e) {}
+            } catch (e) {
+              console.error('[AgentOrchestrator] Error pushing tool response:', e);
+            }
             
             const diffLines = this.computeSimpleDiff(originalContent, modifiedContent);
             diffs.push({ path: relativePath, diffLines });
@@ -611,7 +628,7 @@ Available tools:
    * Extracts architectural rules and user preferences from the completed chat history
    * and saves them to a workspace JSON file for future sessions.
    */
-  private async summarizeAndSaveMemory(messages: any[]) {
+  private async summarizeAndSaveMemory(messages: GenAIMessage[]) {
     try {
       const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
       if (!workspaceRoot || !this.ai) { return; }
@@ -626,7 +643,7 @@ Available tools:
       }
 
       // Condense messages for the summarizer model
-      const transcript = messages.map(m => `${m.role.toUpperCase()}: ${m.parts.map((p: any) => p.text || '[Function Call]').join(' ')}`).join('\n\n');
+      const transcript = messages.map(m => `${m.role.toUpperCase()}: ${m.parts.map((p: GenAIPart) => p.text || '[Function Call]').join(' ')}`).join('\n\n');
       
       const summaryPrompt = `
 You are an advanced project memory summarizer. 
@@ -656,11 +673,18 @@ ${transcript.slice(-15000)} // Cap to prevent token overflow
           try {
             const existing = JSON.parse(fs.readFileSync(memoryFile, 'utf8'));
             existingSummary = existing.summary || '';
-          } catch (e) {}
+          } catch (e) {
+            console.error('[AgentOrchestrator] Failed to parse existing project_memory.json:', e);
+          }
         }
 
         // Combine existing memory with new memory (if existing exists, just append to it for now)
-        const combinedSummary = existingSummary ? `${existingSummary}\n\n[Recent Updates]\n${summaryText}` : summaryText;
+        let combinedSummary = existingSummary ? `${existingSummary}\n\n[Recent Updates]\n${summaryText}` : summaryText;
+        
+        // BOMB-6 Fix: Limit memory to ~5000 chars to prevent unbounded JSON bloat
+        if (combinedSummary.length > 5000) {
+          combinedSummary = "... " + combinedSummary.slice(-5000);
+        }
         
         fs.writeFileSync(memoryFile, JSON.stringify({ summary: combinedSummary, lastUpdated: new Date().toISOString() }, null, 2));
         this.onUpdate({ type: 'log', text: '💾 Permanent project memory updated.', logType: 'success' });
