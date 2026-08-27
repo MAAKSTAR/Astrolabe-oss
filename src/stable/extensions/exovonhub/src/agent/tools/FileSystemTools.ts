@@ -3,6 +3,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import * as crypto from 'crypto';
 import { ASTChunker } from './ASTChunker';
+import { DiagnosticsService } from './DiagnosticsService';
 
 export interface FileSystemToolsInterface {
   listDir(relativePath: string): Promise<string>;
@@ -25,18 +26,48 @@ export class FileSystemTools implements FileSystemToolsInterface {
   private dirHashes: Map<string, string> = new Map();
   private fsWatcher: vscode.FileSystemWatcher | null = null;
   private isIndexing: boolean = false;
+  private diagnosticsService?: DiagnosticsService;
 
   constructor() {
     this.workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
     this.targetRoot = this.workspaceRoot;
+    
+    // Initialize Merkle Indexing in background
+    if (this.workspaceRoot) {
+      this.initializeMerkleTree().catch(e => console.error('Failed to init Merkle Tree:', e));
+    }
   }
 
   public getWorkspaceRoot(): string {
     return this.workspaceRoot;
   }
 
+  public initDiagnostics(shadowRoot: string) {
+    if (!this.diagnosticsService && this.workspaceRoot) {
+      this.diagnosticsService = new DiagnosticsService(this.workspaceRoot, shadowRoot);
+    }
+  }
+
   public getTargetRoot(): string {
     return this.targetRoot;
+  }
+
+  private normalizeAgentPath(p: string): string {
+    let normalized = p.replace(/\\/g, '/');
+    if (normalized.startsWith('./')) {
+      normalized = normalized.substring(2);
+    }
+    if (normalized.startsWith('.exovon-shadow/')) {
+      normalized = normalized.substring('.exovon-shadow/'.length);
+    }
+    return normalized;
+  }
+
+  public dispose() {
+    if (this.fsWatcher) {
+      this.fsWatcher.dispose();
+      this.fsWatcher = null;
+    }
   }
 
   /**
@@ -50,18 +81,19 @@ export class FileSystemTools implements FileSystemToolsInterface {
   public async enableShadowWorkspace(): Promise<string> {
     try {
       if (!this.workspaceRoot) {
-        return 'Error: No open workspace root found.';
+        return 'Error: No open workspace root found. Please open a folder before running agent commands.';
       }
       this.shadowPath = path.resolve(this.workspaceRoot, '.exovon-shadow');
       
-      // Clean any previous shadow remnants
-      if (fs.existsSync(this.shadowPath)) {
-        await fs.promises.rm(this.shadowPath, { recursive: true, force: true });
+      // Do NOT clean previous shadow remnants here to prevent deleting unapproved drafts
+      // between chat turns.
+      if (!fs.existsSync(this.shadowPath)) {
+        fs.mkdirSync(this.shadowPath, { recursive: true });
       }
-      fs.mkdirSync(this.shadowPath, { recursive: true });
 
       this.targetRoot = this.shadowPath;
       this.shadowInitialized = true;
+      this.initDiagnostics(this.shadowPath);
       return `Copy-on-Write Shadow Sandbox provisioned at: ${this.shadowPath} (zero files copied upfront)`;
     } catch (e: any) {
       return `Error provisioning Shadow Sandbox: ${e.message}`;
@@ -93,7 +125,7 @@ export class FileSystemTools implements FileSystemToolsInterface {
    * Runs asynchronously to avoid blocking the Extension Host.
    */
   private async initializeMerkleTree(): Promise<void> {
-    if (this.isIndexing) return;
+    if (this.isIndexing) { return; }
     this.isIndexing = true;
 
     try {
@@ -109,38 +141,66 @@ export class FileSystemTools implements FileSystemToolsInterface {
   /**
    * Recursively builds the Merkle tree. Excludes massive/irrelevant directories.
    */
-  private async buildTree(dirPath: string): Promise<string> {
+  private async buildTree(rootDirPath: string): Promise<string> {
     const ignoreList = ['.git', 'node_modules', '.exovon-shadow', 'dist', 'build', '.next'];
-    const basename = path.basename(dirPath);
-    if (ignoreList.includes(basename)) return '';
-
-    try {
-      const entries = await fs.promises.readdir(dirPath, { withFileTypes: true });
-      let combinedHashes = '';
-
-      // Sort entries to ensure deterministic hashing
-      const sortedEntries = entries.sort((a, b) => a.name.localeCompare(b.name));
-
-      for (const entry of sortedEntries) {
-        const fullPath = path.join(dirPath, entry.name);
-        if (entry.isDirectory()) {
-          const dirHash = await this.buildTree(fullPath);
-          if (dirHash) combinedHashes += dirHash;
-        } else if (entry.isFile()) {
-          const fileHash = await this.computeFileHash(fullPath);
-          if (fileHash) {
-            this.fileHashes.set(fullPath, fileHash);
-            combinedHashes += fileHash;
-          }
+    
+    // Iterative post-order traversal to build dir hashes bottom-up without stack overflow
+    const dirsToProcess: string[] = [];
+    const stack = [rootDirPath];
+    const dirChildren = new Map<string, { files: string[], dirs: string[] }>();
+    
+    while (stack.length > 0) {
+      const currentDir = stack.pop()!;
+      const basename = path.basename(currentDir);
+      if (ignoreList.includes(basename)) { continue; }
+      
+      dirsToProcess.push(currentDir);
+      const files: string[] = [];
+      const dirs: string[] = [];
+      
+      try {
+        const entries = await fs.promises.readdir(currentDir, { withFileTypes: true });
+        for (const entry of entries) {
+           const fullPath = path.join(currentDir, entry.name);
+           if (entry.isDirectory()) {
+             dirs.push(fullPath);
+             stack.push(fullPath);
+           } else if (entry.isFile()) {
+             files.push(fullPath);
+           }
         }
+      } catch (e) {
+         // Gracefully ignore unreadable dirs
       }
-
-      const dirHash = crypto.createHash('sha256').update(combinedHashes).digest('hex');
-      this.dirHashes.set(dirPath, dirHash);
-      return dirHash;
-    } catch (e) {
-      return ''; // Gracefully ignore unreadable dirs
+      
+      dirChildren.set(currentDir, { files: files.sort(), dirs: dirs.sort() });
     }
+    
+    for (let i = dirsToProcess.length - 1; i >= 0; i--) {
+       const dir = dirsToProcess[i];
+       const children = dirChildren.get(dir);
+       if (!children) { continue; }
+       
+       let combinedHashes = '';
+       
+       for (const childDir of children.dirs) {
+          const dh = this.dirHashes.get(childDir);
+          if (dh) { combinedHashes += dh; }
+       }
+       
+       for (const file of children.files) {
+          const fh = await this.computeFileHash(file);
+          if (fh) {
+             this.fileHashes.set(file, fh);
+             combinedHashes += fh;
+          }
+       }
+       
+       const dirHash = crypto.createHash('sha256').update(combinedHashes).digest('hex');
+       this.dirHashes.set(dir, dirHash);
+    }
+    
+    return this.dirHashes.get(rootDirPath) || '';
   }
 
   private async computeFileHash(filePath: string): Promise<string | null> {
@@ -160,10 +220,10 @@ export class FileSystemTools implements FileSystemToolsInterface {
       this.fsWatcher.dispose();
     }
 
-    this.fsWatcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(this.workspaceRoot, '**/*.{ts,js,tsx,jsx,css,html,json,md,py,go,rs,java,c,cpp}'));
+    this.fsWatcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(this.workspaceRoot, '**/*'));
 
     const updateFile = async (uri: vscode.Uri) => {
-      if (this.shouldIgnore(uri.fsPath)) return;
+      if (this.shouldIgnore(uri.fsPath)) { return; }
       const hash = await this.computeFileHash(uri.fsPath);
       if (hash) {
         this.fileHashes.set(uri.fsPath, hash);
@@ -172,7 +232,7 @@ export class FileSystemTools implements FileSystemToolsInterface {
     };
 
     const deleteFile = async (uri: vscode.Uri) => {
-      if (this.shouldIgnore(uri.fsPath)) return;
+      if (this.shouldIgnore(uri.fsPath)) { return; }
       this.fileHashes.delete(uri.fsPath);
       await this.propagateHashUpdate(path.dirname(uri.fsPath));
     };
@@ -191,33 +251,45 @@ export class FileSystemTools implements FileSystemToolsInterface {
    * Recalculates the directory hash and propagates it up to the root.
    */
   private async propagateHashUpdate(dirPath: string): Promise<void> {
-    if (!dirPath.startsWith(this.workspaceRoot)) return;
-    
-    try {
-      const entries = await fs.promises.readdir(dirPath, { withFileTypes: true });
-      const sortedEntries = entries.sort((a, b) => a.name.localeCompare(b.name));
-      
+    let currentDir = dirPath;
+    while (currentDir.startsWith(this.workspaceRoot) && currentDir.length >= this.workspaceRoot.length) {
       let combinedHashes = '';
-      for (const entry of sortedEntries) {
-        const fullPath = path.join(dirPath, entry.name);
-        if (entry.isDirectory()) {
-          const cachedDirHash = this.dirHashes.get(fullPath);
-          if (cachedDirHash) combinedHashes += cachedDirHash;
-        } else if (entry.isFile()) {
-          const cachedFileHash = this.fileHashes.get(fullPath);
-          if (cachedFileHash) combinedHashes += cachedFileHash;
+      try {
+        const entries = await fs.promises.readdir(currentDir, { withFileTypes: true });
+        const files: string[] = [];
+        const dirs: string[] = [];
+        const ignoreList = ['.git', 'node_modules', '.exovon-shadow', 'dist', 'build', '.next'];
+        
+        for (const entry of entries) {
+          if (ignoreList.includes(entry.name)) { continue; }
+          const fullPath = path.join(currentDir, entry.name);
+          if (entry.isDirectory()) { dirs.push(fullPath); }
+          else if (entry.isFile()) { files.push(fullPath); }
         }
+        
+        dirs.sort();
+        files.sort();
+        
+        for (const childDir of dirs) {
+          const dh = this.dirHashes.get(childDir);
+          if (dh) { combinedHashes += dh; }
+        }
+        
+        for (const file of files) {
+          const fh = this.fileHashes.get(file);
+          if (fh) { combinedHashes += fh; }
+        }
+        
+        const dirHash = crypto.createHash('sha256').update(combinedHashes).digest('hex');
+        this.dirHashes.set(currentDir, dirHash);
+      } catch (e) {
+        // If directory becomes unreadable or deleted, remove its hash
+        this.dirHashes.delete(currentDir);
       }
-      
-      const dirHash = crypto.createHash('sha256').update(combinedHashes).digest('hex');
-      this.dirHashes.set(dirPath, dirHash);
 
-      const parentDir = path.dirname(dirPath);
-      if (parentDir.length >= this.workspaceRoot.length) {
-        await this.propagateHashUpdate(parentDir);
-      }
-    } catch (e) {
-      // Ignore unreadable
+      const parentDir = path.dirname(currentDir);
+      if (parentDir === currentDir) { break; } // reached root
+      currentDir = parentDir;
     }
   }
 
@@ -228,12 +300,6 @@ export class FileSystemTools implements FileSystemToolsInterface {
     if (this.isIndexing) {
       return 'Status: Indexing in progress. Hash unavailable until complete.';
     }
-    
-    // Lazy initialize on first call
-    if (!this.fsWatcher && this.workspaceRoot) {
-      await this.initializeMerkleTree();
-    }
-
     const rootHash = this.dirHashes.get(this.workspaceRoot);
     return rootHash ? `Workspace Root Merkle Hash: ${rootHash}` : 'Error: Workspace hash not found.';
   }
@@ -275,17 +341,22 @@ export class FileSystemTools implements FileSystemToolsInterface {
   private resolveReadPath(relativePath: string): string {
     if (this.shadowInitialized) {
       const shadowFile = path.resolve(this.shadowPath, relativePath);
+      // Safety check MUST happen before any disk operation
+      const rel = path.relative(this.shadowPath, shadowFile);
+      if (rel.startsWith('..') || path.isAbsolute(rel)) {
+        throw new Error(`Access Denied: Path "${relativePath}" escapes the sandbox root.`);
+      }
       if (fs.existsSync(shadowFile)) {
-        // Safety check
-        if (shadowFile !== this.shadowPath && !shadowFile.startsWith(this.shadowPath + path.sep)) {
-          throw new Error(`Access Denied: Path "${relativePath}" escapes the sandbox root.`);
-        }
         return shadowFile;
       }
     }
     // Fall through to real workspace for reads
+    if (!this.workspaceRoot) {
+      throw new Error(`Error: No open workspace root found. Please open a folder first.`);
+    }
     const realPath = path.resolve(this.workspaceRoot, relativePath);
-    if (realPath !== this.workspaceRoot && !realPath.startsWith(this.workspaceRoot + path.sep)) {
+    const relWorkspace = path.relative(this.workspaceRoot, realPath);
+    if (relWorkspace.startsWith('..') || path.isAbsolute(relWorkspace)) {
       throw new Error(`Access Denied: Path "${relativePath}" is outside the workspace root.`);
     }
     return realPath;
@@ -294,13 +365,18 @@ export class FileSystemTools implements FileSystemToolsInterface {
   private resolveWritePath(relativePath: string): string {
     if (this.shadowInitialized) {
       const shadowFile = path.resolve(this.shadowPath, relativePath);
-      if (shadowFile !== this.shadowPath && !shadowFile.startsWith(this.shadowPath + path.sep)) {
+      const rel = path.relative(this.shadowPath, shadowFile);
+      if (rel.startsWith('..') || path.isAbsolute(rel)) {
         throw new Error(`Access Denied: Path "${relativePath}" escapes the sandbox root.`);
       }
       return shadowFile;
     }
+    if (!this.workspaceRoot) {
+      throw new Error(`Error: No open workspace root found. Please open a folder first.`);
+    }
     const realPath = path.resolve(this.workspaceRoot, relativePath);
-    if (realPath !== this.workspaceRoot && !realPath.startsWith(this.workspaceRoot + path.sep)) {
+    const relWorkspace = path.relative(this.workspaceRoot, realPath);
+    if (relWorkspace.startsWith('..') || path.isAbsolute(relWorkspace)) {
       throw new Error(`Access Denied: Path "${relativePath}" is outside the workspace root.`);
     }
     return realPath;
@@ -310,18 +386,41 @@ export class FileSystemTools implements FileSystemToolsInterface {
    * List directory contents
    */
   public async listDir(relativePath: string): Promise<string> {
+    relativePath = this.normalizeAgentPath(relativePath);
     try {
-      const fullPath = this.resolveReadPath(relativePath);
-      const uri = vscode.Uri.file(fullPath);
-      const files = await vscode.workspace.fs.readDirectory(uri);
-      
-      const fileList = files.map(([name, type]) => {
-        const isDir = type === vscode.FileType.Directory;
-        return { name, isDir, type: isDir ? 'directory' : 'file' };
-      });
+      const realPath = path.resolve(this.workspaceRoot, relativePath);
+      const mergedFiles = new Map<string, { name: string; isDir: boolean; type: string }>();
 
+      // Read from Real Workspace
+      if (fs.existsSync(realPath)) {
+        const uri = vscode.Uri.file(realPath);
+        const files = await vscode.workspace.fs.readDirectory(uri);
+        files.forEach(([name, type]) => {
+          const isDir = type === vscode.FileType.Directory;
+          mergedFiles.set(name, { name, isDir, type: isDir ? 'directory' : 'file' });
+        });
+      }
+
+      // Merge with Shadow Workspace
+      if (this.shadowInitialized) {
+        const shadowPath = path.resolve(this.shadowPath, relativePath);
+        if (fs.existsSync(shadowPath)) {
+          const uri = vscode.Uri.file(shadowPath);
+          const shadowFiles = await vscode.workspace.fs.readDirectory(uri);
+          shadowFiles.forEach(([name, type]) => {
+            const isDir = type === vscode.FileType.Directory;
+            // Overwrites or adds seamlessly
+            mergedFiles.set(name, { name, isDir, type: isDir ? 'directory' : 'file' });
+          });
+        }
+      }
+
+      const fileList = Array.from(mergedFiles.values());
       return JSON.stringify(fileList, null, 2);
     } catch (error: any) {
+      if (error.message.includes('ENOENT') || error.message.includes('EntryNotFound')) {
+        return `Directory not found: "${relativePath}".`;
+      }
       return `Error listing directory: ${error.message}`;
     }
   }
@@ -331,6 +430,7 @@ export class FileSystemTools implements FileSystemToolsInterface {
    * Reads from shadow if file exists there, otherwise reads from real workspace.
    */
   public async viewFile(relativePath: string, startLine?: number, endLine?: number): Promise<string> {
+    relativePath = this.normalizeAgentPath(relativePath);
     try {
       const fullPath = this.resolveReadPath(relativePath);
       const uri = vscode.Uri.file(fullPath);
@@ -347,6 +447,9 @@ export class FileSystemTools implements FileSystemToolsInterface {
 
       return content;
     } catch (error: any) {
+      if (error.message.includes('ENOENT') || error.message.includes('EntryNotFound')) {
+        return `File not found: "${relativePath}". Please verify the path and try again.`;
+      }
       return `Error viewing file: ${error.message}`;
     }
   }
@@ -356,6 +459,7 @@ export class FileSystemTools implements FileSystemToolsInterface {
    * Uses Copy-on-Write: lazily copies the file into shadow before writing.
    */
   public async multiReplaceFileContent(relativePath: string, startLine: number, endLine: number, replacementContent: string): Promise<string> {
+    relativePath = this.normalizeAgentPath(relativePath);
     try {
       // CoW: ensure file exists in shadow before modifying
       await this.ensureShadowFile(relativePath);
@@ -378,7 +482,11 @@ export class FileSystemTools implements FileSystemToolsInterface {
       const updatedContent = lines.join('\n');
       await vscode.workspace.fs.writeFile(uri, new TextEncoder().encode(updatedContent));
 
-      return `Successfully modified lines ${startLine}-${endLine} of file: "${relativePath}"`;
+      let diagInfo = '';
+      if (this.diagnosticsService && (relativePath.endsWith('.ts') || relativePath.endsWith('.tsx') || relativePath.endsWith('.js') || relativePath.endsWith('.jsx'))) {
+        diagInfo = this.diagnosticsService.getDiagnosticsForFile(relativePath);
+      }
+      return `Successfully modified lines ${startLine}-${endLine} of file: "${relativePath}"` + diagInfo;
     } catch (error: any) {
       return `Error modifying file: ${error.message}`;
     }
@@ -389,6 +497,7 @@ export class FileSystemTools implements FileSystemToolsInterface {
    * Uses Copy-on-Write.
    */
   public async replaceFileContent(relativePath: string, targetContent: string, replacementContent: string): Promise<string> {
+    relativePath = this.normalizeAgentPath(relativePath);
     try {
       // CoW: ensure file exists in shadow before modifying
       await this.ensureShadowFile(relativePath);
@@ -422,6 +531,7 @@ export class FileSystemTools implements FileSystemToolsInterface {
    * Tolerates minor whitespace and indentation drift to prevent patch failures.
    */
   public async applyPatch(relativePath: string, searchBlock: string, replaceBlock: string): Promise<string> {
+    relativePath = this.normalizeAgentPath(relativePath);
     try {
       await this.ensureShadowFile(relativePath);
 
@@ -439,7 +549,7 @@ export class FileSystemTools implements FileSystemToolsInterface {
 
       // Fuzzy matching: ignore leading/trailing whitespace and normalize CR/LF
       const normalize = (line: string) => line.trim().replace(/\r/g, '');
-      const normalizedSearch = searchLines.map(normalize).filter(l => l.length > 0 || searchLines.length === 1);
+      const normalizedSearch = searchLines.map(normalize);
 
       let matchStartIndex = -1;
       let matchEndIndex = -1;
@@ -447,18 +557,11 @@ export class FileSystemTools implements FileSystemToolsInterface {
 
       for (let i = 0; i <= fileLines.length - normalizedSearch.length; i++) {
         let isMatch = true;
-        let fileOffset = 0;
         let searchOffset = 0;
 
-        while (searchOffset < normalizedSearch.length && i + fileOffset < fileLines.length) {
+        while (searchOffset < normalizedSearch.length) {
           const sLine = normalizedSearch[searchOffset];
-          const fLine = normalize(fileLines[i + fileOffset]);
-
-          if (fLine === '') {
-            // Skip empty lines in the file during fuzzy match
-            fileOffset++;
-            continue;
-          }
+          const fLine = normalize(fileLines[i + searchOffset]);
 
           if (sLine !== fLine) {
             isMatch = false;
@@ -466,13 +569,12 @@ export class FileSystemTools implements FileSystemToolsInterface {
           }
 
           searchOffset++;
-          fileOffset++;
         }
 
-        if (isMatch && searchOffset === normalizedSearch.length) {
+        if (isMatch) {
           matchCount++;
           matchStartIndex = i;
-          matchEndIndex = i + fileOffset - 1; // inclusive
+          matchEndIndex = i + normalizedSearch.length - 1; // inclusive
         }
       }
 
@@ -484,7 +586,12 @@ export class FileSystemTools implements FileSystemToolsInterface {
            const after = content.slice(exactMatchIndex + searchBlock.length);
            const updated = before + replaceBlock + after;
            await vscode.workspace.fs.writeFile(uri, new TextEncoder().encode(updated));
-           return `Successfully applied patch (exact fallback) to: "${relativePath}"`;
+           
+           let diagInfo = '';
+           if (this.diagnosticsService && (relativePath.endsWith('.ts') || relativePath.endsWith('.tsx') || relativePath.endsWith('.js') || relativePath.endsWith('.jsx'))) {
+             diagInfo = this.diagnosticsService.getDiagnosticsForFile(relativePath);
+           }
+           return `Successfully applied patch (exact fallback) to: "${relativePath}"` + diagInfo;
         }
         return `Error: Could not locate the SEARCH block in the file. Ensure you provide enough unique context lines.`;
       }
@@ -502,7 +609,11 @@ export class FileSystemTools implements FileSystemToolsInterface {
       
       await vscode.workspace.fs.writeFile(uri, new TextEncoder().encode(updatedContent));
 
-      return `Successfully applied patch to: "${relativePath}"`;
+      let diagInfo = '';
+      if (this.diagnosticsService && (relativePath.endsWith('.ts') || relativePath.endsWith('.tsx') || relativePath.endsWith('.js') || relativePath.endsWith('.jsx'))) {
+        diagInfo = this.diagnosticsService.getDiagnosticsForFile(relativePath);
+      }
+      return `Successfully applied patch to: "${relativePath}"` + diagInfo;
     } catch (error: any) {
       return `Error applying patch: ${error.message}`;
     }
@@ -515,58 +626,55 @@ export class FileSystemTools implements FileSystemToolsInterface {
   public async semanticSearch(query: string, includePattern: string = '**/*'): Promise<string> {
     try {
       const results: Array<{ file: string; type: string; name: string; matchLines: string }> = [];
+      const excludePattern = '{**/node_modules/**,**/dist/**,**/.git/**,**/out/**,**/.exovon-shadow/**}';
       
-      // Fast pre-filter using ripgrep to find files containing the query
-      const grepResult = await this.grepSearch(query, includePattern);
-      if (grepResult.startsWith('Error') || grepResult.startsWith('No matches')) {
-        return grepResult;
-      }
+      const files = await vscode.workspace.findFiles(includePattern, excludePattern, 1000);
       
-      let parsedFiles = [];
-      try {
-        parsedFiles = JSON.parse(grepResult);
-      } catch (e) {
-        return grepResult; // If parsing failed, fallback to returning raw grep
-      }
-
-      // Deduplicate files
-      const uniqueRelativeFiles = Array.from(new Set<string>(parsedFiles.map((m: any) => m.file)));
-      
-      for (const relativeFile of uniqueRelativeFiles) {
-        const fullPath = path.resolve(this.workspaceRoot, relativeFile);
-        const ext = path.extname(fullPath).toLowerCase();
+      for (const file of files) {
+        const ext = path.extname(file.fsPath).toLowerCase();
         
+        // Fast pre-filter: does the file even contain the query?
+        const contentBuffer = await vscode.workspace.fs.readFile(file);
+        const content = new TextDecoder('utf-8').decode(contentBuffer);
+        
+        if (!content.toLowerCase().includes(query.toLowerCase())) {
+          continue;
+        }
+
+        const relativeFile = path.relative(this.workspaceRoot, file.fsPath);
+
         if (['.ts', '.tsx', '.js', '.jsx'].includes(ext)) {
+          // Use AST Chunking
           try {
-            const contentBuffer = await vscode.workspace.fs.readFile(vscode.Uri.file(fullPath));
-            const content = new TextDecoder('utf-8').decode(contentBuffer);
-            
-            const chunks = ASTChunker.extractChunks(fullPath, content);
+            const chunks = ASTChunker.extractChunks(file.fsPath, content);
             for (const chunk of chunks) {
               if (chunk.name.toLowerCase().includes(query.toLowerCase()) || chunk.content.toLowerCase().includes(query.toLowerCase())) {
+                const truncatedContent = chunk.content.length > 600 
+                  ? chunk.content.substring(0, 550) + '\n... [content truncated]' 
+                  : chunk.content;
                 results.push({
                   file: relativeFile,
                   type: chunk.type,
                   name: chunk.name,
-                  matchLines: chunk.content
+                  matchLines: truncatedContent
                 });
-                if (results.length >= 10) break;
+                if (results.length >= 6) { break; }
               }
             }
           } catch (e) {
-            // Ignore AST errors for specific files
+            // Ignore AST errors and fallback
           }
         }
         
-        if (results.length >= 10) break;
+        if (results.length >= 6) { break; }
       }
       
       if (results.length > 0) {
-        return JSON.stringify(results.slice(0, 10), null, 2);
+        return JSON.stringify(results.slice(0, 6), null, 2);
       }
       
       // Fallback to standard grepSearch if no AST matches or non-JS files
-      return grepResult;
+      return await this.grepSearch(query, includePattern);
       
     } catch (error: any) {
       return `Error during semantic search: ${error.message}`;
@@ -587,14 +695,12 @@ export class FileSystemTools implements FileSystemToolsInterface {
 
       // Try native ripgrep first (bundled with VS Code)
       try {
-        const { execFile } = require('child_process');
-        const util = require('util');
-        const execFileAsync = util.promisify(execFile);
-        const rgPath = (vscode as any).env?.ripgrepPath || 'rg';
+        const { execFileSync } = require('child_process');
+        const rgPath = 'rg';
         const rgArgs = [
           '--json',
           '--max-count', '50',
-          '--case-sensitive=false',
+          '--ignore-case',
           '--glob', '!node_modules',
           '--glob', '!.git',
           '--glob', '!dist',
@@ -604,13 +710,11 @@ export class FileSystemTools implements FileSystemToolsInterface {
           this.workspaceRoot
         ];
 
-        const { stdout } = await execFileAsync(rgPath, rgArgs, {
+        const output = execFileSync(rgPath, rgArgs, {
           timeout: 10000,
           maxBuffer: 1024 * 256,
           encoding: 'utf-8'
         });
-
-        const output = stdout;
 
         for (const line of output.split('\n')) {
           if (!line.trim()) { continue; }
@@ -631,7 +735,7 @@ export class FileSystemTools implements FileSystemToolsInterface {
         }
       } catch (_rgError) {
         // Ripgrep not available — fallback to manual file search (slower but always works)
-        const excludePattern = '**/node_modules/**,**/dist/**,**/.git/**,**/out/**,**/.exovon-shadow/**';
+        const excludePattern = '{**/node_modules/**,**/dist/**,**/.git/**,**/out/**,**/.exovon-shadow/**}';
         const files = await vscode.workspace.findFiles(includePattern, excludePattern, 500);
 
         for (const file of files) {
@@ -668,6 +772,7 @@ export class FileSystemTools implements FileSystemToolsInterface {
    * Create a new file in the workspace. Uses Copy-on-Write.
    */
   public async createFile(relativePath: string, content: string): Promise<string> {
+    relativePath = this.normalizeAgentPath(relativePath);
     try {
       const fullPath = this.resolveWritePath(relativePath);
       const dir = path.dirname(fullPath);
@@ -686,6 +791,7 @@ export class FileSystemTools implements FileSystemToolsInterface {
    * Delete a file in the workspace
    */
   public async deleteFile(relativePath: string): Promise<string> {
+    relativePath = this.normalizeAgentPath(relativePath);
     try {
       const fullPath = this.resolveWritePath(relativePath);
       const uri = vscode.Uri.file(fullPath);
@@ -697,9 +803,14 @@ export class FileSystemTools implements FileSystemToolsInterface {
   }
 
   public async commitShadowFile(relativePath: string): Promise<string> {
+    relativePath = this.normalizeAgentPath(relativePath);
     try {
       const shadowFilePath = path.resolve(this.shadowPath, relativePath);
       const realFilePath = path.resolve(this.workspaceRoot, relativePath);
+
+      if (!realFilePath.startsWith(this.workspaceRoot)) {
+        return `Error: Resolved path "${realFilePath}" is outside workspace root.`;
+      }
       
       if (!fs.existsSync(shadowFilePath)) {
         return `Error: Shadow file "${relativePath}" does not exist.`;
@@ -709,8 +820,9 @@ export class FileSystemTools implements FileSystemToolsInterface {
       if (!fs.existsSync(realDir)) {
         fs.mkdirSync(realDir, { recursive: true });
       }
-      
-      await fs.promises.copyFile(shadowFilePath, realFilePath);
+      const shadowUri = vscode.Uri.file(shadowFilePath);
+      const realUri = vscode.Uri.file(realFilePath);
+      await vscode.workspace.fs.copy(shadowUri, realUri, { overwrite: true });
       return `Successfully committed "${relativePath}" to active workspace.`;
     } catch (e: any) {
       return `Error committing file: ${e.message}`;
@@ -718,6 +830,7 @@ export class FileSystemTools implements FileSystemToolsInterface {
   }
 
   public async revertShadowFile(relativePath: string): Promise<string> {
+    relativePath = this.normalizeAgentPath(relativePath);
     try {
       const shadowFilePath = path.resolve(this.shadowPath, relativePath);
       const realFilePath = path.resolve(this.workspaceRoot, relativePath);

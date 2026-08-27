@@ -1,0 +1,44 @@
+[package]
+name = "exovon-daemon"
+version = "0.1.0"
+edition = "2021"
+description = "System-level local LLM inference daemon for Astrolabe IDE"
+
+[dependencies]
+# -- HTTP Server --
+axum = { version = "0.8", features = ["macros"] }
+tokio = { version = "1", features = ["full"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["cors"] }
+
+# -- Serialization --
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# -- Async Streaming --
+futures = "0.3"
+async-stream = "0.3"
+tokio-stream = "0.1"
+
+# -- HTTP Client (for HuggingFace downloads) --
+reqwest = { version = "0.12", features = ["stream", "json"] }
+
+# -- Logging --
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# -- System Detection --
+sysinfo = "0.33"
+
+# -- CLI --
+clap = { version = "4", features = ["derive"] }
+
+# -- llama.cpp Rust Bindings (Vulkan GPU acceleration) --
+llama-cpp-4 = { version = "0.4", features = ["vulkan", "native"] }
+llama-cpp-sys-4 = { version = "0.4", features = ["vulkan", "native"] }
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+panic = "abort"

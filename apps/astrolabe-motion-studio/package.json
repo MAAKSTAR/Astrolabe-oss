@@ -1,0 +1,39 @@
+{
+  "name": "astrolabe-motion-studio",
+  "version": "1.0.0",
+  "description": "Astrolabe Motion Studio — Standalone Desktop Creative Suite & Motion Compiler for Web Development",
+  "main": "electron/main.js",
+  "scripts": {
+    "bundle:electron": "esbuild electron/main.ts --bundle --platform=node --format=cjs --outfile=electron/main.js --external:electron && esbuild electron/preload.ts --bundle --platform=node --format=cjs --outfile=electron/preload.js --external:electron",
+    "dev": "npm run bundle:electron && concurrently -k \"vite\" \"electron . --no-sandbox\"",
+    "build": "npm run bundle:electron && tsc && vite build",
+    "electron:dev": "npm run dev",
+    "electron:build": "npm run build && electron-builder"
+  },
+  "dependencies": {
+    "@react-three/drei": "^9.100.0",
+    "@react-three/fiber": "^8.16.0",
+    "animation-timeline-js": "^1.1.2",
+    "gsap": "^3.12.5",
+    "lucide-react": "^0.359.0",
+    "rc-dock": "^3.2.14",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "three": "^0.162.0",
+    "ts-morph": "^21.0.1",
+    "zundo": "^2.1.0",
+    "zustand": "^4.5.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.28",
+    "@types/react": "^18.2.66",
+    "@types/react-dom": "^18.2.22",
+    "@types/three": "^0.162.0",
+    "@vitejs/plugin-react": "^4.2.1",
+    "concurrently": "^8.2.2",
+    "electron": "^29.1.4",
+    "electron-builder": "^24.13.3",
+    "typescript": "^5.4.2",
+    "vite": "^5.1.6"
+  }
+}

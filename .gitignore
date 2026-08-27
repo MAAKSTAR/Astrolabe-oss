@@ -19,6 +19,29 @@ stores/snapcraft/stable/*.snap
 *.log
 *_console.log
 
+# Rust build artifacts
+daemon/target/
+**/target/
+Cargo.lock
 
-# Exovon Workspace Sandbox
+# Node dependencies
+node_modules/
+**/node_modules/
+
+# Extensions & Webview Build Outputs
+*.vsix
+.vscode-test/
 .exovon-shadow/
+*.bak
+*.orig
+*.swp
+
+# Environment & Credentials
+*.env
+*.env.*
+.env
+.env.local
+
+# Operating System
+.DS_Store
+Thumbs.db

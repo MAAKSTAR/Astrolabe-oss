@@ -1,0 +1,54 @@
+{
+  "name": "@exovon/sdk",
+  "version": "1.2.0",
+  "description": "The official TypeScript SDK for the Exovon Infrastructure Ecosystem",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./react": {
+      "types": "./dist/react/index.d.ts",
+      "default": "./dist/react/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "bin",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "bin": {
+    "exovon": "./bin/exovon.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "exovon",
+    "cloud",
+    "infrastructure",
+    "sdk",
+    "api",
+    "speed-insights",
+    "web-vitals"
+  ],
+  "author": "Exovon Technologies",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/archiver": "^8.0.0",
+    "@types/react": "^19.2.17",
+    "react": "^19.2.7",
+    "typescript": "^5.0.0"
+  },
+  "dependencies": {
+    "archiver": "^8.0.0",
+    "web-vitals": "^6.1.0"
+  }
+}

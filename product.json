@@ -1,16 +1,16 @@
 {
   
-  "nameShort": "Devvone",
-  "nameLong": "Devvone IDE",
-  "applicationName": "devvone",
-  "dataFolderName": ".devvone",
-  "win32MutexName": "devvone",
-  "win32DirName": "Devvone",
-  "win32NameVersion": "Devvone",
-  "win32RegValueName": "Devvone",
-  "win32AppUserModelId": "Exovone.Devvone",
-  "win32ShellNameShort": "Devvone",
-  "darwinBundleIdentifier": "com.exovone.devvone",
+  "nameShort": "Astrolabe",
+  "nameLong": "Astrolabe IDE",
+  "applicationName": "astrolabe",
+  "dataFolderName": ".astrolabe",
+  "win32MutexName": "astrolabe",
+  "win32DirName": "Astrolabe",
+  "win32NameVersion": "Astrolabe",
+  "win32RegValueName": "Astrolabe",
+  "win32AppUserModelId": "Astrolabe.IDE",
+  "win32ShellNameShort": "Astrolabe",
+  "darwinBundleIdentifier": "com.astrolabe.ide",
 
   "extensionsGallery": {
     "serviceUrl": "https://open-vsx.org/vscode/gallery"

@@ -4,10 +4,10 @@
     "type": "git",
     "url": "https://github.com/exovon/exovon"
   },
-  "displayName": "exovonhub",
+  "displayName": "Astrolabe",
   "publisher": "exovon",
   "description": "",
-  "version": "0.0.6",
+  "version": "0.0.8",
   "engines": {
     "vscode": "^1.89.0"
   },
@@ -22,11 +22,33 @@
   ],
   "main": "./dist/extension.js",
   "contributes": {
+    "themes": [
+      {
+        "label": "Astrolabe Deep Space",
+        "uiTheme": "vs-dark",
+        "path": "./themes/astrolabe-deep-space-color-theme.json"
+      },
+      {
+        "label": "Exovon Emerald",
+        "uiTheme": "vs-dark",
+        "path": "./themes/exovon-emerald-color-theme.json"
+      },
+      {
+        "label": "Exovon Sunset",
+        "uiTheme": "vs-dark",
+        "path": "./themes/exovon-sunset-color-theme.json"
+      },
+      {
+        "label": "Exovon Pink",
+        "uiTheme": "vs-dark",
+        "path": "./themes/exovon-pink-color-theme.json"
+      }
+    ],
     "viewsContainers": {
       "activitybar": [
         {
           "id": "exovonhub-sidebar-container",
-          "title": "Exovon Hub",
+          "title": "Astrolabe",
           "icon": "media/icon.svg"
         }
       ]
@@ -36,7 +58,7 @@
         {
           "type": "webview",
           "id": "exovonhub.sidebar",
-          "name": "Exovon Hub",
+          "name": "​",
           "icon": "media/icon.svg"
         }
       ]
@@ -79,6 +101,21 @@
         "title": "Exovon: Paste Auth Token"
       },
       {
+        "command": "exovon.openSettings",
+        "title": "Settings",
+        "icon": "$(settings-gear)"
+      },
+      {
+        "command": "exovon.openHistory",
+        "title": "Past Chats",
+        "icon": "$(history)"
+      },
+      {
+        "command": "exovon.toggleAutoMode",
+        "title": "Auto Mode",
+        "icon": "$(zap)"
+      },
+      {
         "command": "exovon.acceptFileDiff",
         "title": "Accept",
         "icon": "$(check)"
@@ -87,6 +124,14 @@
         "command": "exovon.rejectFileDiff",
         "title": "Reject",
         "icon": "$(close)"
+      },
+      {
+        "command": "exovon.sendProblemToAgent",
+        "title": "Send to Agent"
+      },
+      {
+        "command": "exovon.sendAllProblemsToAgent",
+        "title": "Send all to Agent"
       }
     ],
     "keybindings": [
@@ -94,6 +139,28 @@
         "command": "exovon.focusAgentInput",
         "key": "ctrl+shift+e",
         "mac": "cmd+shift+e"
+      },
+      {
+        "command": "exovon.focusAgentInput",
+        "key": "ctrl+l",
+        "mac": "cmd+l"
+      },
+      {
+        "command": "exovon.toggleAutoMode",
+        "key": "ctrl+shift+l",
+        "mac": "cmd+shift+l"
+      },
+      {
+        "command": "exovon.acceptFileDiff",
+        "key": "ctrl+enter",
+        "mac": "cmd+enter",
+        "when": "isInDiffEditor"
+      },
+      {
+        "command": "exovon.rejectFileDiff",
+        "key": "ctrl+backspace",
+        "mac": "cmd+delete",
+        "when": "isInDiffEditor"
       },
       {
         "command": "exovon.cancelAgent",
@@ -121,9 +188,24 @@
       ],
       "view/title": [
         {
-          "command": "exovon.sendProblems",
+          "command": "exovon.openHistory",
+          "when": "view == exovonhub.sidebar",
+          "group": "navigation@1"
+        },
+        {
+          "command": "exovon.openSettings",
+          "when": "view == exovonhub.sidebar",
+          "group": "navigation@2"
+        },
+        {
+          "command": "exovon.toggleAutoMode",
+          "when": "view == exovonhub.sidebar",
+          "group": "navigation@3"
+        },
+        {
+          "command": "exovon.sendAllProblemsToAgent",
           "when": "view == workbench.panel.markers.view",
-          "group": "navigation"
+          "group": "navigation@1"
         }
       ],
       "comments/commentThread/context": [
@@ -138,27 +220,67 @@
       ]
     },
     "configuration": {
-      "title": "Exovon Hub",
+      "title": "Astrolabe",
       "properties": {
         "exovonhub.preferredModel": {
           "type": "string",
           "enum": [
+            "Qwen/Qwen3-235B-A22B-Instruct-2507",
             "gemma-4-31b-it",
-            "gemini-3.5-flash",
-            "gemini-3.1-pro"
+            "glm-5.2",
+            "deepseek-v4-flash",
+            "deepseek-v4-pro",
+            "mimo-v2.5",
+            "mimo-v2.5-pro",
+            "local-custom-model"
           ],
           "enumItemLabels": [
-            "Gemma 4 31B IT (Default)",
-            "Gemini 3.5 Flash Premium",
-            "Gemini 3.1 Pro Premium"
+            "Astrolabe Base (Free)",
+            "Gemma 4 31B IT (Free)",
+            "Zhipu GLM-5.2",
+            "DeepSeek V4 Flash",
+            "DeepSeek V4 Pro",
+            "Xiaomi MiMo V2.5",
+            "Xiaomi MiMo V2.5 Pro",
+            "Local LLM (OpenAI Compatible)"
           ],
-          "default": "gemma-4-31b-it",
+          "default": "Qwen/Qwen3-235B-A22B-Instruct-2507",
           "description": "Select the preferred AI model for the Exovon Agent Chat"
+        },
+        "exovonhub.localLlmBaseUrl": {
+          "type": "string",
+          "default": "http://localhost:11434/v1",
+          "description": "The Base URL of your local inference engine (e.g., http://localhost:11434/v1 for Ollama, http://localhost:8000/v1 for llama.cpp/SGLang). Only used when 'Local LLM' is selected."
+        },
+        "exovonhub.localLlmModelName": {
+          "type": "string",
+          "default": "llama3.1:latest",
+          "description": "The exact name of the model loaded in your local inference engine. Only used when 'Local LLM' is selected."
+        },
+        "exovonhub.localModelsDirectory": {
+          "type": "string",
+          "default": "~/.exovon/models",
+          "description": "The directory where the Astrolabe Local Daemon stores and reads downloaded GGUF models."
+        },
+        "exovonhub.localMaxTokens": {
+          "type": "number",
+          "default": 16384,
+          "description": "The maximum output generation tokens allowed per turn for local models."
+        },
+        "exovonhub.localModelSystemPrompt": {
+          "type": "string",
+          "default": "You are an expert autonomous AI software engineer and coding agent embedded in the Exovon IDE (Astrolabe).\nYour mission is to solve software engineering tasks with high precision, robust architecture, and verified correctness.\n\n### Core Agent Workflow\nExecute all tasks using a disciplined Plan-Inspect-Execute-Verify loop:\n1. Planning: Formulate a clear step-by-step strategy. Always write your private internal reasoning inside <thought>...</thought> blocks before calling tools or responding.\n2. Codebase Exploration: Inspect existing files using `viewFile` and directories using `listDir` before asking questions or modifying code. Never guess existing structure when you can inspect it.\n3. Direct Code Modification: Use `applyPatch` for targeted modifications and `createFile` to create new files. Modify files directly instead of outputting raw code dumps in chat.\n4. Active Verification: Run compiler checks or test suites (e.g. `npm run build`, `tsc --noEmit`, `cargo check`, `pytest`) via `runCommand` to verify your changes.\n5. Interaction & Questions: If you need user decisions, clarification, or design choices, feel free to ask the user directly.\n\n### Available Tools & Calling Syntax\nTo execute a tool, emit the exact `<call:toolName(...)>` tag in your response:\n- Inspect folders: `<call:listDir(relativePath=\".\")>`\n- Inspect file: `<call:viewFile(relativePath=\"src/game.js\")>` or line range: `<call:viewFile(relativePath=\"src/game.js\", startLine=1, endLine=80)>`\n- Modify code: `<call:applyPatch(relativePath=\"src/game.js\", searchBlock=\"const speed = 1;\", replaceBlock=\"const speed = 2;\\nconst anaconda = new Anaconda();\")>`\n- Create new file: `<call:createFile(relativePath=\"src/anaconda.js\", content=\"// Anaconda logic\\nclass Anaconda { ... }\")>`\n- Run shell command: `<call:runCommand(command=\"npm test\")>`\n\n### Best Practices\n- Inspect Before Asking: Check the codebase with `listDir` or `viewFile` first before asking the user about existing project files or implementation details.\n- Minimal Diffs: Use `applyPatch` with exact matching to keep existing code, comments, and structure intact.\n- Thought Formatting: Wrap private reasoning inside `<thought>...</thought>`. Emit `<call:...>` tags or your user-facing response outside thought blocks.",
+          "description": "The system instruction given to local SLMs and LLMs (Qwen 2.5, Llama 3, DeepSeek, Gemma). Calibrated to ~500-600 tokens."
         },
         "exovonhub.googleApiKey": {
           "type": "string",
           "default": "",
           "markdownDescription": "API Key for Google Gen AI. **For breach security, we strongly recommend NOT setting this here** and instead using the `GEMINI_API_KEY` environment variable."
+        },
+        "exovonhub.enableGhostText": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable local SLM ghost text / inline code completions using Qwen2.5-Coder."
         },
         "exovonhub.autonomousMode": {
           "type": "boolean",
@@ -178,7 +300,22 @@
         "exovonhub.premiumEnabled": {
           "type": "boolean",
           "default": false,
-          "description": "Enable premium model access. When disabled, the agent always uses Gemma 4 31B IT (free). When enabled, users can select Gemini 3.5 Flash or Gemini 3.1 Pro."
+          "description": "Enable premium model access. When disabled, the agent uses Astrolabe Base (free). When enabled, users can select DeepSeek V4, GLM 5.2, or Xiaomi MiMo."
+        },
+        "astrolabe.motionStudio.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable Astrolabe Motion Studio visual R3F/GSAP choreography compiler."
+        },
+        "astrolabe.motionStudio.autoFormatOnCompile": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically run selection formatting after applying compiled GSAP motion code."
+        },
+        "astrolabe.motionStudio.requireConfirmationOnRecompile": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enforce strict non-destructive diff confirmation before replacing hand-edited GSAP code."
         }
       }
     }
@@ -201,7 +338,8 @@
     "watch-tests": "tsc -p . -w --outDir out",
     "pretest": "npm run compile-tests && npm run compile && npm run lint",
     "lint": "eslint src",
-    "test": "vscode-test"
+    "test": "vscode-test",
+    "test:unit": "vitest run"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
@@ -211,12 +349,15 @@
     "@types/vscode": "^1.89.0",
     "@vscode/test-cli": "^0.0.12",
     "@vscode/test-electron": "^2.5.2",
+    "copy-webpack-plugin": "^14.0.0",
     "electron-rebuild": "^3.2.9",
     "eslint": "^9.39.3",
     "ts-loader": "^9.5.4",
     "typescript-eslint": "^8.56.1",
+    "vitest": "^4.1.9",
     "webpack": "^5.105.3",
-    "webpack-cli": "^6.0.1"
+    "webpack-cli": "^6.0.1",
+    "@exovon/sdk": "file:../EXOVON/packages/exovon-sdk"
   },
   "dependencies": {
     "@google/genai": "^2.6.0",
@@ -230,6 +371,7 @@
     "tree-sitter-javascript": "^0.25.0",
     "tree-sitter-python": "^0.25.0",
     "tree-sitter-typescript": "^0.23.2",
+    "ts-morph": "^25.0.1",
     "typescript": "^5.9.3",
     "web-tree-sitter": "^0.26.9"
   }

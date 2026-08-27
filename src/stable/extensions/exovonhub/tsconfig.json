@@ -19,6 +19,7 @@
 		"node_modules",
 		"webview-ui",
 		"dist",
-		"out"
+		"out",
+		"vitest.config.ts"
 	]
 }
