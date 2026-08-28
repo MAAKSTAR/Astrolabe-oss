@@ -40,10 +40,16 @@ jobs:
         with:
           targets: x86_64-unknown-linux-gnu
 
+      - name: Setup Vulkan SDK & Shader Compiler (glslc)
+        uses: humbletim/setup-vulkan-sdk@v1.2.0
+        with:
+          vulkan-query-version: 1.3.283.0
+          vulkan-use-cache: true
+
       - name: Install Linux Build Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libvulkan-dev cmake build-essential pkg-config libssl-dev libx11-dev libxkbfile-dev libsecret-1-dev
+          sudo apt-get install -y cmake build-essential pkg-config libssl-dev libx11-dev libxkbfile-dev libsecret-1-dev glslc libshaderc-dev glslang-tools || true
 
       - name: Build Native AI Daemon (Rust / Vulkan)
         run: |
@@ -98,6 +104,12 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-pc-windows-msvc
+
+      - name: Setup Vulkan SDK & Shader Compiler (glslc)
+        uses: humbletim/setup-vulkan-sdk@v1.2.0
+        with:
+          vulkan-query-version: 1.3.283.0
+          vulkan-use-cache: true
 
       - name: Build Native AI Daemon (Windows MSVC)
         run: |
