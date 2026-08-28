@@ -357,7 +357,7 @@
     "vitest": "^4.1.9",
     "webpack": "^5.105.3",
     "webpack-cli": "^6.0.1",
-    "@exovon/sdk": "file:../EXOVON/packages/exovon-sdk"
+    "@exovon/sdk": "file:../../../../packages/exovon-sdk"
   },
   "dependencies": {
     "@google/genai": "^2.6.0",

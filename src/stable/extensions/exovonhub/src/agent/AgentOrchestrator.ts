@@ -1284,12 +1284,12 @@ MANDATORY RULES:
                         framework: 'other',
                         buildCommand,
                         outputDir
-                      }, (step) => {
+                      }, (step: any) => {
                         this.onUpdate({ type: 'log', text: `[Deploy] ${step}`, logType: 'info' });
                       });
                       
                       this.onUpdate({ type: 'log', text: `[Deploy] Streaming build logs...`, logType: 'info' });
-                      const pollRes = await client.deployments.pollLogs(deployId, (logLine) => {
+                      const pollRes = await client.deployments.pollLogs(deployId, (logLine: any) => {
                         this.onUpdate({ type: 'log', text: `[Build] ${logLine}`, logType: 'info' });
                       });
                       
