@@ -68,7 +68,7 @@ jobs:
           cd src/stable/extensions/exovonhub/webview-ui
           npm install --no-audit --no-fund
           cd ..
-          npm install --no-audit --no-fund
+          npm install --ignore-scripts --no-audit --no-fund
           npm run compile
 
       - name: Package Linux Bundle
@@ -142,7 +142,7 @@ jobs:
           cd src/stable/extensions/exovonhub/webview-ui
           npm install --no-audit --no-fund
           cd ..
-          npm install --no-audit --no-fund
+          npm install --ignore-scripts --no-audit --no-fund
           npm run compile
         shell: bash
 
