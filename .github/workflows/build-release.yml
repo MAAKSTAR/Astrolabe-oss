@@ -1,0 +1,227 @@
+name: Astrolabe Multi-OS Release Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Release Tag Version (e.g. v1.0.0)'
+        required: true
+        default: 'v1.0.0'
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  # ============================================================================
+  # 1. LINUX BUILD (AppImage, deb, tar.gz)
+  # ============================================================================
+  build-linux:
+    name: Build Linux (x64)
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: |
+            src/stable/extensions/exovonhub/package.json
+            apps/astrolabe-motion-studio/package.json
+
+      - name: Setup Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-gnu
+
+      - name: Install Linux Build Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libvulkan-dev cmake build-essential pkg-config libssl-dev libx11-dev libxkbfile-dev libsecret-1-dev
+
+      - name: Build Native AI Daemon (Rust / Vulkan)
+        run: |
+          cd daemon
+          cargo build --release
+          strip target/release/exovon-daemon || true
+
+      - name: Build Astrolabe Motion Studio
+        run: |
+          cd apps/astrolabe-motion-studio
+          npm ci || npm install
+          npm run build
+
+      - name: Build ExovonHub Extension
+        run: |
+          cd src/stable/extensions/exovonhub
+          npm ci || npm install
+          npm run compile
+
+      - name: Package Linux Bundle
+        run: |
+          mkdir -p dist-linux/astrolabe
+          cp daemon/target/release/exovon-daemon dist-linux/astrolabe/
+          cp -r apps/astrolabe-motion-studio dist-linux/astrolabe/
+          cp -r src/stable/extensions/exovonhub dist-linux/astrolabe/
+          cp README.md LICENSE build-all-astrolabe.sh dist-linux/astrolabe/
+          cd dist-linux
+          tar -czvf ../astrolabe-linux-x64.tar.gz astrolabe
+
+      - name: Upload Linux Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: astrolabe-linux-x64
+          path: astrolabe-linux-x64.tar.gz
+
+  # ============================================================================
+  # 2. WINDOWS BUILD (zip / exe)
+  # ============================================================================
+  build-windows:
+    name: Build Windows (x64)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Build Native AI Daemon (Windows MSVC)
+        run: |
+          cd daemon
+          cargo build --release
+        shell: bash
+
+      - name: Build Astrolabe Motion Studio
+        run: |
+          cd apps/astrolabe-motion-studio
+          npm ci || npm install
+          npm run build
+        shell: bash
+
+      - name: Build ExovonHub Extension
+        run: |
+          cd src/stable/extensions/exovonhub
+          npm ci || npm install
+          npm run compile
+        shell: bash
+
+      - name: Package Windows Bundle
+        run: |
+          mkdir -p dist-win/astrolabe
+          cp daemon/target/release/exovon-daemon.exe dist-win/astrolabe/
+          cp -r apps/astrolabe-motion-studio dist-win/astrolabe/
+          cp -r src/stable/extensions/exovonhub dist-win/astrolabe/
+          cp README.md LICENSE dist-win/astrolabe/
+          cd dist-win
+          tar -czvf ../astrolabe-windows-x64.zip astrolabe
+        shell: bash
+
+      - name: Upload Windows Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: astrolabe-windows-x64
+          path: astrolabe-windows-x64.zip
+
+  # ============================================================================
+  # 3. MACOS BUILD (Apple Silicon & Intel Universal)
+  # ============================================================================
+  build-macos:
+    name: Build macOS (Universal)
+    runs-on: macos-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Build Native AI Daemon (macOS Metal)
+        run: |
+          cd daemon
+          cargo build --release --target aarch64-apple-darwin
+          cargo build --release --target x86_64-apple-darwin
+          mkdir -p target/universal
+          lipo -create -output target/universal/exovon-daemon target/aarch64-apple-darwin/release/exovon-daemon target/x86_64-apple-darwin/release/exovon-daemon || cp target/aarch64-apple-darwin/release/exovon-daemon target/universal/exovon-daemon
+
+      - name: Build Astrolabe Motion Studio
+        run: |
+          cd apps/astrolabe-motion-studio
+          npm ci || npm install
+          npm run build
+
+      - name: Build ExovonHub Extension
+        run: |
+          cd src/stable/extensions/exovonhub
+          npm ci || npm install
+          npm run compile
+
+      - name: Package macOS Bundle
+        run: |
+          mkdir -p dist-mac/astrolabe
+          cp daemon/target/universal/exovon-daemon dist-mac/astrolabe/
+          cp -r apps/astrolabe-motion-studio dist-mac/astrolabe/
+          cp -r src/stable/extensions/exovonhub dist-mac/astrolabe/
+          cp README.md LICENSE dist-mac/astrolabe/
+          cd dist-mac
+          tar -czvf ../astrolabe-macos-universal.tar.gz astrolabe
+
+      - name: Upload macOS Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: astrolabe-macos-universal
+          path: astrolabe-macos-universal.tar.gz
+
+  # ============================================================================
+  # 4. PUBLISH GITHUB RELEASE
+  # ============================================================================
+  publish-release:
+    name: Publish Release Packages
+    needs: [build-linux, build-windows, build-macos]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v') || github.event.inputs.release_tag != ''
+    steps:
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+
+      - name: Create Release and Upload Assets
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.release_tag || github.ref_name }}
+          name: Astrolabe ${{ github.event.inputs.release_tag || github.ref_name }}
+          body: |
+            # 🚀 Astrolabe All-In-One Open Source Release
+
+            ### Standalone Distribution Downloads:
+            * **🐧 Linux (x64)**: `astrolabe-linux-x64.tar.gz`
+            * **🪟 Windows (x64)**: `astrolabe-windows-x64.zip`
+            * **🍏 macOS (Apple Silicon M1-M4 & Intel Universal)**: `astrolabe-macos-universal.tar.gz`
+
+            ---
+            * **Native AI Engine**: Rust inference daemon with Vulkan, SGLang, and CPU fallback.
+            * **Motion Studio**: Visual UI and timeline animation studio.
+            * **ExovonHub Agent**: Autonomous multi-file AI coding assistant and local model hub.
+          files: |
+            astrolabe-linux-x64/astrolabe-linux-x64.tar.gz
+            astrolabe-windows-x64/astrolabe-windows-x64.zip
+            astrolabe-macos-universal/astrolabe-macos-universal.tar.gz
