@@ -282,20 +282,22 @@ export class AgentOrchestrator {
         }
       }
 
-      // --- Ecosystem Phase 2: Token Quota Guard ---
-      // Quota is now checked transactionally on the server inside the AI Proxy Gateway.
-      // The local check has been removed to prevent The Pre-Charge Fallacy and double billing.
-      if (this.context) {
-        const token = await this.context.secrets.get('EXOVON_PAT');
+      // --- Local & BYOK Execution ---
+      // Local models and BYOK API keys run with zero login requirement.
+      if (!isLocal && !this.apiKey) {
+        let token = '';
+        if (this.context) {
+          token = (await this.context.secrets.get('EXOVON_PAT')) || '';
+        }
         if (!token) {
-           this.onUpdate({
-             type: 'log',
-             text: `❌ Exovon Cloud Access Denied: Not logged in.`,
-             logType: 'error'
-           });
-           this.onUpdate({ type: 'finalAnswer', text: `**Access Denied.**\nPlease log in to access the Exovon models.\n\nGo to the **Astrolabe Settings** tab and click the **Login** button to securely authenticate.` });
-           this.onUpdate({ type: 'complete' });
-           return;
+          this.onUpdate({
+            type: 'log',
+            text: `❌ API Key Required: Please configure your API key in Settings or select a Local Model.`,
+            logType: 'error'
+          });
+          this.onUpdate({ type: 'finalAnswer', text: `**API Key Required.**\nPlease add your API key in **Astrolabe Settings** (BYOK) or switch to a **Local Model** from the bottom toolbar to run 100% offline.` });
+          this.onUpdate({ type: 'complete' });
+          return;
         }
       }
 
