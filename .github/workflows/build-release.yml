@@ -51,15 +51,23 @@ jobs:
           cargo build --release
           strip target/release/exovon-daemon || true
 
+      - name: Build Exovon SDK
+        run: |
+          cd packages/exovon-sdk
+          npm ci || npm install
+          npm run build
+
       - name: Build Astrolabe Motion Studio
         run: |
           cd apps/astrolabe-motion-studio
           npm ci || npm install
           npm run build
 
-      - name: Build ExovonHub Extension
+      - name: Build ExovonHub Webview & Extension
         run: |
-          cd src/stable/extensions/exovonhub
+          cd src/stable/extensions/exovonhub/webview-ui
+          npm ci || npm install
+          cd ..
           npm ci || npm install
           npm run compile
 
@@ -115,6 +123,13 @@ jobs:
           cargo build --release
         shell: bash
 
+      - name: Build Exovon SDK
+        run: |
+          cd packages/exovon-sdk
+          npm ci || npm install
+          npm run build
+        shell: bash
+
       - name: Build Astrolabe Motion Studio
         run: |
           cd apps/astrolabe-motion-studio
@@ -122,9 +137,11 @@ jobs:
           npm run build
         shell: bash
 
-      - name: Build ExovonHub Extension
+      - name: Build ExovonHub Webview & Extension
         run: |
-          cd src/stable/extensions/exovonhub
+          cd src/stable/extensions/exovonhub/webview-ui
+          npm ci || npm install
+          cd ..
           npm ci || npm install
           npm run compile
         shell: bash
