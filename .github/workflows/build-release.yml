@@ -54,21 +54,21 @@ jobs:
       - name: Build Exovon SDK
         run: |
           cd packages/exovon-sdk
-          npm ci || npm install
+          npm install --no-audit --no-fund
           npm run build
 
       - name: Build Astrolabe Motion Studio
         run: |
           cd apps/astrolabe-motion-studio
-          npm ci || npm install
+          npm install --no-audit --no-fund
           npm run build
 
       - name: Build ExovonHub Webview & Extension
         run: |
           cd src/stable/extensions/exovonhub/webview-ui
-          npm ci || npm install
+          npm install --no-audit --no-fund
           cd ..
-          npm ci || npm install
+          npm install --no-audit --no-fund
           npm run compile
 
       - name: Package Linux Bundle
@@ -126,23 +126,23 @@ jobs:
       - name: Build Exovon SDK
         run: |
           cd packages/exovon-sdk
-          npm ci || npm install
+          npm install --no-audit --no-fund
           npm run build
         shell: bash
 
       - name: Build Astrolabe Motion Studio
         run: |
           cd apps/astrolabe-motion-studio
-          npm ci || npm install
+          npm install --no-audit --no-fund
           npm run build
         shell: bash
 
       - name: Build ExovonHub Webview & Extension
         run: |
           cd src/stable/extensions/exovonhub/webview-ui
-          npm ci || npm install
+          npm install --no-audit --no-fund
           cd ..
-          npm ci || npm install
+          npm install --no-audit --no-fund
           npm run compile
         shell: bash
 
