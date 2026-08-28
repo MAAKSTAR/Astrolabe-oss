@@ -77,7 +77,9 @@ jobs:
           cp daemon/target/release/exovon-daemon dist-linux/astrolabe/
           cp -r apps/astrolabe-motion-studio dist-linux/astrolabe/
           cp -r src/stable/extensions/exovonhub dist-linux/astrolabe/
-          cp README.md LICENSE build-all-astrolabe.sh dist-linux/astrolabe/
+          cp -r icons dist-linux/astrolabe/
+          cp icons/stable/astrolabe.png dist-linux/astrolabe/astrolabe.png
+          cp README.md LICENSE build-all-astrolabe.sh install.sh dist-linux/astrolabe/
           cd dist-linux
           tar -czvf ../astrolabe-linux-x64.tar.gz astrolabe
 
@@ -152,6 +154,8 @@ jobs:
           cp daemon/target/release/exovon-daemon.exe dist-win/astrolabe/
           cp -r apps/astrolabe-motion-studio dist-win/astrolabe/
           cp -r src/stable/extensions/exovonhub dist-win/astrolabe/
+          cp -r icons dist-win/astrolabe/
+          cp icons/stable/astrolabe.png dist-win/astrolabe/astrolabe.png
           cp README.md LICENSE dist-win/astrolabe/
           cd dist-win
           tar -czvf ../astrolabe-windows-x64.zip astrolabe
