@@ -1,7 +1,7 @@
 # Astrolabe
 
 <div align="center">
-  <img src="./icons/stable/codium_cnl.svg" alt="Astrolabe Logo" width="160"/>
+  <img src="./icons/stable/astrolabe.png" alt="Astrolabe Logo" width="160"/>
   <h3>The Open-Source, AI-Native IDE with Built-In Local GPU Inference</h3>
 
   [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
