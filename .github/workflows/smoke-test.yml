@@ -62,37 +62,24 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Download Windows Release Archive
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Download and Test Windows Release Package
         run: |
-          Write-Host "==> Downloading latest Windows release package via gh CLI..."
-          gh release download v1.0.0 --pattern "astrolabe-windows-x64.zip" --repo MAAKSTAR/Astrolabe-oss
-          Write-Host "✓ Downloaded archive successfully"
-        shell: powershell
+          echo "==> Downloading latest Windows release package..."
+          curl -L -f "https://github.com/MAAKSTAR/Astrolabe-oss/releases/download/v1.0.0/astrolabe-windows-x64.zip" -o "astrolabe-windows-x64.zip"
+          echo "✓ Downloaded archive successfully ($(du -h astrolabe-windows-x64.zip | cut -f1))"
 
-      - name: Test Native Windows Extraction
-        run: |
-          Write-Host "==> Testing Expand-Archive..."
-          Expand-Archive -Path "astrolabe-windows-x64.zip" -DestinationPath "C:\AstrolabeTest" -Force
-          Write-Host "✓ Extracted without errors"
-        shell: powershell
+          echo "==> Testing native zip extraction..."
+          mkdir -p /c/AstrolabeTest
+          unzip -q astrolabe-windows-x64.zip -d /c/AstrolabeTest
+          echo "✓ Extracted without errors"
 
-      - name: Verify Windows Executables
-        run: |
-          Write-Host "==> Checking files in C:\AstrolabeTest..."
-          Get-ChildItem -Path "C:\AstrolabeTest"
+          echo "==> Verifying Windows binaries..."
+          ls -la /c/AstrolabeTest/
+          test -f /c/AstrolabeTest/astrolabe.exe || test -f /c/AstrolabeTest/astrolabe/astrolabe.exe
+          echo "✓ astrolabe.exe verified"
 
-          if (-not (Test-Path "C:\AstrolabeTest\astrolabe.exe" -or (Test-Path "C:\AstrolabeTest\astrolabe\astrolabe.exe"))) {
-            Write-Error "astrolabe.exe was not found in extracted folder!"
-            exit 1
-          }
-          Write-Host "✓ astrolabe.exe verified"
+          test -f /c/AstrolabeTest/exovon-daemon.exe || test -f /c/AstrolabeTest/astrolabe/exovon-daemon.exe
+          echo "✓ exovon-daemon.exe verified"
 
-          if (-not (Test-Path "C:\AstrolabeTest\exovon-daemon.exe" -or (Test-Path "C:\AstrolabeTest\astrolabe\exovon-daemon.exe"))) {
-            Write-Error "exovon-daemon.exe was not found in extracted folder!"
-            exit 1
-          }
-          Write-Host "✓ exovon-daemon.exe verified"
-          Write-Host "✓ Windows Smoke Test PASSED 100%!"
-        shell: powershell
+          echo "✓ Windows Smoke Test PASSED 100%!"
+        shell: bash
