@@ -96,9 +96,9 @@ jobs:
           curl -L -f "https://github.com/MAAKSTAR/Astrolabe-oss/releases/download/v1.0.0/astrolabe-windows-x64.zip" -o "astrolabe-windows-x64.zip"
           echo "✓ Downloaded archive successfully ($(du -h astrolabe-windows-x64.zip | cut -f1))"
 
-          echo "==> Testing native zip extraction..."
+          echo "==> Testing native Windows zip extraction..."
           mkdir -p /c/AstrolabeTest
-          unzip -q astrolabe-windows-x64.zip -d /c/AstrolabeTest
+          powershell -Command "Expand-Archive -Path astrolabe-windows-x64.zip -DestinationPath C:\AstrolabeTest -Force"
           echo "✓ Extracted without errors"
 
           echo "==> Verifying Windows binaries..."
