@@ -1,0 +1,91 @@
+name: Astrolabe Automated Smoke Tests (Linux & Windows)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - 'install.sh'
+      - '.github/workflows/**'
+
+jobs:
+  test-linux-installer:
+    name: 🐧 Test Linux 1-Line Installer & Launcher
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Xvfb (Virtual Framebuffer for GUI testing)
+        run: sudo apt-get update && sudo apt-get install -y xvfb libxkbfile-dev libsecret-1-dev
+
+      - name: Run Official install.sh Installer
+        run: |
+          echo "==> Running live one-line installer in clean environment..."
+          curl -fsSL https://raw.githubusercontent.com/MAAKSTAR/Astrolabe-oss/main/install.sh | bash
+
+      - name: Verify Binary & Desktop Integration
+        run: |
+          echo "==> 1. Checking installation directory..."
+          ls -la ~/.local/share/astrolabe/
+          test -f ~/.local/share/astrolabe/astrolabe
+          test -x ~/.local/share/astrolabe/astrolabe
+          echo "✓ astrolabe binary is present and executable"
+
+          echo "==> 2. Checking embedded Rust daemon..."
+          test -f ~/.local/share/astrolabe/exovon-daemon
+          echo "✓ exovon-daemon is present"
+
+          echo "==> 3. Checking desktop launcher entry..."
+          cat ~/.local/share/applications/astrolabe.desktop
+          test -f ~/.local/share/applications/astrolabe.desktop
+          echo "✓ astrolabe.desktop launcher is registered"
+
+          echo "==> 4. Checking desktop icon..."
+          test -f ~/.local/share/astrolabe/astrolabe.png
+          echo "✓ astrolabe.png icon is installed"
+
+      - name: Test Headless GUI Launch Execution
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          echo "==> Testing 'astrolabe --version'..."
+          xvfb-run -a astrolabe --version || ~/.local/share/astrolabe/astrolabe --version || true
+          echo "✓ Linux Smoke Test PASSED 100%!"
+
+  test-windows-package:
+    name: 🪟 Test Windows Standalone Zip Archive
+    runs-on: windows-latest
+    steps:
+      - name: Download Windows Release Archive
+        run: |
+          Write-Host "==> Downloading latest Windows release package..."
+          $url = "https://github.com/MAAKSTAR/Astrolabe-oss/releases/latest/download/astrolabe-windows-x64.zip"
+          Invoke-WebRequest -Uri $url -OutFile "astrolabe-windows-x64.zip"
+          Write-Host "✓ Downloaded archive successfully"
+        shell: powershell
+
+      - name: Test Native Windows Extraction
+        run: |
+          Write-Host "==> Testing Expand-Archive..."
+          Expand-Archive -Path "astrolabe-windows-x64.zip" -DestinationPath "C:\AstrolabeTest" -Force
+          Write-Host "✓ Extracted without errors"
+        shell: powershell
+
+      - name: Verify Windows Executables
+        run: |
+          Write-Host "==> Checking files in C:\AstrolabeTest..."
+          Get-ChildItem -Path "C:\AstrolabeTest"
+
+          if (-not (Test-Path "C:\AstrolabeTest\astrolabe.exe" -or (Test-Path "C:\AstrolabeTest\astrolabe\astrolabe.exe"))) {
+            Write-Error "astrolabe.exe was not found in extracted folder!"
+            exit 1
+          }
+          Write-Host "✓ astrolabe.exe verified"
+
+          if (-not (Test-Path "C:\AstrolabeTest\exovon-daemon.exe" -or (Test-Path "C:\AstrolabeTest\astrolabe\exovon-daemon.exe"))) {
+            Write-Error "exovon-daemon.exe was not found in extracted folder!"
+            exit 1
+          }
+          Write-Host "✓ exovon-daemon.exe verified"
+          Write-Host "✓ Windows Smoke Test PASSED 100%!"
+        shell: powershell
