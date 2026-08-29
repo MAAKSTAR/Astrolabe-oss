@@ -71,17 +71,44 @@ jobs:
           npm install --ignore-scripts --no-audit --no-fund
           npm run compile
 
-      - name: Package Linux Bundle
+      - name: Package Complete Standalone Linux Distribution
         run: |
           mkdir -p dist-linux/astrolabe
+          echo "==> Fetching base Electron IDE..."
+          LATEST_CODIUM=$(curl -sL "https://api.github.com/repos/VSCodium/vscodium/releases/latest" | grep -o 'https://github.com/VSCodium/vscodium/releases/download/[^"]*VSCodium-linux-x64-[^"]*\.tar\.gz' | head -n 1)
+          curl -L "$LATEST_CODIUM" -o /tmp/codium-linux.tar.gz
+          tar -xzf /tmp/codium-linux.tar.gz -C dist-linux/astrolabe
+          
+          # Brand executable as astrolabe
+          if [ -f "dist-linux/astrolabe/codium" ]; then
+            mv dist-linux/astrolabe/codium dist-linux/astrolabe/astrolabe
+          fi
+          if [ -f "dist-linux/astrolabe/bin/codium" ]; then
+            mv dist-linux/astrolabe/bin/codium dist-linux/astrolabe/bin/astrolabe
+          fi
+          
+          # Inject native AI daemon (Rust + Vulkan)
           cp daemon/target/release/exovon-daemon dist-linux/astrolabe/
+          mkdir -p dist-linux/astrolabe/resources/app/daemon
+          cp daemon/target/release/exovon-daemon dist-linux/astrolabe/resources/app/daemon/
+          
+          # Inject compiled ExovonHub extension
+          mkdir -p dist-linux/astrolabe/resources/app/extensions/exovonhub
+          cp -r src/stable/extensions/exovonhub/package.json dist-linux/astrolabe/resources/app/extensions/exovonhub/
+          cp -r src/stable/extensions/exovonhub/dist dist-linux/astrolabe/resources/app/extensions/exovonhub/
+          if [ -d "src/stable/extensions/exovonhub/media" ]; then
+            cp -r src/stable/extensions/exovonhub/media dist-linux/astrolabe/resources/app/extensions/exovonhub/
+          fi
+          
+          # Inject Motion Studio & icons
           cp -r apps/astrolabe-motion-studio dist-linux/astrolabe/
-          cp -r src/stable/extensions/exovonhub dist-linux/astrolabe/
           cp -r icons dist-linux/astrolabe/
           cp icons/stable/astrolabe.png dist-linux/astrolabe/astrolabe.png
           cp README.md LICENSE build-all-astrolabe.sh install.sh dist-linux/astrolabe/
+          
+          # Create clean 130MB archive
           cd dist-linux
-          tar -czvf ../astrolabe-linux-x64.tar.gz astrolabe
+          tar -czf ../astrolabe-linux-x64.tar.gz astrolabe
 
       - name: Upload Linux Artifact
         uses: actions/upload-artifact@v4
@@ -148,18 +175,43 @@ jobs:
           npm run compile
         shell: bash
 
-      - name: Package Windows Bundle
+      - name: Package Complete Windows Distribution
         run: |
-          mkdir -p dist-win/astrolabe
-          cp daemon/target/release/exovon-daemon.exe dist-win/astrolabe/
-          cp -r apps/astrolabe-motion-studio dist-win/astrolabe/
-          cp -r src/stable/extensions/exovonhub dist-win/astrolabe/
-          cp -r icons dist-win/astrolabe/
-          cp icons/stable/astrolabe.png dist-win/astrolabe/astrolabe.png
-          cp README.md LICENSE dist-win/astrolabe/
-          cd dist-win
-          tar -czvf ../astrolabe-windows-x64.zip astrolabe
-        shell: bash
+          New-Item -ItemType Directory -Path "dist-win\astrolabe" -Force | Out-Null
+          Write-Host "==> Fetching base Windows Electron IDE..."
+          $LATEST_CODIUM = (Invoke-RestMethod -Uri "https://api.github.com/repos/VSCodium/vscodium/releases/latest").assets | Where-Object { $_.name -like "VSCodium-win32-x64-*.zip" } | Select-Object -First 1 -ExpandProperty browser_download_url
+          Invoke-WebRequest -Uri $LATEST_CODIUM -OutFile "$env:TEMP\codium-win.zip"
+          Expand-Archive -Path "$env:TEMP\codium-win.zip" -DestinationPath "dist-win\astrolabe" -Force
+          
+          if (Test-Path "dist-win\astrolabe\VSCodium.exe") {
+            Move-Item "dist-win\astrolabe\VSCodium.exe" "dist-win\astrolabe\astrolabe.exe" -Force
+          }
+          if (Test-Path "dist-win\astrolabe\bin\codium.cmd") {
+            Move-Item "dist-win\astrolabe\bin\codium.cmd" "dist-win\astrolabe\bin\astrolabe.cmd" -Force
+          }
+          
+          # Inject native AI daemon (Windows)
+          Copy-Item "daemon\target\release\exovon-daemon.exe" "dist-win\astrolabe\" -Force
+          New-Item -ItemType Directory -Path "dist-win\astrolabe\resources\app\daemon" -Force | Out-Null
+          Copy-Item "daemon\target\release\exovon-daemon.exe" "dist-win\astrolabe\resources\app\daemon\" -Force
+          
+          # Inject compiled ExovonHub extension
+          New-Item -ItemType Directory -Path "dist-win\astrolabe\resources\app\extensions\exovonhub" -Force | Out-Null
+          Copy-Item "src\stable\extensions\exovonhub\package.json" "dist-win\astrolabe\resources\app\extensions\exovonhub\" -Force
+          Copy-Item -Recurse "src\stable\extensions\exovonhub\dist" "dist-win\astrolabe\resources\app\extensions\exovonhub\" -Force
+          if (Test-Path "src\stable\extensions\exovonhub\media") {
+            Copy-Item -Recurse "src\stable\extensions\exovonhub\media" "dist-win\astrolabe\resources\app\extensions\exovonhub\" -Force
+          }
+          
+          # Inject Motion Studio & icons & docs
+          Copy-Item -Recurse "apps\astrolabe-motion-studio" "dist-win\astrolabe\" -Force
+          Copy-Item -Recurse "icons" "dist-win\astrolabe\" -Force
+          Copy-Item "icons\stable\astrolabe.png" "dist-win\astrolabe\astrolabe.png" -Force
+          Copy-Item "README.md", "LICENSE" "dist-win\astrolabe\" -Force
+          
+          # Create real clean Windows zip archive
+          Compress-Archive -Path "dist-win\astrolabe\*" -DestinationPath "astrolabe-windows-x64.zip" -Force
+        shell: powershell
 
       - name: Upload Windows Artifact
         uses: actions/upload-artifact@v4
@@ -188,14 +240,14 @@ jobs:
             # 🚀 Astrolabe All-In-One Open Source Release
 
             ### Standalone Distribution Downloads:
-            * **🐧 Linux (Ubuntu / Debian x64)**: `astrolabe-linux-x64.tar.gz`
-            * **🪟 Windows (x64)**: `astrolabe-windows-x64.zip`
+            * **🐧 Linux (Ubuntu / Debian / Arch / CachyOS x64)**: `astrolabe-linux-x64.tar.gz`
+            * **🪟 Windows (x64 Standalone Zip)**: `astrolabe-windows-x64.zip`
 
             ---
-            * **Native AI Engine**: Rust inference daemon with Vulkan, SGLang, and CPU fallback.
+            * **Native AI Engine**: Embedded Rust daemon with Vulkan, SGLang, and CPU fallback.
             * **Motion Studio**: Visual UI and timeline animation studio.
             * **ExovonHub Agent**: Autonomous multi-file AI coding assistant and local model hub.
-            * **Machine HealthGuard™**: Built-in thermal monitoring and OOM hardware protection.
+            * **Machine HealthGuard**: Built-in thermal monitoring and OOM hardware protection.
           files: |
             astrolabe-linux-x64/astrolabe-linux-x64.tar.gz
             astrolabe-windows-x64/astrolabe-windows-x64.zip
