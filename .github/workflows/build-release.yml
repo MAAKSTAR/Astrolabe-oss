@@ -91,6 +91,13 @@ jobs:
           cp daemon/target/release/exovon-daemon dist-linux/astrolabe/
           mkdir -p dist-linux/astrolabe/resources/app/daemon
           cp daemon/target/release/exovon-daemon dist-linux/astrolabe/resources/app/daemon/
+
+          # Inject Astrolabe product branding & identity
+          cp product.json dist-linux/astrolabe/resources/app/product.json
+          
+          # Replace welcome strings & branding in workbench assets
+          find dist-linux/astrolabe/resources/app/out -name "*.js" -exec sed -i 's/Editing evolved/The Sovereign AI-Native IDE/g' {} +
+          find dist-linux/astrolabe/resources/app/out -name "*.js" -exec sed -i 's/VSCodium/Astrolabe/g' {} +
           
           # Inject compiled ExovonHub extension
           mkdir -p dist-linux/astrolabe/resources/app/extensions/exovonhub
@@ -104,9 +111,11 @@ jobs:
           cp -r apps/astrolabe-motion-studio dist-linux/astrolabe/
           cp -r icons dist-linux/astrolabe/
           cp icons/stable/astrolabe.png dist-linux/astrolabe/astrolabe.png
+          mkdir -p dist-linux/astrolabe/resources/app/resources/linux
+          cp icons/stable/astrolabe.png dist-linux/astrolabe/resources/app/resources/linux/code.png 2>/dev/null || true
           cp README.md LICENSE build-all-astrolabe.sh install.sh dist-linux/astrolabe/
           
-          # Create clean 130MB archive
+          # Create clean archive
           cd dist-linux
           tar -czf ../astrolabe-linux-x64.tar.gz astrolabe
 
@@ -195,6 +204,14 @@ jobs:
           New-Item -ItemType Directory -Path "dist-win\astrolabe\resources\app\daemon" -Force | Out-Null
           Copy-Item "daemon\target\release\exovon-daemon.exe" "dist-win\astrolabe\resources\app\daemon\" -Force
           
+          # Inject Astrolabe product branding
+          Copy-Item "product.json" "dist-win\astrolabe\resources\app\product.json" -Force
+
+          # Brand UI strings (remove VSCodium references)
+          Get-ChildItem -Path "dist-win\astrolabe\resources\app\out" -Filter "*.js" -Recurse | ForEach-Object {
+            (Get-Content $_.FullName -Raw) -replace 'Editing evolved', 'The Sovereign AI-Native IDE' -replace 'VSCodium', 'Astrolabe' | Set-Content $_.FullName
+          }
+
           # Inject compiled ExovonHub extension
           New-Item -ItemType Directory -Path "dist-win\astrolabe\resources\app\extensions\exovonhub" -Force | Out-Null
           Copy-Item "src\stable\extensions\exovonhub\package.json" "dist-win\astrolabe\resources\app\extensions\exovonhub\" -Force
