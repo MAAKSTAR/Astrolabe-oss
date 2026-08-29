@@ -59,8 +59,7 @@ jobs:
       - name: Download Windows Release Archive
         run: |
           Write-Host "==> Downloading latest Windows release package..."
-          $url = "https://github.com/MAAKSTAR/Astrolabe-oss/releases/latest/download/astrolabe-windows-x64.zip"
-          Invoke-WebRequest -Uri $url -OutFile "astrolabe-windows-x64.zip"
+          curl.exe -L "https://github.com/MAAKSTAR/Astrolabe-oss/releases/download/v1.0.0/astrolabe-windows-x64.zip" -o "astrolabe-windows-x64.zip"
           Write-Host "✓ Downloaded archive successfully"
         shell: powershell
 
