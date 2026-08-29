@@ -57,9 +57,11 @@ jobs:
     runs-on: windows-latest
     steps:
       - name: Download Windows Release Archive
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          Write-Host "==> Downloading latest Windows release package..."
-          curl.exe -L "https://github.com/MAAKSTAR/Astrolabe-oss/releases/download/v1.0.0/astrolabe-windows-x64.zip" -o "astrolabe-windows-x64.zip"
+          Write-Host "==> Downloading latest Windows release package via gh CLI..."
+          gh release download v1.0.0 -p "astrolabe-windows-x64.zip" --repo MAAKSTAR/Astrolabe-oss
           Write-Host "✓ Downloaded archive successfully"
         shell: powershell
 
