@@ -8,6 +8,9 @@ on:
       - 'install.sh'
       - '.github/workflows/**'
 
+permissions:
+  contents: read
+
 jobs:
   test-linux-installer:
     name: 🐧 Test Linux 1-Line Installer & Launcher
@@ -56,12 +59,15 @@ jobs:
     name: 🪟 Test Windows Standalone Zip Archive
     runs-on: windows-latest
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
       - name: Download Windows Release Archive
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           Write-Host "==> Downloading latest Windows release package via gh CLI..."
-          gh release download v1.0.0 -p "astrolabe-windows-x64.zip" --repo MAAKSTAR/Astrolabe-oss
+          gh release download v1.0.0 --pattern "astrolabe-windows-x64.zip" --repo MAAKSTAR/Astrolabe-oss
           Write-Host "✓ Downloaded archive successfully"
         shell: powershell
 
