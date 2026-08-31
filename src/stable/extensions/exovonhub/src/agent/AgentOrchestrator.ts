@@ -10,6 +10,7 @@ import { InspectorProxy } from './InspectorProxy';
 import { IBrainCoordinator } from '../types/shared';
 import { McpClientRouter } from './mcp/McpClientRouter';
 import { buildOpenAiPayload } from './modelMapper';
+import { StateGraphCheckpointer, StateGraphCheckpoint } from './checkpoint/StateGraphCheckpointer';
 
 let GoogleGenAIClass: any = null;
 
@@ -42,13 +43,14 @@ export interface PlanStep {
 }
 
 export interface AgentUpdate {
-  type: 'log' | 'toolStart' | 'agentToolComplete' | 'complete' | 'plan' | 'reasoning' | 'finalAnswer' | 'planReview' | 'diffs' | 'usage' | 'chat' | 'preemptingQueue' | 'agentFocusNodes' | 'promptProgress' | 'metrics';
+  type: 'log' | 'toolStart' | 'agentToolComplete' | 'complete' | 'plan' | 'reasoning' | 'finalAnswer' | 'planReview' | 'diffs' | 'usage' | 'chat' | 'preemptingQueue' | 'agentFocusNodes' | 'promptProgress' | 'metrics' | 'checkpointCreated' | 'checkpointRollbackComplete';
   text?: string;
   logType?: string;
   toolId?: string;
   toolName?: string;
   toolArgs?: string;
   toolStatus?: 'success' | 'failed';
+  toolOutput?: string;
   planSteps?: PlanStep[];
   planMarkdown?: string;
   messageId?: string;
@@ -57,6 +59,8 @@ export interface AgentUpdate {
   promptTokens?: number;
   promptProcessed?: number;
   metrics?: any;
+  checkpoint?: StateGraphCheckpoint;
+  checkpointId?: string;
 }
 
 export class AgentOrchestrator {
@@ -71,6 +75,9 @@ export class AgentOrchestrator {
   private _currentMessageId?: string;
   private brainCoordinator?: IBrainCoordinator; // To be injected
   private mcpRouter: McpClientRouter;
+  private checkpointer?: StateGraphCheckpointer;
+  private lastCheckpointId: string | null = null;
+  private currentThreadId: string = 'default_thread';
 
   constructor(
     private approvalCallback: (command: string) => Promise<boolean>,
@@ -83,6 +90,11 @@ export class AgentOrchestrator {
     this.fsTools = new FileSystemTools();
     this.brainCoordinator = brainCoordinator;
     this.mcpRouter = new McpClientRouter();
+    
+    if (this.fsTools.getWorkspaceRoot()) {
+      this.checkpointer = new StateGraphCheckpointer(this.fsTools.getWorkspaceRoot());
+    }
+
     // Dynamic approval callback with strict whitelist for autonomous mode
     this.terminalTools = new TerminalTools(async (cmd: string) => {
       const config = vscode.workspace.getConfiguration('exovonhub');
@@ -93,11 +105,30 @@ export class AgentOrchestrator {
       const isWhitelisted = whitelist.includes(firstWord) && !cmd.includes('|') && !cmd.includes('&&') && !cmd.includes(';') && !cmd.includes('`') && !cmd.includes('$') && !cmd.includes('\n') && !cmd.includes('<') && !cmd.includes('>');
 
       if (isAutonomous && isWhitelisted) {
-        this.onUpdate({ type: 'log', text: `⚡ [AUTO-APPROVED] Shell execution: "${cmd}"`, logType: 'info' });
+        this.onUpdate({ type: 'log', text: `[AUTO-APPROVED] Shell execution: "${cmd}"`, logType: 'info' });
         return true;
       }
       return this.approvalCallback(cmd);
     });
+  }
+
+  public getCheckpointer(): StateGraphCheckpointer | undefined {
+    return this.checkpointer;
+  }
+
+  public async rollbackToCheckpoint(checkpointId: string): Promise<{ success: boolean; restoredCheckpoint: StateGraphCheckpoint | null; restoredFiles: string[]; error?: string }> {
+    if (!this.checkpointer) return { success: false, restoredCheckpoint: null, restoredFiles: [], error: 'Checkpointer not available' };
+    const res = await this.checkpointer.rollback(this.currentThreadId, checkpointId);
+    if (res.success && res.restoredCheckpoint) {
+      this.lastCheckpointId = res.restoredCheckpoint.id;
+      this.onUpdate({
+        type: 'checkpointRollbackComplete',
+        checkpoint: res.restoredCheckpoint,
+        checkpointId: res.restoredCheckpoint.id,
+        text: `Rolled back to Checkpoint #${res.restoredCheckpoint.stepNumber} (${res.restoredFiles.length} files restored)`
+      });
+    }
+    return res;
   }
 
   private onUpdate(update: AgentUpdate) {
@@ -117,7 +148,7 @@ export class AgentOrchestrator {
       this._planApprovalResolver({ approved: false });
       this._planApprovalResolver = undefined;
     }
-    this.onUpdate({ type: 'log', text: '🛑 Agent cancelled by user.', logType: 'warning' });
+    this.onUpdate({ type: 'log', text: 'Agent execution cancelled by user.', logType: 'warning' });
     this.onUpdate({ type: 'complete' });
   }
 
@@ -272,6 +303,29 @@ export class AgentOrchestrator {
         text: `Starting Exovon AI Agent (Model: ${resolvedModel})...`,
         logType: 'header'
       });
+
+      if (this.checkpointer) {
+        const threadId = messageId || `thread_${Date.now()}`;
+        this.currentThreadId = threadId;
+        try {
+          const initialChk = await this.checkpointer.createCheckpoint(
+            threadId,
+            this.lastCheckpointId,
+            'reasoning',
+            prompt.length > 40 ? prompt.substring(0, 40) + '...' : prompt,
+            previousMessages,
+            [],
+            [],
+            [],
+            undefined,
+            { activeSubgoal: prompt }
+          );
+          this.lastCheckpointId = initialChk.id;
+          this.onUpdate({ type: 'checkpointCreated', checkpoint: initialChk, checkpointId: initialChk.id });
+        } catch (chkErr) {
+          console.warn('[Exovon] Initial checkpoint warning:', chkErr);
+        }
+      }
 
       if (images && images.length > 0) {
         if (resolvedModel.startsWith('deepseek') || resolvedModel.startsWith('mimo')) {
@@ -587,7 +641,6 @@ MANDATORY RULES:
       while (!completed && loopCount < maxLoops) {
         // Check cancellation at top of each iteration
         if (this._cancelled) {
-          this.onUpdate({ type: 'log', text: '🛑 Agent execution cancelled.', logType: 'warning' });
           break;
         }
 
@@ -595,7 +648,7 @@ MANDATORY RULES:
         
         this.onUpdate({
           type: 'log',
-          text: `🤖 AI reasoning step ${loopCount}...`,
+          text: `AI reasoning step ${loopCount}...`,
           logType: 'info'
         });
 
@@ -952,7 +1005,6 @@ MANDATORY RULES:
 
         for await (const chunk of responseStream) {
           if (this._cancelled) {
-             this.onUpdate({ type: 'log', text: '🛑 Agent stream cancelled by user.', logType: 'warning' });
              break;
           }
           const candidate = chunk.candidates?.[0];
@@ -968,7 +1020,7 @@ MANDATORY RULES:
                 // Detects classic LLM loops like "Wait, I'll just... Actually, I'll just..."
                 const loopMatch = streamingText.match(/(.{20,100}?)\1\1/i);
                 if (loopMatch) {
-                    this.onUpdate({ type: 'log', text: '🛑 Agent reasoning loop detected. Intercepting...', logType: 'warning' });
+                    this.onUpdate({ type: 'log', text: 'Agent reasoning loop detected. Intercepting...', logType: 'warning' });
                     // Forcefully end the streaming loop by truncating the text to break the pattern
                     streamingText = streamingText.substring(0, streamingText.indexOf(loopMatch[0]) + loopMatch[1].length);
                     break;
@@ -1022,7 +1074,6 @@ MANDATORY RULES:
           // 4. Parse Model Response
           for (const callPart of functionCalls) {
             if (this._cancelled) {
-               this.onUpdate({ type: 'log', text: '🛑 Agent tool execution cancelled by user.', logType: 'warning' });
                break;
             }
             
@@ -1101,7 +1152,7 @@ MANDATORY RULES:
                   if (!result.startsWith('Error')) {
                     await this.fsTools.commitShadowFile(call.args.relativePath);
                     this.modifiedFiles.add(call.args.relativePath);
-                    this.onUpdate({ type: 'log', text: `⚡ [AUTO-APPROVED] Applying patch to file: "${call.args.relativePath}"`, logType: 'info' });
+                    this.onUpdate({ type: 'log', text: `[AUTO-APPROVED] Applying patch to file: "${call.args.relativePath}"`, logType: 'info' });
                   } else {
                     throw new Error(result);
                   }
@@ -1145,7 +1196,7 @@ MANDATORY RULES:
                   if (!result.startsWith('Error')) {
                     await this.fsTools.commitShadowFile(call.args.relativePath);
                     this.modifiedFiles.add(call.args.relativePath);
-                    this.onUpdate({ type: 'log', text: `⚡ [AUTO-APPROVED] Applying multi-replace to file: "${call.args.relativePath}"`, logType: 'info' });
+                    this.onUpdate({ type: 'log', text: `[AUTO-APPROVED] Applying multi-replace to file: "${call.args.relativePath}"`, logType: 'info' });
                   } else {
                     throw new Error(result);
                   }
@@ -1185,7 +1236,7 @@ MANDATORY RULES:
                   if (!result.startsWith('Error')) {
                     await this.fsTools.commitShadowFile(call.args.relativePath);
                     this.modifiedFiles.add(call.args.relativePath);
-                    this.onUpdate({ type: 'log', text: `⚡ [AUTO-APPROVED] Creating file: "${call.args.relativePath}"`, logType: 'info' });
+                    this.onUpdate({ type: 'log', text: `[AUTO-APPROVED] Creating file: "${call.args.relativePath}"`, logType: 'info' });
                   } else {
                     throw new Error(result);
                   }
@@ -1223,7 +1274,7 @@ MANDATORY RULES:
                        await vscode.workspace.fs.delete(vscode.Uri.file(realFilePath), { useTrash: true });
                      }
                      this.modifiedFiles.add(call.args.relativePath);
-                     this.onUpdate({ type: 'log', text: `⚡ [AUTO-APPROVED] Deleting file: "${call.args.relativePath}"`, logType: 'info' });
+                     this.onUpdate({ type: 'log', text: `[AUTO-APPROVED] Deleting file: "${call.args.relativePath}"`, logType: 'info' });
                   } else {
                      throw new Error(result);
                   }
@@ -1501,8 +1552,32 @@ MANDATORY RULES:
             this.onUpdate({
               type: 'agentToolComplete',
               toolId,
-              toolStatus: isFailure ? 'failed' : 'success'
+              toolStatus: isFailure ? 'failed' : 'success',
+              toolOutput: result
             });
+
+            if (this.checkpointer && !isFailure) {
+              try {
+                const touched = this.fsTools.getTouchedFiles();
+                const allFiles = [...new Set([...touched.modified, ...touched.created])];
+                if (allFiles.length > 0) {
+                  const chk = await this.checkpointer.createCheckpoint(
+                    this.currentThreadId,
+                    this.lastCheckpointId,
+                    'tool_complete',
+                    `Step: ${toolName}`,
+                    messages,
+                    allFiles,
+                    touched.created,
+                    touched.deleted
+                  );
+                  this.lastCheckpointId = chk.id;
+                  this.onUpdate({ type: 'checkpointCreated', checkpoint: chk, checkpointId: chk.id });
+                }
+              } catch (chkErr) {
+                console.warn('[Exovon] Tool checkpoint warning:', chkErr);
+              }
+            }
 
             toolResponseParts.push({
               functionResponse: {

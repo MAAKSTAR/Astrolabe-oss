@@ -338,106 +338,156 @@ pub async fn download_model(
     filename: &str,
     progress_tx: Option<tokio::sync::watch::Sender<DownloadProgress>>,
 ) -> Result<String, String> {
-    // Resume support: check if partial download exists
     let dest = PathBuf::from(models_dir).join(filename);
-    let existing_size = if dest.exists() {
-        tokio::fs::metadata(&dest).await.map(|m| m.len()).unwrap_or(0)
-    } else {
-        0
-    };
-
-    let client = reqwest::Client::new();
-    let mut req = client.get(url);
-
-    // If we have a partial download, request only the remaining bytes
-    if existing_size > 0 {
-        tracing::info!("📥 Resuming download from byte {}", existing_size);
-        req = req.header("Range", format!("bytes={}-", existing_size));
-    }
-
-    let resp = req.send().await
-        .map_err(|e| format!("Download request failed: {}", e))?;
-
-    if !resp.status().is_success() && resp.status() != reqwest::StatusCode::PARTIAL_CONTENT {
-        return Err(format!("Download failed with status {}", resp.status()));
-    }
-
-    let content_len = resp.content_length().unwrap_or(0);
-    let total_bytes = if resp.status() == reqwest::StatusCode::PARTIAL_CONTENT {
-        existing_size + content_len
-    } else {
-        content_len
-    };
-
     tokio::fs::create_dir_all(models_dir).await
         .map_err(|e| format!("Failed to create models dir: {}", e))?;
 
-    let mut file = tokio::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&dest)
-        .await
-        .map_err(|e| format!("Failed to open file: {}", e))?;
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(600))
+        .tcp_keepalive(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
 
-    let mut downloaded = existing_size;
-    let mut stream = resp.bytes_stream();
+    let mut retries = 0;
+    const MAX_RETRIES: u32 = 10;
+    let mut total_bytes: u64 = 0;
 
     let mut last_speed_time = std::time::Instant::now();
     let mut bytes_since_last_tick: u64 = 0;
     let mut current_speed: u64 = 0;
 
-    use futures::StreamExt;
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk.map_err(|e| format!("Download stream error: {}", e))?;
-        file.write_all(&chunk)
-            .await
-            .map_err(|e| format!("Failed to write chunk: {}", e))?;
+    loop {
+        let existing_size = if dest.exists() {
+            tokio::fs::metadata(&dest).await.map(|m| m.len()).unwrap_or(0)
+        } else {
+            0
+        };
 
-        let chunk_len = chunk.len() as u64;
-        downloaded += chunk_len;
-        bytes_since_last_tick += chunk_len;
-
-        let elapsed = last_speed_time.elapsed().as_secs_f64();
-        if elapsed >= 0.5 {
-            current_speed = (bytes_since_last_tick as f64 / elapsed) as u64;
-            last_speed_time = std::time::Instant::now();
-            bytes_since_last_tick = 0;
+        if total_bytes > 0 && existing_size >= total_bytes {
+            break;
         }
 
-        let speed_display = if current_speed > 0 {
-            Some(format_speed(current_speed))
-        } else {
-            None
+        let mut req = client.get(url);
+        if existing_size > 0 {
+            tracing::info!("Resuming download of {} from byte {}", filename, existing_size);
+            req = req.header("Range", format!("bytes={}-", existing_size));
+        }
+
+        let resp_result = req.send().await;
+        let resp = match resp_result {
+            Ok(r) => {
+                if !r.status().is_success() && r.status() != reqwest::StatusCode::PARTIAL_CONTENT {
+                    if retries < MAX_RETRIES {
+                        retries += 1;
+                        tracing::warn!("Download status {}, retrying ({}/{})...", r.status(), retries, MAX_RETRIES);
+                        tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+                        continue;
+                    }
+                    return Err(format!("Download failed with status {}", r.status()));
+                }
+                r
+            }
+            Err(e) => {
+                if retries < MAX_RETRIES {
+                    retries += 1;
+                    tracing::warn!("Download connect error, retrying ({}/{}): {}", retries, MAX_RETRIES, e);
+                    tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+                    continue;
+                }
+                return Err(format!("Download request failed: {}", e));
+            }
         };
 
-        let eta_seconds = if current_speed > 0 && total_bytes > downloaded {
-            Some((total_bytes - downloaded) / current_speed)
-        } else {
-            None
-        };
+        let content_len = resp.content_length().unwrap_or(0);
+        if total_bytes == 0 {
+            total_bytes = if resp.status() == reqwest::StatusCode::PARTIAL_CONTENT {
+                existing_size + content_len
+            } else {
+                content_len
+            };
+        }
 
-        if let Some(ref tx) = progress_tx {
-            let _ = tx.send(DownloadProgress {
-                model_name: filename.to_string(),
-                downloaded_bytes: downloaded,
-                total_bytes,
-                percent: if total_bytes > 0 {
-                    (downloaded as f64 / total_bytes as f64) * 100.0
-                } else {
-                    0.0
-                },
-                speed_bytes_per_sec: Some(current_speed),
-                speed_display,
-                eta_seconds,
-                status: "downloading".to_string(),
-            });
+        let mut file = tokio::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&dest)
+            .await
+            .map_err(|e| format!("Failed to open file: {}", e))?;
+
+        let mut downloaded = existing_size;
+        let mut stream = resp.bytes_stream();
+        let mut stream_error = false;
+
+        use futures::StreamExt;
+        while let Some(chunk_res) = stream.next().await {
+            match chunk_res {
+                Ok(chunk) => {
+                    if let Err(e) = file.write_all(&chunk).await {
+                        return Err(format!("Failed to write chunk: {}", e));
+                    }
+                    let chunk_len = chunk.len() as u64;
+                    downloaded += chunk_len;
+                    bytes_since_last_tick += chunk_len;
+
+                    let elapsed = last_speed_time.elapsed().as_secs_f64();
+                    if elapsed >= 0.5 {
+                        current_speed = (bytes_since_last_tick as f64 / elapsed) as u64;
+                        last_speed_time = std::time::Instant::now();
+                        bytes_since_last_tick = 0;
+                    }
+
+                    let speed_display = if current_speed > 0 {
+                        Some(format_speed(current_speed))
+                    } else {
+                        None
+                    };
+
+                    let eta_seconds = if current_speed > 0 && total_bytes > downloaded {
+                        Some((total_bytes - downloaded) / current_speed)
+                    } else {
+                        None
+                    };
+
+                    if let Some(ref tx) = progress_tx {
+                        let _ = tx.send(DownloadProgress {
+                            model_name: filename.to_string(),
+                            downloaded_bytes: downloaded,
+                            total_bytes,
+                            percent: if total_bytes > 0 {
+                                (downloaded as f64 / total_bytes as f64) * 100.0
+                            } else {
+                                0.0
+                            },
+                            speed_bytes_per_sec: Some(current_speed),
+                            speed_display,
+                            eta_seconds,
+                            status: "downloading".to_string(),
+                        });
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!("Stream chunk error for {}: {}, attempting auto-resume...", filename, e);
+                    stream_error = true;
+                    break;
+                }
+            }
+        }
+
+        let _ = file.flush().await;
+
+        if !stream_error {
+            // Completed without stream error
+            break;
+        } else if retries < MAX_RETRIES {
+            retries += 1;
+            tracing::info!("Auto-resuming download ({}/{}) for {}", retries, MAX_RETRIES, filename);
+            tokio::time::sleep(tokio::time::Duration::from_millis(1500)).await;
+        } else {
+            return Err(format!("Download stream interrupted after {} retry attempts", MAX_RETRIES));
         }
     }
 
-    file.flush().await.map_err(|e| format!("Flush failed: {}", e))?;
-
-    tracing::info!("✅ Download complete: {} ({})", filename, format_size(downloaded));
-
+    tracing::info!("Download complete: {} ({})", filename, format_size(total_bytes));
     Ok(dest.to_string_lossy().to_string())
 }
 

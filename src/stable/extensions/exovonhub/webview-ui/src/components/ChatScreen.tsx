@@ -2,8 +2,20 @@ import React from 'react';
 import type { Message, VsCodeApi } from '../types';
 import ReactMarkdown from 'react-markdown';
 import rehypeHighlight from 'rehype-highlight';
+import rehypeRaw from 'rehype-raw';
+import remarkGfm from 'remark-gfm';
 import 'highlight.js/styles/atom-one-dark.css';
 import TextareaAutosize from 'react-textarea-autosize';
+import {
+  ThinkIcon,
+  ReadFileIcon,
+  TerminalCommandIcon,
+  CodeEditIcon,
+  CodeSearchIcon,
+  PlanIcon,
+  LogIcon,
+  StepStatusBadge
+} from './icons/AnimatedToolIcons';
 
 function TypewriterMarkdown({ content, chatEndRef, disableAnimation }: { content: string; chatEndRef?: React.RefObject<HTMLDivElement | null>, disableAnimation?: boolean }) {
   const [displayed, setDisplayed] = React.useState(disableAnimation ? content : '');
@@ -118,8 +130,8 @@ interface ChatScreenProps {
   setSelectedContextFiles: React.Dispatch<React.SetStateAction<Array<{ name: string; type: string }>>>;
   speculativeDiffs: Array<{ path: string; diffLines: Array<{ type: 'added' | 'removed' | 'unchanged'; text: string }> }>;
   setSpeculativeDiffs: React.Dispatch<React.SetStateAction<Array<{ path: string; diffLines: Array<{ type: 'added' | 'removed' | 'unchanged'; text: string }> }>>>;
-  isPlanMode: boolean;
-  setIsPlanMode: (val: boolean) => void;
+  planLevel: 'none' | 'auto' | 'strict';
+  setPlanLevel: (val: 'none' | 'auto' | 'strict') => void;
   vscodeApi?: VsCodeApi;
   chatEndRef: React.RefObject<HTMLDivElement | null>;
   activeEditorFile?: string;
@@ -200,19 +212,8 @@ function TaskProgressCard({ msg }: { msg: Message }) {
         className="flex items-center justify-between px-4 py-2.5 bg-white/10 border-b border-white/20 hover:bg-white/15 cursor-pointer select-none transition-colors"
       >
         <div className="flex items-center gap-2">
-          <span className="relative flex h-2 w-2">
-            {isWorking ? (
-              <>
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-300 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-cyan-300 shadow-[0_0_8px_rgba(103,232,249,0.9)]"></span>
-              </>
-            ) : hasError ? (
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.9)]"></span>
-            ) : (
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.9)]"></span>
-            )}
-          </span>
-          <span className={`text-[11px] font-bold ${isWorking ? 'glass-text-reflection text-cyan-200' : hasError ? 'text-rose-400' : 'text-emerald-400'}`}>
+          <StepStatusBadge status={isWorking ? 'running' : hasError ? 'failed' : 'success'} />
+          <span className={`text-[12px] font-bold ${isWorking ? 'glass-text-reflection text-cyan-200' : hasError ? 'text-rose-400' : 'text-emerald-400'}`}>
             {isWorking 
               ? 'Task in progress' 
               : hasError 
@@ -228,10 +229,10 @@ function TaskProgressCard({ msg }: { msg: Message }) {
             e.stopPropagation();
             setIsCollapsed(!isCollapsed);
           }}
-          className="text-white/70 hover:text-white p-1 rounded transition-colors flex items-center gap-1.5 text-[10px] font-mono"
+          className="text-white/80 hover:text-white p-1 rounded transition-colors flex items-center gap-1.5 text-[11px] font-mono"
           title={isCollapsed ? "Expand Details" : "Collapse Details"}
         >
-          <span className="text-[9px] uppercase tracking-wider text-zinc-400 font-mono">
+          <span className="text-[10.5px] uppercase tracking-wider text-zinc-300 font-mono font-medium">
             {isCollapsed ? "Expand" : "Collapse"}
           </span>
           <svg 
@@ -250,39 +251,40 @@ function TaskProgressCard({ msg }: { msg: Message }) {
       {!isCollapsed && msg.timeline && msg.timeline.length > 0 && (
         <div className="p-3 space-y-0.5 relative animate-in fade-in duration-200">
           <div className="absolute left-[23px] top-4 bottom-4 w-px border-l-2 border-dashed border-white/20 z-0"></div>
-          {msg.timeline.map((event: any) => (
-            <details key={event.id} className="group relative z-10 animate-in fade-in slide-in-from-left-2 duration-300" open={event.status === 'running'}>
-              <summary className={`flex items-center gap-3 py-2 cursor-pointer list-none select-none hover:bg-white/15 transition-colors rounded-lg px-2 -ml-2 ${event.status === 'running' ? 'glass-btn border border-white/40' : ''}`}>
-                <div className="bg-white/10 shrink-0 flex items-center justify-center rounded-md p-1 border border-white/20">
-                  {event.type === 'think' ? (
-                    <svg className={`w-3.5 h-3.5 ${event.status === 'running' ? 'text-cyan-300' : 'text-zinc-200'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                  ) : event.type === 'log' ? (
-                    <svg className="w-3 h-3 text-zinc-200" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
-                  ) : event.toolName === 'runCommand' || event.toolName === 'run_command' ? (
-                    <svg className={`w-3 h-3 ${event.status === 'running' ? 'text-cyan-300' : 'text-zinc-200'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-                  ) : event.toolName === 'searchWeb' || event.toolName === 'grepSearch' ? (
-                    <svg className={`w-3.5 h-3.5 ${event.status === 'running' ? 'text-cyan-300' : 'text-zinc-200'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
-                  ) : event.toolName === 'applyPatch' || event.toolName === 'createFile' || event.toolName === 'multiReplaceFileContent' ? (
-                    <svg className={`w-3.5 h-3.5 ${event.status === 'running' ? 'text-purple-300' : 'text-zinc-200'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
-                  ) : (
-                    <svg className="w-3.5 h-3.5 text-zinc-200" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
-                  )}
-                </div>
-                <span className={`text-[11px] shrink-0 uppercase tracking-wider ${event.status === 'running' ? 'glass-text-reflection' : 'text-zinc-300 font-semibold'}`}>
-                  {event.title}
-                </span>
-                <div className="flex-1 flex items-center justify-between min-w-0">
-                  <span className="text-[10px] truncate font-mono flex-1 flex flex-col justify-center">
+          {msg.timeline.map((event: any) => {
+            const status = event.status || 'running';
+            const renderEventIcon = () => {
+              if (event.type === 'think') return <ThinkIcon status={status} />;
+              if (event.type === 'log') return <LogIcon status={status} />;
+              const tool = (event.toolName || '').toLowerCase();
+              if (tool.includes('command') || tool.includes('terminal')) return <TerminalCommandIcon status={status} />;
+              if (tool.includes('search') || tool.includes('grep') || tool.includes('find')) return <CodeSearchIcon status={status} />;
+              if (tool.includes('patch') || tool.includes('edit') || tool.includes('replace') || tool.includes('create') || tool.includes('write')) return <CodeEditIcon status={status} />;
+              if (tool.includes('view') || tool.includes('read') || tool.includes('dir') || tool.includes('list')) return <ReadFileIcon status={status} />;
+              return <ReadFileIcon status={status} />;
+            };
+
+            return (
+              <details key={event.id} className="group relative z-10 animate-in fade-in slide-in-from-left-2 duration-300" open={event.status === 'running'}>
+                <summary className={`flex items-center gap-3 py-2 cursor-pointer list-none select-none hover:bg-white/10 transition-colors rounded-lg px-2 -ml-2 ${event.status === 'running' ? 'bg-zinc-800/60 border border-white/30 shadow-sm' : ''}`}>
+                  <div className="w-6 h-6 shrink-0 flex items-center justify-center rounded-md bg-zinc-800 border border-white/25 shadow-md relative text-zinc-100">
+                    {renderEventIcon()}
+                  </div>
+                  <span className={`text-[12px] shrink-0 uppercase tracking-wider font-bold ${event.status === 'running' ? 'glass-text-reflection text-cyan-200' : 'text-zinc-100'}`}>
+                    {event.title}
+                  </span>
+                  <div className="flex-1 flex items-center justify-between min-w-0">
+                    <span className="text-[11px] truncate font-mono flex-1 flex flex-col justify-center">
                     {event.type === 'think' && event.status === 'running' ? (
                       <div className="flex flex-col gap-1 w-full pr-4 py-1">
-                        <span className="glass-text-cyan">Thinking & Planning...</span>
+                        <span className="glass-text-cyan text-[11.5px] font-semibold">Thinking & Planning...</span>
                         <div className="w-full h-0.5 bg-zinc-800/80 rounded-full overflow-hidden">
                           <div className="w-full h-full bg-cyan-500/50 animate-pulse"></div>
                         </div>
                       </div>
                     ) : event.type === 'tool' && event.status === 'running' ? (
                       <div className="flex flex-col gap-1 w-full pr-4 py-1">
-                        <span className="glass-text-cyan">
+                        <span className="glass-text-cyan text-[11.5px] font-semibold">
                           {(() => {
                             try {
                               const payload = JSON.parse(event.content || '{}');
@@ -297,7 +299,7 @@ function TaskProgressCard({ msg }: { msg: Message }) {
                         </div>
                       </div>
                     ) : event.type === 'tool' ? (
-                      <span className="text-zinc-400 font-mono">
+                      <span className="text-zinc-300 font-mono text-[11px]">
                         {(() => {
                           try {
                             const payload = JSON.parse(event.content || '{}');
@@ -309,46 +311,128 @@ function TaskProgressCard({ msg }: { msg: Message }) {
                       </span>
                     ) : ''}
                   </span>
-                  <span className="transform transition-transform duration-200 group-open:rotate-180 text-[10px] text-zinc-500 ml-2">
+                  <span className="transform transition-transform duration-200 group-open:rotate-180 text-[11px] text-zinc-400 ml-2">
                     ↓
                   </span>
                 </div>
               </summary>
               <div className="pl-[26px] pb-3 pr-2 pt-1">
                 {event.type === 'think' ? (
-                  <div className="text-[10px] leading-relaxed text-zinc-400 font-sans whitespace-pre-wrap">
+                  <div className="text-[11.5px] leading-[1.65] text-zinc-200 font-sans whitespace-pre-wrap pl-1">
                     {event.content?.replace(/<\/?[a-zA-Z0-9_|-]+[^>]*>/gi, '').trim()}
                   </div>
                 ) : event.type === 'log' ? (
-                  event.content?.includes('❌') || event.content?.includes('Failed') ? (
-                    <div className="text-[10.5px] font-mono text-rose-300 bg-rose-950/40 p-2.5 rounded-md border border-rose-900/50 overflow-x-auto whitespace-pre-wrap leading-relaxed">
+                  event.content?.includes('❌') || event.content?.includes('Failed') || event.content?.includes('SYNTAX ERROR') ? (
+                    <div className="bg-rose-950/40 border border-rose-800/60 rounded-xl p-3 text-[11.5px] font-mono text-rose-200 overflow-x-auto whitespace-pre-wrap leading-relaxed shadow-lg">
+                      <div className="flex items-center gap-1.5 mb-1 text-rose-300 font-bold text-xs">
+                        <span>⚠️ Error Diagnostic</span>
+                      </div>
                       {event.content}
                     </div>
                   ) : (
-                    <div className="text-[10px] font-mono text-zinc-400 bg-zinc-950/80 p-2 rounded-md border border-white/5">
+                    <div className="bg-zinc-800/80 border border-white/15 rounded-xl p-2.5 text-[11px] font-mono text-zinc-200 overflow-x-auto whitespace-pre-wrap shadow-sm">
                       {event.content}
                     </div>
                   )
-                ) : event.toolName === 'runCommand' || event.toolName === 'run_command' ? (
-                  <div className="bg-zinc-950/90 p-2 rounded-md border border-white/5 font-mono text-[10px] text-zinc-300 select-all overflow-x-auto whitespace-pre">
-                    <span className="text-zinc-600 select-none mr-1.5">$</span>
-                    {(() => {
-                      try {
-                        const parsed = JSON.parse(event.content || '{}');
-                        return parsed.CommandLine || parsed.command || event.content;
-                      } catch {
-                        return event.content;
-                      }
-                    })()}
-                  </div>
-                ) : (
-                  <div className="text-[9px] font-mono text-zinc-400 bg-zinc-950 p-2 rounded-md border border-zinc-800/50 overflow-x-auto whitespace-pre">
-                    {event.content}
-                  </div>
-                )}
+                ) : (() => {
+                  let parsed: any = {};
+                  try {
+                    parsed = JSON.parse(event.content || '{}');
+                  } catch {
+                    parsed = { raw: event.content };
+                  }
+
+                  const isCommand = event.toolName === 'runCommand' || event.toolName === 'run_command' || parsed.CommandLine || parsed.command;
+                  const commandText = parsed.CommandLine || parsed.command || (typeof event.content === 'string' ? event.content : '');
+                  const filePath = parsed.TargetFile || parsed.relativePath || parsed.AbsolutePath || parsed.SearchPath || parsed.DirectoryPath || parsed.Cwd;
+
+                  return (
+                    <div className="bg-zinc-900 border border-white/20 rounded-xl overflow-hidden shadow-lg transition-all">
+                      {/* Window Header */}
+                      <div className="bg-zinc-800 px-3 py-1.5 border-b border-white/15 flex items-center justify-between select-none gap-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <span className="w-2 h-2 rounded-full bg-zinc-600"></span>
+                            <span className="w-2 h-2 rounded-full bg-zinc-600"></span>
+                            <span className="w-2 h-2 rounded-full bg-zinc-600"></span>
+                          </div>
+                          <span className="text-[12px] font-mono font-bold text-zinc-100 uppercase tracking-wider pl-1 shrink-0">
+                            {event.toolName || 'Tool Call'}
+                          </span>
+                          {filePath && (
+                            <span className="text-[11px] font-mono bg-zinc-700/80 text-zinc-200 px-2 py-0.5 rounded border border-white/10 truncate max-w-[140px]" title={filePath}>
+                              {filePath.split('/').pop()}
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded uppercase tracking-wider ${event.status === 'running' ? 'bg-cyan-950 text-cyan-200 border border-cyan-700/50' : event.status === 'failed' ? 'bg-rose-950 text-rose-200 border border-rose-700/50' : 'bg-emerald-950 text-emerald-200 border border-emerald-700/50'}`}>
+                            {event.status === 'running' ? 'Running' : event.status === 'failed' ? 'Failed' : 'Exit 0'}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const textToCopy = isCommand ? commandText : (event.output || event.content || '');
+                              navigator.clipboard.writeText(textToCopy);
+                              const btn = e.currentTarget;
+                              const oldText = btn.textContent;
+                              btn.textContent = 'Copied!';
+                              setTimeout(() => btn.textContent = oldText, 1800);
+                            }}
+                            className="text-[11px] font-mono text-zinc-300 hover:text-white bg-zinc-700/80 hover:bg-zinc-700 px-2 py-0.5 rounded border border-white/10 transition-colors cursor-pointer"
+                          >
+                            Copy
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Command / Input Payload Bar */}
+                      {isCommand ? (
+                        <div className="p-3 bg-zinc-850 border-b border-white/10 font-mono text-[11.5px] leading-relaxed text-zinc-100 select-all overflow-x-auto whitespace-pre">
+                          <span className="text-zinc-400 font-bold select-none mr-2">$</span>
+                          {commandText}
+                        </div>
+                      ) : filePath ? (
+                        <div className="p-2.5 bg-zinc-850 border-b border-white/10 font-mono text-[11px] text-zinc-200 flex flex-wrap gap-2 items-center">
+                          <span className="text-zinc-400 font-semibold">Path:</span>
+                          <span className="text-zinc-100 font-medium select-all">{filePath}</span>
+                        </div>
+                      ) : null}
+
+                      {/* Execution Output Console (Grayish slate & scrollable) */}
+                      {event.output ? (
+                        <div className="p-3 bg-zinc-900/90 max-h-56 min-h-[48px] overflow-y-auto overflow-x-auto scrollbar-thin select-all font-mono text-[11px] leading-relaxed text-zinc-200 whitespace-pre">
+                          {event.output}
+                        </div>
+                      ) : !isCommand && event.content && event.content !== '{}' ? (
+                        <div className="p-3 bg-zinc-900/90 max-h-56 min-h-[40px] overflow-y-auto overflow-x-auto scrollbar-thin select-all font-mono text-[11px] leading-relaxed text-zinc-200 whitespace-pre">
+                          {(() => {
+                            try {
+                              return JSON.stringify(parsed, null, 2);
+                            } catch {
+                              return event.content;
+                            }
+                          })()}
+                        </div>
+                      ) : event.status === 'running' ? (
+                        <div className="p-2.5 bg-zinc-900/90 font-mono text-[11px] text-zinc-300 flex items-center gap-2">
+                          <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse"></span>
+                          <span>Executing in background sandbox...</span>
+                        </div>
+                      ) : (
+                        <div className="p-2.5 bg-zinc-900/90 font-mono text-[10.5px] text-zinc-400 italic">
+                          Execution completed with no output.
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
             </details>
-          ))}
+          );
+        })}
         </div>
       )}
     </div>
@@ -382,8 +466,8 @@ export function ChatScreen({
   setSelectedContextFiles,
   speculativeDiffs,
   setSpeculativeDiffs,
-  isPlanMode,
-  setIsPlanMode,
+  planLevel,
+  setPlanLevel,
   vscodeApi,
   chatEndRef,
   activeEditorFile,
@@ -428,6 +512,7 @@ export function ChatScreen({
   const [expandedDiffs, setExpandedDiffs] = React.useState<Record<string, boolean>>({});
   const [showQuotaPopover, setShowQuotaPopover] = React.useState(false);
   const [modelDropdownOpen, setModelDropdownOpen] = React.useState(false);
+  const [planDropdownOpen, setPlanDropdownOpen] = React.useState(false);
 
   const [showContextInput, setShowContextInput] = React.useState(false);
   const [contextInputText, setContextInputText] = React.useState('');
@@ -581,11 +666,6 @@ export function ChatScreen({
             className={`flex flex-col max-w-[90%] ${msg.sender === 'user' ? 'ml-auto items-end' : 'mr-auto items-start'
               }`}
           >
-            {/* Timestamp & Sender */}
-            <span className="text-[8px] text-zinc-600 font-mono mb-0.5">
-              {msg.sender === 'user' ? 'Developer' : 'Exovon Autopilot'} • {msg.timestamp}
-            </span>
-
             {/* Thinking/Working Components (Distinct from Chat Response) */}
             {msg.sender === 'agent' && msg.timeline && msg.timeline.length > 0 && (
               <TaskProgressCard msg={msg} />
@@ -651,7 +731,7 @@ export function ChatScreen({
 
             {/* Final Response Chat Bubble */}
             {(msg.text || (msg.images && msg.images.length > 0)) && (
-              <div className="relative group/message">
+              <div className="relative group/message w-full">
                 <div
                   className={`py-2 px-1 text-sm leading-relaxed font-sans transition-all duration-150 markdown-body select-text ${msg.sender === 'user'
                     ? 'bg-zinc-900/50 border border-zinc-800/50 rounded-xl px-4 py-3'
@@ -685,48 +765,89 @@ export function ChatScreen({
                   ))}
                 </div>
 
-                {/* Inference Telemetry Bar */}
-                {msg.sender === 'agent' && msg.metrics && (
-                  <div className="mt-2 pt-2 border-t border-white/5 flex flex-wrap items-center gap-1.5 font-mono text-[10px] text-zinc-400 select-none animate-in fade-in duration-200">
-                    <div className="flex items-center gap-1 bg-zinc-900/40 hover:bg-zinc-800/50 px-2 py-0.5 rounded border border-white/5 text-zinc-300 transition-colors" title="Prompt evaluation speed">
-                      <span className="text-zinc-500">Prompt:</span>
-                      <span className="text-zinc-200 font-medium">{msg.metrics.prompt_tokens?.toLocaleString() || 0} tokens</span>
-                      {msg.metrics.prompt_tps && msg.metrics.prompt_tps > 0 ? (
-                        <span className="text-zinc-500">({Math.round(msg.metrics.prompt_tps)} t/s)</span>
-                      ) : null}
-                    </div>
-                    <div className="flex items-center gap-1 bg-zinc-900/40 hover:bg-zinc-800/50 px-2 py-0.5 rounded border border-white/5 text-zinc-300 transition-colors" title="Autoregressive generation speed">
-                      <span className="text-zinc-500">Output:</span>
-                      <span className="text-zinc-200 font-medium">{msg.metrics.completion_tps?.toFixed(1) || 0} t/s</span>
-                      <span className="text-zinc-500">({msg.metrics.completion_tokens || 0} tokens)</span>
-                    </div>
-                    {msg.metrics.total_time_ms && (
-                      <div className="flex items-center gap-1 bg-zinc-900/40 hover:bg-zinc-800/50 px-2 py-0.5 rounded border border-white/5 text-zinc-300 transition-colors" title="Total response latency">
-                        <span className="text-zinc-500">Time:</span>
-                        <span className="text-zinc-200 font-medium">{(msg.metrics.total_time_ms / 1000).toFixed(2)}s</span>
-                      </div>
-                    )}
-                  </div>
-                )}
+                {/* Sleek Floating Hover Toolbar (Completely hidden until cursor hovers over message card) */}
+                {!msg.isCommandApproval && !msg.isFileApproval && !msg.isPlanReview && (
+                  <div className="flex items-center justify-end gap-2 opacity-0 group-hover/message:opacity-100 transition-opacity duration-150 mt-1 select-none pr-1">
+                    {msg.sender === 'agent' && msg.metrics?.completion_tps ? (
+                      <span className="text-[10px] text-zinc-500 font-mono" title={`Prompt: ${msg.metrics.prompt_tokens?.toLocaleString() || 0} tokens | Output: ${msg.metrics.completion_tokens || 0} tokens | Latency: ${(msg.metrics.total_time_ms ? msg.metrics.total_time_ms / 1000 : 0).toFixed(2)}s`}>
+                        {msg.metrics.completion_tps.toFixed(1)} t/s
+                      </span>
+                    ) : null}
 
-                {msg.sender === 'agent' && !msg.isCommandApproval && !msg.isFileApproval && !msg.isPlanReview && (
-                  <div className="flex justify-end opacity-0 group-hover/message:opacity-100 transition-opacity duration-200 mt-1 pr-1">
+                    {msg.timestamp && (
+                      <span className="text-[10px] text-zinc-500 font-mono">
+                        {msg.timestamp}
+                      </span>
+                    )}
+
+                    {/* Copy Button (Clean SVG) */}
                     <button
+                      type="button"
                       onClick={(e) => {
                         navigator.clipboard.writeText(msg.text || '');
                         const btn = e.currentTarget;
-                        const originalText = btn.innerHTML;
-                        btn.innerHTML = 'Copied';
-                        setTimeout(() => btn.innerHTML = originalText, 2000);
+                        const originalSvg = btn.innerHTML;
+                        btn.innerHTML = `<svg class="w-3.5 h-3.5 text-emerald-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`;
+                        setTimeout(() => { btn.innerHTML = originalSvg; }, 1500);
                       }}
-                      className="text-[10px] text-zinc-500 hover:text-zinc-300 font-mono transition-colors flex items-center gap-1 bg-zinc-900/50 px-2 py-0.5 rounded border border-zinc-800/50"
+                      className="p-1 rounded text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800/60 transition-colors cursor-pointer"
+                      title="Copy"
                     >
-                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                         <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
                         <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
                       </svg>
-                      Copy
                     </button>
+
+                    {/* Checkpoint Rollback / Restore Button (Clean SVG) */}
+                    {msg.checkpoint && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          vscodeApi?.postMessage({
+                            command: 'rollbackToCheckpoint',
+                            checkpointId: msg.checkpoint.id
+                          });
+                          const btn = e.currentTarget;
+                          const originalSvg = btn.innerHTML;
+                          btn.innerHTML = `<svg class="w-3.5 h-3.5 text-cyan-400 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>`;
+                          setTimeout(() => { btn.innerHTML = originalSvg; }, 2000);
+                        }}
+                        className="p-1 rounded text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800/60 transition-colors cursor-pointer"
+                        title={`Restore files & chat to Checkpoint #${msg.checkpoint.stepNumber || 1}`}
+                      >
+                        <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <polyline points="1 4 1 10 7 10"></polyline>
+                          <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path>
+                        </svg>
+                      </button>
+                    )}
+
+                    {/* Checkpoint Branch Button (Clean SVG) */}
+                    {msg.checkpoint && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          vscodeApi?.postMessage({
+                            command: 'branchFromCheckpoint',
+                            checkpointId: msg.checkpoint.id
+                          });
+                          const btn = e.currentTarget;
+                          const originalSvg = btn.innerHTML;
+                          btn.innerHTML = `<svg class="w-3.5 h-3.5 text-emerald-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>`;
+                          setTimeout(() => { btn.innerHTML = originalSvg; }, 1500);
+                        }}
+                        className="p-1 rounded text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800/60 transition-colors cursor-pointer"
+                        title={`Branch conversation from Checkpoint #${msg.checkpoint.stepNumber || 1}`}
+                      >
+                        <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <line x1="6" y1="3" x2="6" y2="15"></line>
+                          <circle cx="18" cy="6" r="3"></circle>
+                          <circle cx="6" cy="18" r="3"></circle>
+                          <path d="M18 9a9 9 0 0 1-9 9"></path>
+                        </svg>
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
@@ -736,29 +857,26 @@ export function ChatScreen({
             {msg.isCommandApproval && (
               <div className="mt-2 w-full backdrop-blur-xl bg-zinc-900/80 border border-white/10 p-3.5 rounded-xl shadow-2xl space-y-3 select-none transition-all duration-300">
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <div className="p-1.5 bg-zinc-800/90 border border-white/10 rounded-lg text-zinc-300">
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <polyline points="4 17 10 11 4 5"></polyline>
-                        <line x1="12" y1="19" x2="20" y2="19"></line>
-                      </svg>
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-7 h-7 bg-zinc-800 border border-white/25 rounded-lg text-zinc-100 flex items-center justify-center shadow-md">
+                      <TerminalCommandIcon status="running" className="w-4 h-4" />
                     </div>
                     <div>
-                      <span className="text-[11px] font-semibold text-zinc-200 block leading-tight">
+                      <span className="text-[12.5px] font-semibold text-zinc-100 block leading-tight">
                         Terminal Execution Request
                       </span>
-                      <span className="text-[9px] text-zinc-500 font-mono">
+                      <span className="text-[10px] text-zinc-400 font-mono">
                         Host process requires approval
                       </span>
                     </div>
                   </div>
-                  <span className="text-[9px] font-mono px-2 py-0.5 rounded bg-zinc-800 text-zinc-300 border border-white/10">
+                  <span className="text-[10px] font-mono font-medium px-2 py-0.5 rounded bg-zinc-800 text-zinc-200 border border-white/10">
                     Review Required
                   </span>
                 </div>
 
-                <div className="relative bg-zinc-950/90 p-2.5 rounded-lg border border-white/5 font-mono text-[11px] text-zinc-300 select-all overflow-x-auto whitespace-pre max-h-28 scrollbar-thin">
-                  <span className="text-zinc-600 select-none mr-2">$</span>
+                <div className="relative bg-zinc-950/90 p-3 rounded-lg border border-white/5 font-mono text-[11.5px] leading-relaxed text-zinc-100 select-all overflow-x-auto whitespace-pre max-h-28 scrollbar-thin">
+                  <span className="text-zinc-500 font-bold select-none mr-2">$</span>
                   {msg.commandToApprove}
                 </div>
 
@@ -766,9 +884,9 @@ export function ChatScreen({
                   <button
                     aria-label="Approve command execution"
                     onClick={() => handleApproveCommand(msg.approvalId!, true)}
-                    className="flex-1 py-1.5 px-3 bg-zinc-100 hover:bg-white text-zinc-900 font-semibold text-[11px] rounded-lg shadow-sm transition-all duration-150 active:scale-[0.98] flex items-center justify-center gap-1.5"
+                    className="flex-1 py-2 px-3 bg-zinc-100 hover:bg-white text-zinc-900 font-semibold text-[12px] rounded-lg shadow-sm transition-all duration-150 active:scale-[0.98] flex items-center justify-center gap-1.5 cursor-pointer"
                   >
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                       <polyline points="20 6 9 17 4 12"></polyline>
                     </svg>
                     Approve & Run
@@ -776,7 +894,7 @@ export function ChatScreen({
                   <button
                     aria-label="Reject command execution"
                     onClick={() => handleApproveCommand(msg.approvalId!, false)}
-                    className="py-1.5 px-3 bg-zinc-800/80 hover:bg-zinc-700/80 text-zinc-300 hover:text-white border border-white/10 text-[11px] font-medium rounded-lg transition-all duration-150 active:scale-[0.98]"
+                    className="py-2 px-3 bg-zinc-800/80 hover:bg-zinc-700/80 text-zinc-200 hover:text-white border border-white/10 text-[12px] font-medium rounded-lg transition-all duration-150 active:scale-[0.98] cursor-pointer"
                   >
                     Reject
                   </button>
@@ -787,43 +905,40 @@ export function ChatScreen({
             {msg.isFileApproval && (
               <div className="mt-2 w-full backdrop-blur-xl bg-zinc-900/80 border border-white/10 p-3.5 rounded-xl shadow-2xl space-y-3 select-none transition-all duration-300">
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <div className="p-1.5 bg-zinc-800/90 border border-white/10 rounded-lg text-zinc-300">
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-                        <polyline points="14 2 14 8 20 8"></polyline>
-                      </svg>
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-7 h-7 bg-zinc-800 border border-white/25 rounded-lg text-zinc-100 flex items-center justify-center shadow-md">
+                      <CodeEditIcon status="running" className="w-4 h-4" />
                     </div>
                     <div>
-                      <span className="text-[11px] font-semibold text-zinc-200 block leading-tight">
+                      <span className="text-[12.5px] font-semibold text-zinc-100 block leading-tight">
                         File Modification Request
                       </span>
-                      <span className="text-[9px] text-zinc-500 font-mono capitalize">
+                      <span className="text-[10px] text-zinc-400 font-mono capitalize">
                         Action: {msg.fileChangeType}
                       </span>
                     </div>
                   </div>
-                  <span className="text-[9px] font-mono px-2 py-0.5 rounded bg-zinc-800 text-zinc-300 border border-white/10">
+                  <span className="text-[10px] font-mono font-medium px-2 py-0.5 rounded bg-zinc-800 text-zinc-200 border border-white/10">
                     Pending Diff
                   </span>
                 </div>
 
-                <div className="bg-zinc-950/90 p-2 rounded-lg border border-white/5 text-[10.5px] font-mono text-zinc-300 flex items-center gap-2">
+                <div className="bg-zinc-950/90 p-2.5 rounded-lg border border-white/5 text-[11px] font-mono text-zinc-200 flex items-center gap-2">
                   <span className="text-zinc-500">Path:</span>
-                  <span className="text-zinc-200 font-medium truncate">{msg.filePathToApprove}</span>
+                  <span className="text-zinc-100 font-medium truncate">{msg.filePathToApprove}</span>
                 </div>
 
                 {msg.fileDetailsToApprove && (
-                  <div className="bg-zinc-950/50 p-2.5 rounded-lg border border-white/5 text-[10px] text-zinc-400">
+                  <div className="bg-zinc-950/50 p-2.5 rounded-lg border border-white/5 text-[10.5px] text-zinc-300">
                     {msg.fileDetailsToApprove}
                   </div>
                 )}
 
                 <button
                   onClick={() => vscodeApi?.postMessage({ command: 'openSpeculativeDiff', filePath: msg.filePathToApprove })}
-                  className="w-full py-1.5 px-3 bg-zinc-800/60 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-white/10 text-[10.5px] font-medium rounded-lg transition-all duration-150 flex items-center justify-center gap-1.5"
+                  className="w-full py-2 px-3 bg-zinc-800/60 hover:bg-zinc-800 text-zinc-200 hover:text-white border border-white/10 text-[11px] font-medium rounded-lg transition-all duration-150 flex items-center justify-center gap-1.5 cursor-pointer"
                 >
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <line x1="18" y1="20" x2="18" y2="10"></line>
                     <line x1="12" y1="20" x2="12" y2="4"></line>
                     <line x1="6" y1="20" x2="6" y2="14"></line>
@@ -835,9 +950,9 @@ export function ChatScreen({
                   <button
                     aria-label="Approve file edit"
                     onClick={() => handleApproveFile(msg.approvalId!, true)}
-                    className="flex-1 py-1.5 px-3 bg-zinc-100 hover:bg-white text-zinc-900 font-semibold text-[11px] rounded-lg shadow-sm transition-all duration-150 active:scale-[0.98] flex items-center justify-center gap-1.5"
+                    className="flex-1 py-2 px-3 bg-zinc-100 hover:bg-white text-zinc-900 font-semibold text-[12px] rounded-lg shadow-sm transition-all duration-150 active:scale-[0.98] flex items-center justify-center gap-1.5 cursor-pointer"
                   >
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                       <polyline points="20 6 9 17 4 12"></polyline>
                     </svg>
                     Approve Edit
@@ -845,7 +960,7 @@ export function ChatScreen({
                   <button
                     aria-label="Reject file edit"
                     onClick={() => handleApproveFile(msg.approvalId!, false)}
-                    className="py-1.5 px-3 bg-zinc-800/80 hover:bg-zinc-700/80 text-zinc-300 hover:text-white border border-white/10 text-[11px] font-medium rounded-lg transition-all duration-150 active:scale-[0.98]"
+                    className="py-2 px-3 bg-zinc-800/80 hover:bg-zinc-700/80 text-zinc-200 hover:text-white border border-white/10 text-[12px] font-medium rounded-lg transition-all duration-150 active:scale-[0.98] cursor-pointer"
                   >
                     Reject
                   </button>
@@ -856,23 +971,20 @@ export function ChatScreen({
             {msg.isPlanReview && (
               <div className="mt-2 w-full backdrop-blur-xl bg-zinc-900/80 border border-white/10 p-3.5 rounded-xl shadow-2xl space-y-3 select-none transition-all duration-300">
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <div className="p-1.5 bg-zinc-800/90 border border-white/10 rounded-lg text-zinc-300">
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path>
-                        <rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect>
-                      </svg>
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-7 h-7 bg-zinc-800 border border-white/25 rounded-lg text-zinc-100 flex items-center justify-center shadow-md">
+                      <PlanIcon status="running" className="w-4 h-4" />
                     </div>
                     <div>
-                      <span className="text-[11px] font-semibold text-zinc-200 block leading-tight">
+                      <span className="text-[12.5px] font-semibold text-zinc-100 block leading-tight">
                         Implementation Plan Review
                       </span>
-                      <span className="text-[9px] text-zinc-500 font-mono">
+                      <span className="text-[10px] text-zinc-400 font-mono">
                         Generated plan opened in editor tab
                       </span>
                     </div>
                   </div>
-                  <span className="text-[9px] font-mono px-2 py-0.5 rounded bg-zinc-800 text-zinc-300 border border-white/10">
+                  <span className="text-[10px] font-mono font-medium px-2 py-0.5 rounded bg-zinc-800 text-zinc-200 border border-white/10">
                     Plan Ready
                   </span>
                 </div>
@@ -881,21 +993,21 @@ export function ChatScreen({
                   <button
                     aria-label="Review plan again"
                     onClick={() => vscodeApi?.postMessage({ command: 'reviewPlanAgain' })}
-                    className="py-1.5 px-3 bg-zinc-800/60 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-white/10 text-[11px] font-medium rounded-lg transition-all duration-150"
+                    className="py-2 px-3 bg-zinc-800/60 hover:bg-zinc-800 text-zinc-200 hover:text-white border border-white/10 text-[12px] font-medium rounded-lg transition-all duration-150 cursor-pointer"
                   >
                     View Plan
                   </button>
                   <button
                     aria-label="Approve plan"
                     onClick={() => handlePlanApproval?.(true)}
-                    className="flex-1 py-1.5 px-3 bg-zinc-100 hover:bg-white text-zinc-900 font-semibold text-[11px] rounded-lg shadow-sm transition-all duration-150 active:scale-[0.98] flex items-center justify-center gap-1.5"
+                    className="flex-1 py-2 px-3 bg-zinc-100 hover:bg-white text-zinc-900 font-semibold text-[12px] rounded-lg shadow-sm transition-all duration-150 active:scale-[0.98] flex items-center justify-center gap-1.5 cursor-pointer"
                   >
                     Proceed
                   </button>
                   <button
                     aria-label="Reject plan"
                     onClick={() => handlePlanApproval?.(false)}
-                    className="py-1.5 px-3 bg-zinc-800/80 hover:bg-zinc-700/80 text-zinc-300 hover:text-white border border-white/10 text-[11px] font-medium rounded-lg transition-all duration-150 active:scale-[0.98]"
+                    className="py-2 px-3 bg-zinc-800/80 hover:bg-zinc-700/80 text-zinc-200 hover:text-white border border-white/10 text-[12px] font-medium rounded-lg transition-all duration-150 active:scale-[0.98] cursor-pointer"
                   >
                     Reject
                   </button>
@@ -1424,16 +1536,87 @@ export function ChatScreen({
               )}
             </div>
 
-            {/* Plan Mode Toggle */}
-            <button
-              aria-label="Toggle plan mode"
-              onClick={() => setIsPlanMode(!isPlanMode)}
-              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-[11px] transition-all cursor-pointer ${isPlanMode ? 'glass-component-white text-purple-300 font-bold shadow-md' : 'glass-component-white text-zinc-300 hover:text-white'}`}
-              title="Toggle Planning Mode"
-            >
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 11 12 14 22 4"></polyline><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path></svg>
-              <span>Plan</span>
-            </button>
+            {/* 3-Level Planning Mode Selector */}
+            <div className="relative">
+              <button
+                type="button"
+                aria-label="Planning Mode Selector"
+                onClick={() => setPlanDropdownOpen(prev => !prev)}
+                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-[11px] font-medium transition-all cursor-pointer border ${
+                  planLevel === 'strict'
+                    ? 'bg-purple-950/70 text-purple-300 border-purple-800/60 shadow-sm'
+                    : planLevel === 'none'
+                    ? 'bg-amber-950/70 text-amber-300 border-amber-800/60 shadow-sm'
+                    : 'bg-blue-950/70 text-blue-300 border-blue-800/60 shadow-sm'
+                }`}
+                title="Select Planning Mode (Direct, Auto, Strict Plan Lock)"
+              >
+                <span>{planLevel === 'strict' ? '🔒 Plan Lock' : planLevel === 'none' ? '⚡ Direct' : '⚖️ Auto'}</span>
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={`transition-transform duration-150 ${planDropdownOpen ? 'rotate-180' : ''}`}><path d="m6 9 6 6 6-6"/></svg>
+              </button>
+
+              {planDropdownOpen && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setPlanDropdownOpen(false)} />
+                  <div className="absolute right-0 bottom-full mb-2 w-64 bg-zinc-950/95 backdrop-blur-xl border border-white/15 rounded-xl shadow-2xl p-1.5 z-50 animate-in zoom-in-95 duration-150 font-sans">
+                    <div className="text-[10px] font-mono text-zinc-400 px-2 py-1 uppercase tracking-wider font-semibold border-b border-white/5 mb-1">
+                      Planning Mode (3 Levels)
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPlanLevel('none');
+                        setPlanDropdownOpen(false);
+                      }}
+                      className={`w-full text-left p-2 rounded-lg transition-colors flex flex-col gap-0.5 cursor-pointer ${
+                        planLevel === 'none' ? 'bg-white/10 text-white font-medium' : 'hover:bg-white/5 text-zinc-300'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="flex items-center gap-1.5 font-semibold text-amber-300">⚡ 1. Direct (No Plan)</span>
+                        {planLevel === 'none' && <span className="text-[10px] text-amber-400 font-mono">✓ Active</span>}
+                      </div>
+                      <span className="text-[10px] text-zinc-400 font-normal">All write tools unlocked immediately. No plan required.</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPlanLevel('auto');
+                        setPlanDropdownOpen(false);
+                      }}
+                      className={`w-full text-left p-2 rounded-lg transition-colors flex flex-col gap-0.5 cursor-pointer ${
+                        planLevel === 'auto' ? 'bg-white/10 text-white font-medium' : 'hover:bg-white/5 text-zinc-300'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="flex items-center gap-1.5 font-semibold text-blue-300">⚖️ 2. Auto (Recommended)</span>
+                        {planLevel === 'auto' && <span className="text-[10px] text-blue-400 font-mono">✓ Active</span>}
+                      </div>
+                      <span className="text-[10px] text-zinc-400 font-normal">Plans for complex tasks, executes directly for simple ones.</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPlanLevel('strict');
+                        setPlanDropdownOpen(false);
+                      }}
+                      className={`w-full text-left p-2 rounded-lg transition-colors flex flex-col gap-0.5 cursor-pointer ${
+                        planLevel === 'strict' ? 'bg-white/10 text-white font-medium' : 'hover:bg-white/5 text-zinc-300'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="flex items-center gap-1.5 font-semibold text-purple-300">🔒 3. Strict Plan Lock</span>
+                        {planLevel === 'strict' && <span className="text-[10px] text-purple-400 font-mono">✓ Active</span>}
+                      </div>
+                      <span className="text-[10px] text-zinc-400 font-normal">All write tools locked until submitPlan is approved by you.</span>
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
 
           </div>
 

@@ -4,7 +4,7 @@ import { LlamaEngine } from './LlamaEngine';
 export class CopilotProvider implements vscode.InlineCompletionItemProvider {
   private engine: LlamaEngine;
   private debounceTimer: NodeJS.Timeout | null = null;
-  private debounceMs = 500;
+  private debounceMs = 250;
 
   constructor(engine: LlamaEngine) {
     this.engine = engine;
@@ -36,7 +36,7 @@ export class CopilotProvider implements vscode.InlineCompletionItemProvider {
         const result = await this.getCompletion(document, position, token);
         return result;
       } catch (e) {
-        console.error('exovon agent Provider Error:', e);
+        console.error('Ghost Inline Completion Error:', e);
         return null;
       }
     }
@@ -67,7 +67,7 @@ export class CopilotProvider implements vscode.InlineCompletionItemProvider {
     }
 
     // Ask the engine for FIM completion
-    const completionText = await this.engine.getFimCompletion(prefix, suffix, token);
+    const completionText = await this.engine.getFimCompletion(prefix, suffix, token, document.languageId);
 
     if (!completionText || completionText.trim() === '') {
       return [];

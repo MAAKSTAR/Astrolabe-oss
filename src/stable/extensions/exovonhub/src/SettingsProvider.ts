@@ -60,8 +60,34 @@ export class SettingsProvider {
               model: config.get<string>('preferredModel') || 'Qwen/Qwen3-235B-A22B-Instruct-2507',
               localModelsDirectory: config.get<string>('localModelsDirectory') || '',
               localLlmModelName: config.get<string>('localLlmModelName') || '',
+              inlineGhostModel: config.get<string>('inlineGhostModel') || '',
+              enableGhostText: config.get<boolean>('enableGhostText', true),
               localModelSystemPrompt: config.get<string>('localModelSystemPrompt') || DEFAULT_LOCAL_SYSTEM_PROMPT
             });
+            break;
+          }
+          case 'setInlineGhostModel': {
+            const config = vscode.workspace.getConfiguration('exovonhub');
+            await config.update('inlineGhostModel', data.model, vscode.ConfigurationTarget.Global);
+            vscode.window.showInformationMessage(`Inline Ghost Model set to: ${data.model}`);
+            try {
+              const { EngineStatusBarManager } = require('./agent/EngineStatusBarManager');
+              EngineStatusBarManager.getInstance()?.updateDisplay();
+            } catch {}
+            this._panel.webview.postMessage({ type: 'inlineGhostModelUpdated', model: data.model });
+            break;
+          }
+          case 'toggleGhostText': {
+            const config = vscode.workspace.getConfiguration('exovonhub');
+            const current = config.get<boolean>('enableGhostText', true);
+            const next = data.enabled !== undefined ? data.enabled : !current;
+            await config.update('enableGhostText', next, vscode.ConfigurationTarget.Global);
+            vscode.window.showInformationMessage(`Inline Ghost Autocomplete is now ${next ? 'Enabled' : 'Disabled'}.`);
+            try {
+              const { EngineStatusBarManager } = require('./agent/EngineStatusBarManager');
+              EngineStatusBarManager.getInstance()?.updateDisplay();
+            } catch {}
+            this._panel.webview.postMessage({ type: 'ghostTextToggled', enabled: next });
             break;
           }
           case 'startDaemon': {
@@ -379,6 +405,29 @@ export class SettingsProvider {
               }
             } catch (e) {
               vscode.window.showErrorMessage('Failed to connect to local daemon.');
+            }
+            break;
+          }
+          case 'controlDownload': {
+            try {
+              const fetch = (await import('node-fetch')).default;
+              const res = await fetch('http://127.0.0.1:47990/v1/models/downloads/control', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ filename: data.filename, action: data.action })
+              });
+              if (res.ok) {
+                const act = data.action;
+                if (act === 'pause') {
+                  vscode.window.showInformationMessage(`Paused download for ${data.filename}`);
+                } else if (act === 'retry') {
+                  vscode.window.showInformationMessage(`Resuming download for ${data.filename}`);
+                } else if (act === 'delete') {
+                  vscode.window.showInformationMessage(`Deleted download for ${data.filename}`);
+                }
+              }
+            } catch (e) {
+              vscode.window.showErrorMessage('Failed to control download on local daemon.');
             }
             break;
           }

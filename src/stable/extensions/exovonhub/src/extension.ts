@@ -473,26 +473,21 @@ export async function activate(context: vscode.ExtensionContext) {
 		}
 	}));
 
-	// Setup Local exovon agent Engine (Ghost Text / Inline Autocomplete)
-	const enableGhost = vscode.workspace.getConfiguration('exovonhub').get<boolean>('enableGhostText', false);
+	// Setup Local Inference Engine (Ghost Text / Inline Autocomplete)
+	try {
+		const llamaEngine = new LlamaEngine(context.globalStorageUri);
+		llamaEngine.initialize().catch(e => {
+			console.error('Daemon Ghost Engine init failed:', e);
+		});
 
-	if (enableGhost) {
-		try {
-			const llamaEngine = new LlamaEngine(context.globalStorageUri);
-			// Start initialization in background so it doesn't block extension activation
-			llamaEngine.initialize().catch(e => {
-				console.error('exovon agent init failed', e);
-			});
-
-			const copilotProvider = new CopilotProvider(llamaEngine);
-			const copilotDisposable = vscode.languages.registerInlineCompletionItemProvider(
-				{ pattern: '**' }, // Trigger for all files
-				copilotProvider
-			);
-			context.subscriptions.push(copilotDisposable);
-		} catch (e) {
-			console.error('Failed to construct exovon agent engine:', e);
-		}
+		const copilotProvider = new CopilotProvider(llamaEngine);
+		const copilotDisposable = vscode.languages.registerInlineCompletionItemProvider(
+			{ pattern: '**' }, // Trigger for all files
+			copilotProvider
+		);
+		context.subscriptions.push(copilotDisposable);
+	} catch (e) {
+		console.error('Failed to construct Ghost Engine provider:', e);
 	}
 	
 	} catch (err: any) {

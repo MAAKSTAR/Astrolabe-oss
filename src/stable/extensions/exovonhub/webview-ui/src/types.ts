@@ -18,6 +18,8 @@ export interface TimelineEvent {
   title?: string;
   content?: string;
   toolName?: string;
+  output?: string;
+  checkpointId?: string;
 }
 
 export interface InferenceMetrics {
@@ -41,6 +43,8 @@ export interface Message {
   rawStream?: string;
   logs?: { text: string; logType?: string }[]; // Legacy
   timeline?: TimelineEvent[]; // New unified timeline
+  checkpointId?: string;
+  checkpoint?: any;
 
   isCommandApproval?: boolean;
   isFileApproval?: boolean;
@@ -73,6 +77,8 @@ export interface ChatThread {
   id: string;
   title: string;
   updated_at: number;
+  message_count?: number;
+  preview?: string;
 }
 
 export interface VsCodeApi {

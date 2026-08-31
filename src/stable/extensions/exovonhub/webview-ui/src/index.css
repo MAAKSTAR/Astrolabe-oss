@@ -212,4 +212,25 @@ body {
   animation: slide-up 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
+/* Tool & Agent Loop Keyframes */
+@keyframes scanBeam {
+  0% { transform: translateY(-2px); opacity: 0.3; }
+  50% { opacity: 1; }
+  100% { transform: translateY(7px); opacity: 0.3; }
+}
 
+@keyframes cursorBlink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+@keyframes editStroke {
+  0% { transform: translateY(-1.5px) scaleY(0.95); opacity: 0.5; }
+  50% { transform: translateY(0) scaleY(1.05); opacity: 1; }
+  100% { transform: translateY(1.5px) scaleY(0.95); opacity: 0.5; }
+}
+
+@keyframes drawCheck {
+  0% { stroke-dashoffset: 20; }
+  100% { stroke-dashoffset: 0; }
+}

@@ -1,0 +1,95 @@
+/*
+ * Astrolabe Glass UI (Premium White Frosted Mock)
+ * Minimal, clean, eye-friendly, and diff-safe.
+ */
+
+/* Deep, eye-friendly background with subtle neutral light reflections */
+.monaco-workbench {
+    background-color: #0A0A0C !important;
+    background-image: 
+      radial-gradient(circle at 15% 85%, rgba(255, 255, 255, 0.06) 0%, transparent 40%),
+      radial-gradient(circle at 85% 15%, rgba(255, 255, 255, 0.03) 0%, transparent 40%) !important;
+}
+
+/* Main UI sections as white frosted glass */
+.monaco-workbench .part.sidebar,
+.monaco-workbench .part.activitybar,
+.monaco-workbench .part.panel,
+.monaco-workbench .part.statusbar,
+.monaco-workbench .part.titlebar,
+.monaco-workbench .part.editor {
+    background-color: rgba(255, 255, 255, 0.03) !important;
+    border-right: 1px solid rgba(255, 255, 255, 0.06) !important;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06) !important;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05) !important;
+}
+
+/* Force transparency on inner containers so glass shows through */
+.monaco-workbench .part .monaco-list,
+.monaco-workbench .part .monaco-list-rows,
+.monaco-workbench .part .monaco-pane-view,
+.monaco-workbench .part .pane-body,
+.monaco-workbench .part .monaco-scrollable-element,
+.monaco-workbench .part .search-view,
+.monaco-workbench .part .search-widget,
+.monaco-workbench .part .monaco-tree,
+.monaco-workbench .part .terminal-outer-container,
+.monaco-workbench .part .terminal-wrapper,
+.monaco-workbench .part .xterm-viewport,
+.monaco-workbench .part .xterm {
+    background-color: transparent !important;
+    background: transparent !important;
+}
+
+/* Remove default borders that clash */
+.monaco-workbench .part {
+    border-color: transparent !important;
+}
+
+.monaco-workbench .title.tabs {
+    background-color: rgba(255, 255, 255, 0.02) !important;
+}
+
+.monaco-workbench .tab.active {
+    background-color: rgba(255, 255, 255, 0.06) !important;
+    box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.3) !important;
+    border: none !important;
+}
+
+
+/* Hide built-in CHAT and COPILOT EDITS / EXOVON AGENTS panel tabs */
+.composite.header [aria-label*="Chat"],
+.composite.header [aria-label*="Copilot Edits"],
+.composite.header [aria-label*="Exovon Agents"],
+.composite.header [id*="chatSidebar"],
+.composite.header [id*="chatEditing"],
+.composite.header [id*="workbench.panel.chat"],
+.composite.header [id*="workbench.panel.chatEditing"],
+.monaco-action-bar .action-item:has([aria-label*="Chat"]),
+.monaco-action-bar .action-item:has([aria-label*="Copilot Edits"]),
+.monaco-action-bar .action-item:has([aria-label*="Exovon Agents"]),
+ul.actions-container li.action-item:has(a[aria-label="Chat"]),
+ul.actions-container li.action-item:has(a[aria-label="Copilot Edits"]),
+ul.actions-container li.action-item:has(a[aria-label="Exovon Agents"]),
+ul.actions-container li.action-item:has(a[aria-label="CHAT"]),
+ul.actions-container li.action-item:has(a[aria-label="COPILOT EDITS"]) {
+    display: none !important;
+}
+
+
+/* Hide Settings (Gear) and Profile/Account icons from the lower-left corner */
+.monaco-workbench .part.activitybar .global-activity,
+.monaco-workbench .part.activitybar [aria-label*="Account"],
+.monaco-workbench .part.activitybar [aria-label*="Profile"],
+.monaco-workbench .part.activitybar [aria-label*="Manage"],
+.monaco-workbench .part.activitybar [aria-label*="Settings"],
+#workbench\.parts\.activitybar .global-activity {
+    display: none !important;
+}
+
+/* Hide dropdown arrow / chevron on the top-right titlebar AI button */
+.monaco-workbench .part.titlebar .action-item .codicon-chevron-down,
+.monaco-workbench .part.titlebar .action-item .dropdown-icon,
+.monaco-workbench .part.titlebar [aria-label*="More..."] {
+    display: none !important;
+}

@@ -98,7 +98,7 @@ Version=1.0
 Name=Astrolabe
 GenericName=AI-Native IDE
 Comment=The Open-Source, AI-Native IDE with Built-In Local GPU Inference
-Exec=$INSTALL_DIR/astrolabe %F
+Exec=$INSTALL_DIR/astrolabe --ozone-platform-hint=auto --enable-features=WaylandWindowDecorations %F
 Icon=$ICON_PATH
 Terminal=false
 Type=Application
@@ -110,7 +110,7 @@ Actions=new-empty-window;
 
 [Desktop Action new-empty-window]
 Name=New Empty Window
-Exec=$INSTALL_DIR/astrolabe --new-window %F
+Exec=$INSTALL_DIR/astrolabe --ozone-platform-hint=auto --enable-features=WaylandWindowDecorations --new-window %F
 Icon=$ICON_PATH
 DESKTOP_EOF
 

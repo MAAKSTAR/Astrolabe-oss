@@ -31,6 +31,8 @@ pub struct AppState {
     pub models_dir: String,
     pub active_model: RwLock<Option<String>>,
     pub active_downloads: RwLock<HashMap<String, crate::models::DownloadProgress>>,
+    pub download_tasks: RwLock<HashMap<String, tokio::task::AbortHandle>>,
+    pub download_urls: RwLock<HashMap<String, String>>,
 }
 
 #[derive(Parser, Debug)]
@@ -81,6 +83,8 @@ async fn main() {
         models_dir: models_dir.clone(),
         active_model: RwLock::new(None),
         active_downloads: RwLock::new(HashMap::new()),
+        download_tasks: RwLock::new(HashMap::new()),
+        download_urls: RwLock::new(HashMap::new()),
     });
 
     let app = api::build_router(state);

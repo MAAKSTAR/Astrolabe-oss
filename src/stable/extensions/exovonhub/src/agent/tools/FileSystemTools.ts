@@ -28,6 +28,11 @@ export class FileSystemTools implements FileSystemToolsInterface {
   private isIndexing: boolean = false;
   private diagnosticsService?: DiagnosticsService;
 
+  // Checkpointing & Change Tracking
+  private modifiedFiles: Set<string> = new Set();
+  private createdFiles: Set<string> = new Set();
+  private deletedFiles: Set<string> = new Set();
+
   constructor() {
     this.workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
     this.targetRoot = this.workspaceRoot;
@@ -36,6 +41,20 @@ export class FileSystemTools implements FileSystemToolsInterface {
     if (this.workspaceRoot) {
       this.initializeMerkleTree().catch(e => console.error('Failed to init Merkle Tree:', e));
     }
+  }
+
+  public getTouchedFiles(): { modified: string[]; created: string[]; deleted: string[] } {
+    return {
+      modified: Array.from(this.modifiedFiles),
+      created: Array.from(this.createdFiles),
+      deleted: Array.from(this.deletedFiles)
+    };
+  }
+
+  public resetTouchedFiles(): void {
+    this.modifiedFiles.clear();
+    this.createdFiles.clear();
+    this.deletedFiles.clear();
   }
 
   public getWorkspaceRoot(): string {
@@ -481,6 +500,7 @@ export class FileSystemTools implements FileSystemToolsInterface {
       
       const updatedContent = lines.join('\n');
       await vscode.workspace.fs.writeFile(uri, new TextEncoder().encode(updatedContent));
+      this.modifiedFiles.add(relativePath);
 
       let diagInfo = '';
       if (this.diagnosticsService && (relativePath.endsWith('.ts') || relativePath.endsWith('.tsx') || relativePath.endsWith('.js') || relativePath.endsWith('.jsx'))) {
@@ -518,6 +538,7 @@ export class FileSystemTools implements FileSystemToolsInterface {
 
       const updatedContent = content.replace(targetContent, replacementContent);
       await vscode.workspace.fs.writeFile(uri, new TextEncoder().encode(updatedContent));
+      this.modifiedFiles.add(relativePath);
 
       return `Successfully modified file: "${relativePath}"`;
     } catch (error: any) {
@@ -608,6 +629,7 @@ export class FileSystemTools implements FileSystemToolsInterface {
       const updatedContent = updatedLines.join('\n');
       
       await vscode.workspace.fs.writeFile(uri, new TextEncoder().encode(updatedContent));
+      this.modifiedFiles.add(relativePath);
 
       let diagInfo = '';
       if (this.diagnosticsService && (relativePath.endsWith('.ts') || relativePath.endsWith('.tsx') || relativePath.endsWith('.js') || relativePath.endsWith('.jsx'))) {
@@ -781,6 +803,7 @@ export class FileSystemTools implements FileSystemToolsInterface {
       }
       const uri = vscode.Uri.file(fullPath);
       await vscode.workspace.fs.writeFile(uri, new TextEncoder().encode(content));
+      this.createdFiles.add(relativePath);
       return `Successfully created new file: "${relativePath}"`;
     } catch (error: any) {
       return `Error creating file: ${error.message}`;
@@ -796,6 +819,7 @@ export class FileSystemTools implements FileSystemToolsInterface {
       const fullPath = this.resolveWritePath(relativePath);
       const uri = vscode.Uri.file(fullPath);
       await vscode.workspace.fs.delete(uri, { recursive: false, useTrash: true });
+      this.deletedFiles.add(relativePath);
       return `Successfully deleted file: "${relativePath}"`;
     } catch (error: any) {
       return `Error deleting file: ${error.message}`;

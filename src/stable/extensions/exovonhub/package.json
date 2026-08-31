@@ -279,8 +279,13 @@
         },
         "exovonhub.enableGhostText": {
           "type": "boolean",
-          "default": false,
-          "description": "Enable local SLM ghost text / inline code completions using Qwen2.5-Coder."
+          "default": true,
+          "description": "Enable ultra-fast local ghost text / inline code autocomplete using your active or dedicated local model."
+        },
+        "exovonhub.inlineGhostModel": {
+          "type": "string",
+          "default": "",
+          "description": "The dedicated local model to use for inline ghost code autocomplete. If empty, automatically uses whatever model is currently loaded in the local inference engine."
         },
         "exovonhub.autonomousMode": {
           "type": "boolean",
@@ -357,7 +362,7 @@
     "vitest": "^4.1.9",
     "webpack": "^5.105.3",
     "webpack-cli": "^6.0.1",
-    "@exovon/sdk": "file:../../../../packages/exovon-sdk"
+    "@exovon/sdk": "file:../EXOVON/packages/exovon-sdk"
   },
   "dependencies": {
     "@google/genai": "^2.6.0",

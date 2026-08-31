@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import rehypeHighlight from 'rehype-highlight';
+import rehypeRaw from 'rehype-raw';
+import remarkGfm from 'remark-gfm';
 
 import { getVsCodeApi } from './vscodeApi';
 
@@ -271,22 +273,13 @@ export default function SettingsApp() {
     status: string;
   }
   
-  interface HfSearchResult {
-    id: string;
-    downloads?: number;
-  }
-
   const [daemonRunning, setDaemonRunning] = useState(false);
   const [localModels, setLocalModels] = useState<LocalModel[]>([]);
   const [activeDownloads, setActiveDownloads] = useState<DownloadProgress[]>([]);
   const [activeLocalModel, setActiveLocalModel] = useState<string>('');
+  const [inlineGhostModel, setInlineGhostModel] = useState<string>('');
+  const [enableGhostText, setEnableGhostText] = useState<boolean>(true);
   const [localModelsDir, setLocalModelsDir] = useState<string>('~/.exovon/models');
-
-  const [hfSearchQuery, setHfSearchQuery] = useState('');
-  const [hfSearchResults, setHfSearchResults] = useState<HfSearchResult[]>([]);
-  const [isSearchingHf, setIsSearchingHf] = useState(false);
-  const [hfSearchPage, setHfSearchPage] = useState(0);
-  const [hasMoreHfResults, setHasMoreHfResults] = useState(true);
 
   // Load Model Modal State
   const [loadModelModalOpen, setLoadModelModalOpen] = useState(false);
@@ -533,19 +526,16 @@ export default function SettingsApp() {
       } else if (event.data.type === 'settingsState') {
         if (event.data.localLlmModelName) setActiveLocalModel(event.data.localLlmModelName);
         if (event.data.localModelsDirectory) setLocalModelsDir(event.data.localModelsDirectory);
+        if (event.data.inlineGhostModel !== undefined) setInlineGhostModel(event.data.inlineGhostModel);
+        if (event.data.enableGhostText !== undefined) setEnableGhostText(event.data.enableGhostText);
         if (event.data.localModelSystemPrompt !== undefined) {
           setLocalSystemPrompt(event.data.localModelSystemPrompt);
           setIsPromptSaved(false);
         }
-      } else if (event.data.type === 'hfSearchResults') {
-        const results = event.data.results || [];
-        if (event.data.page > 0) {
-          setHfSearchResults(prev => [...prev, ...results]);
-        } else {
-          setHfSearchResults(results);
-        }
-        setHasMoreHfResults(results.length === 10);
-        setIsSearchingHf(false);
+      } else if (event.data.type === 'inlineGhostModelUpdated') {
+        setInlineGhostModel(event.data.model);
+      } else if (event.data.type === 'ghostTextToggled') {
+        setEnableGhostText(event.data.enabled);
       } else if (event.data.type === 'modelLoadProgress') {
         setLoadingModelId(event.data.modelId);
         setLoadProgressPercent(event.data.percent || 0);
@@ -1321,88 +1311,7 @@ export default function SettingsApp() {
               </div>
             </div>
 
-            {/* HF Browser */}
-            <div className="bg-zinc-900/50 backdrop-blur-md rounded-2xl border border-white/5 p-6 shadow-xl relative">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-sm font-bold text-white tracking-widest uppercase flex items-center gap-2">
-                  <svg className="w-4 h-4 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
-                  Hugging Face Downloader
-                </h3>
-                <button 
-                  onClick={() => openModelHubWithQuery(hfSearchQuery)}
-                  className="px-3 py-1.5 rounded-lg text-xs font-semibold text-sky-300 bg-sky-500/10 hover:bg-sky-500/20 border border-sky-500/20 flex items-center gap-1.5 transition-colors"
-                >
-                  <span>✨</span>
-                  <span>Open Model Hub</span>
-                </button>
-              </div>
-              <div className="flex gap-3 mb-6">
-                <input 
-                  type="text" 
-                  value={hfSearchQuery}
-                  onChange={(e) => setHfSearchQuery(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && hfSearchQuery.trim()) {
-                      setIsSearchingHf(true);
-                      setHfSearchPage(0);
-                      vscodeApi?.postMessage({ command: 'searchHuggingFace', query: hfSearchQuery, page: 0 });
-                    }
-                  }}
-                  className="flex-1 bg-zinc-950 border border-white/10 rounded-lg p-2.5 text-sm text-zinc-300 outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 transition-all placeholder:text-zinc-600"
-                  placeholder="Search GGUF models (e.g. Llama-3, Qwen)..."
-                />
-                <button 
-                  disabled={!hfSearchQuery.trim() || isSearchingHf || !daemonRunning}
-                  onClick={() => {
-                    setIsSearchingHf(true);
-                    setHfSearchPage(0);
-                    vscodeApi?.postMessage({ command: 'searchHuggingFace', query: hfSearchQuery, page: 0 });
-                  }}
-                  className="px-6 py-2 rounded-lg text-sm font-bold text-zinc-900 bg-amber-500 hover:bg-amber-400 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                >
-                  {isSearchingHf && hfSearchPage === 0 ? 'Searching...' : 'Search'}
-                </button>
-              </div>
 
-              {hfSearchResults.length > 0 && (
-                <div className="space-y-3 mt-4 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
-                  {hfSearchResults.map((res: HfSearchResult) => (
-                    <div key={res.id} className="bg-zinc-950 border border-white/5 p-4 rounded-xl flex items-center justify-between">
-                      <div>
-                        <h4 className="text-sm font-bold text-zinc-200">{res.id}</h4>
-                        <p className="text-xs text-zinc-500 mt-1">{res.downloads?.toLocaleString() || 0} downloads</p>
-                      </div>
-                      <button 
-                        onClick={() => {
-                          setIsModelHubOpen(true);
-                          fetchModelDetails(res.id);
-                        }}
-                        className="px-3 py-1.5 rounded-lg text-sky-400 bg-sky-500/10 hover:bg-sky-500/20 transition-colors flex items-center gap-1.5 border border-sky-500/20 text-xs font-semibold"
-                        title="Explore in Model Hub"
-                      >
-                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
-                        <span>View in Hub</span>
-                      </button>
-                    </div>
-                  ))}
-
-                  {hasMoreHfResults && (
-                    <button
-                      onClick={() => {
-                        const nextPage = hfSearchPage + 1;
-                        setHfSearchPage(nextPage);
-                        setIsSearchingHf(true);
-                        vscodeApi?.postMessage({ command: 'searchHuggingFace', query: hfSearchQuery, page: nextPage });
-                      }}
-                      disabled={isSearchingHf}
-                      className="w-full mt-4 py-3 rounded-lg text-sm font-bold text-zinc-400 bg-zinc-800 hover:bg-zinc-700 transition-colors border border-white/5 shadow-sm"
-                    >
-                      {isSearchingHf && hfSearchPage > 0 ? 'Loading...' : 'Load More Results'}
-                    </button>
-                  )}
-                </div>
-              )}
-            </div>
 
             {/* Active Downloads List */}
             {activeDownloads.length > 0 && (
@@ -1416,35 +1325,86 @@ export default function SettingsApp() {
                 <div className="space-y-4">
                   {activeDownloads.map((dl, i) => {
                     const { speed, eta } = getSpeedAndEta(dl);
+                    const isDownloading = dl.status === 'downloading' || dl.status === 'starting';
+                    const isPaused = dl.status === 'paused';
+                    const isError = dl.status.includes('error');
+                    const isFinished = dl.status === 'finished';
 
                     return (
                       <div key={i} className="bg-zinc-950 border border-white/5 p-4 rounded-xl flex flex-col gap-3">
-                        <div className="flex justify-between items-center">
-                          <h4 className="text-sm font-semibold text-zinc-200 truncate pr-4">{dl.model_name}</h4>
+                        <div className="flex justify-between items-center gap-3">
+                          <h4 className="text-sm font-semibold text-zinc-200 truncate pr-2">{dl.model_name}</h4>
                           <div className="flex items-center gap-2 flex-shrink-0">
-                            {speed && (
+                            {speed && isDownloading && (
                               <span className="text-[10px] font-mono font-medium px-2 py-0.5 rounded bg-sky-500/10 text-sky-400 border border-sky-500/20 flex items-center gap-1">
                                 <svg className="w-3 h-3 text-sky-400 animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
                                 {speed}
                               </span>
                             )}
-                            {eta && (
+                            {eta && isDownloading && (
                               <span className="text-[10px] font-mono text-zinc-400 bg-zinc-900 px-2 py-0.5 rounded border border-white/5">
                                 ETA {eta}
                               </span>
                             )}
-                            <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded ${dl.status === 'downloading' || dl.status === 'starting' ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : dl.status === 'finished' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-red-500/20 text-red-400 border border-red-500/30'}`}>
+                            <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded ${isDownloading ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : isPaused ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' : isFinished ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-red-500/20 text-red-400 border border-red-500/30'}`}>
                               {dl.status}
                             </span>
+
+                            {/* Download Action Controls: Pause, Resume/Retry, Delete */}
+                            <div className="flex items-center gap-1.5 ml-1">
+                              {isDownloading && (
+                                <button
+                                  type="button"
+                                  onClick={() => vscodeApi?.postMessage({ command: 'controlDownload', filename: dl.model_name, action: 'pause' })}
+                                  className="px-2 py-0.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white rounded border border-white/10 text-[10px] font-mono flex items-center gap-1 transition-colors cursor-pointer"
+                                  title="Pause download"
+                                >
+                                  <svg className="w-3 h-3" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>
+                                  Pause
+                                </button>
+                              )}
+
+                              {isPaused && (
+                                <button
+                                  type="button"
+                                  onClick={() => vscodeApi?.postMessage({ command: 'controlDownload', filename: dl.model_name, action: 'retry' })}
+                                  className="px-2 py-0.5 bg-sky-950/80 hover:bg-sky-900 text-sky-300 rounded border border-sky-600/30 text-[10px] font-mono flex items-center gap-1 transition-colors cursor-pointer"
+                                  title="Resume download"
+                                >
+                                  <svg className="w-3 h-3" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                                  Resume
+                                </button>
+                              )}
+
+                              {isError && (
+                                <button
+                                  type="button"
+                                  onClick={() => vscodeApi?.postMessage({ command: 'controlDownload', filename: dl.model_name, action: 'retry' })}
+                                  className="px-2 py-0.5 bg-amber-950/80 hover:bg-amber-900 text-amber-300 rounded border border-amber-600/30 text-[10px] font-mono flex items-center gap-1 transition-colors cursor-pointer"
+                                  title="Retry download"
+                                >
+                                  <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+                                  Retry
+                                </button>
+                              )}
+
+                              <button
+                                type="button"
+                                onClick={() => vscodeApi?.postMessage({ command: 'controlDownload', filename: dl.model_name, action: 'delete' })}
+                                className="p-1 bg-zinc-900 hover:bg-rose-950/60 text-zinc-500 hover:text-rose-300 rounded border border-white/5 hover:border-rose-500/30 transition-colors cursor-pointer"
+                                title="Delete download"
+                              >
+                                <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                              </button>
+                            </div>
                           </div>
                         </div>
                         <div className="w-full bg-zinc-800 rounded-full h-1.5 overflow-hidden">
-                          <div className={`h-1.5 rounded-full transition-all duration-500 ${dl.status === 'finished' ? 'bg-emerald-500' : dl.status.includes('error') ? 'bg-red-500' : 'bg-sky-500'}`} style={{ width: `${dl.percent}%` }}></div>
+                          <div className={`h-1.5 rounded-full transition-all duration-500 ${isFinished ? 'bg-emerald-500' : isError ? 'bg-red-500' : isPaused ? 'bg-amber-400' : 'bg-sky-500'}`} style={{ width: `${dl.percent}%` }}></div>
                         </div>
                         <div className="flex justify-between items-center text-[10px] text-zinc-400 font-mono">
                           <span className="text-zinc-300 font-medium">{dl.percent.toFixed(1)}%</span>
                           <div className="flex items-center gap-3">
-                            {speed && <span className="text-sky-400 font-medium">{speed}</span>}
                             <span>{((dl.downloaded_bytes || 0) / (1024 * 1024 * 1024)).toFixed(2)} GB / {((dl.total_bytes || 0) / (1024 * 1024 * 1024)).toFixed(2)} GB</span>
                           </div>
                         </div>
@@ -1500,6 +1460,23 @@ export default function SettingsApp() {
                   </div>
 
                   <button 
+                    onClick={() => {
+                      const next = !enableGhostText;
+                      setEnableGhostText(next);
+                      vscodeApi?.postMessage({ command: 'toggleGhostText', enabled: next });
+                    }}
+                    className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors border ${
+                      enableGhostText 
+                        ? 'bg-purple-500/15 text-purple-300 border-purple-500/30 hover:bg-purple-500/25' 
+                        : 'bg-zinc-800/80 text-zinc-500 border-white/5 hover:text-zinc-300'
+                    }`}
+                    title={enableGhostText ? 'Inline Ghost Autocomplete Enabled' : 'Inline Ghost Autocomplete Disabled'}
+                  >
+                    <span>⚡</span>
+                    <span>Ghost: {enableGhostText ? 'ON' : 'OFF'}</span>
+                  </button>
+
+                  <button 
                     onClick={() => vscodeApi?.postMessage({ command: 'getLocalModels' })}
                     className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 transition-colors"
                     title="Refresh Models List"
@@ -1536,7 +1513,7 @@ export default function SettingsApp() {
                         <th className="py-2.5 px-3 font-medium">Publisher</th>
                         <th className="py-2.5 px-3 font-medium text-center">Quant</th>
                         <th className="py-2.5 px-3 font-medium">Size</th>
-                        <th className="py-2.5 px-4 font-medium text-right">Actions</th>
+                        <th className="py-2.5 px-4 font-medium text-right min-w-[120px]">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-white/[0.03] text-xs">
@@ -1587,6 +1564,11 @@ export default function SettingsApp() {
                                     {meta.isReasoning && (
                                       <span className="px-1 py-0.2 rounded bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 text-[9px] font-mono shrink-0" title="Reasoning / Thinking">
                                         Think
+                                      </span>
+                                    )}
+                                    {inlineGhostModel === m.id && (
+                                      <span className="px-1.5 py-0.2 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30 text-[9px] font-mono shrink-0 flex items-center gap-0.5" title="Dedicated Inline Ghost Model">
+                                        <span>⚡</span> Ghost
                                       </span>
                                     )}
                                   </div>
@@ -1695,7 +1677,7 @@ export default function SettingsApp() {
                                   {/* Dropdown Popup */}
                                   {activeActionMenuId === m.id && (
                                     <div 
-                                      className="absolute right-0 top-full mt-1 w-48 bg-[#1a1d26] border border-white/10 rounded-xl shadow-2xl py-1.5 z-50 text-xs text-zinc-200 backdrop-blur-md"
+                                      className="absolute right-0 top-full mt-1 w-52 bg-[#1a1d26] border border-white/10 rounded-xl shadow-2xl py-1.5 z-50 text-xs text-zinc-200 backdrop-blur-md"
                                       onClick={(e) => e.stopPropagation()}
                                     >
                                       {m.loaded ? (
@@ -1745,6 +1727,17 @@ export default function SettingsApp() {
                                         className="w-full text-left px-3 py-1.5 hover:bg-white/5 flex items-center gap-2 text-zinc-300"
                                       >
                                         <span>🎯</span> Set as Active Model
+                                      </button>
+
+                                      <button 
+                                        onClick={() => {
+                                          vscodeApi?.postMessage({ command: 'setInlineGhostModel', model: m.id });
+                                          setInlineGhostModel(m.id);
+                                          setActiveActionMenuId(null);
+                                        }}
+                                        className="w-full text-left px-3 py-1.5 hover:bg-white/5 flex items-center gap-2 text-purple-300"
+                                      >
+                                        <span>⚡</span> {inlineGhostModel === m.id ? 'Active Ghost Model' : 'Set as Inline Ghost'}
                                       </button>
 
                                       <div className="my-1 border-t border-white/5"></div>
@@ -2071,7 +2064,8 @@ export default function SettingsApp() {
                         <div className="bg-zinc-900/60 border border-white/5 rounded-xl p-6 text-xs text-zinc-300 max-h-[500px] overflow-y-auto custom-scrollbar">
                           {modelReadme ? (
                             <ReactMarkdown
-                              rehypePlugins={[rehypeHighlight]}
+                              remarkPlugins={[remarkGfm]}
+                              rehypePlugins={[rehypeRaw, rehypeHighlight]}
                               components={{
                                 h1: ({ children }) => <h1 className="text-base font-bold text-white mt-4 mb-2 pb-1.5 border-b border-white/10">{children}</h1>,
                                 h2: ({ children }) => <h2 className="text-sm font-bold text-zinc-100 mt-4 mb-2 pb-1 border-b border-white/5">{children}</h2>,
@@ -2092,7 +2086,7 @@ export default function SettingsApp() {
                                 ol: ({ children }) => <ol className="list-decimal list-inside space-y-1 my-2 text-xs text-zinc-300 pl-1">{children}</ol>,
                                 li: ({ children }) => <li className="text-xs leading-relaxed text-zinc-300">{children}</li>,
                                 blockquote: ({ children }) => <blockquote className="my-3 border-l-2 border-sky-500/60 bg-zinc-950/60 py-2 px-3 rounded-r-md text-zinc-400 text-xs italic">{children}</blockquote>,
-                                img: ({ src, alt }) => <img src={src} alt={alt || 'Image'} className="max-w-full rounded-lg border border-white/10 my-3 shadow-md object-contain" />,
+                                img: ({ src, alt, ...props }) => <img src={src} alt={alt || 'Image'} className="max-w-full rounded-lg border border-white/10 my-3 shadow-md object-contain" {...props} />,
                                 table: ({ children }) => (
                                   <div className="my-3 overflow-x-auto rounded-lg border border-white/10 bg-zinc-950/80">
                                     <table className="w-full text-left text-xs border-collapse font-sans">{children}</table>
@@ -2136,7 +2130,7 @@ export default function SettingsApp() {
                                 }
                               }}
                             >
-                              {modelReadme}
+                              {modelReadme.replace(/^---[\s\S]*?---\s*/, '')}
                             </ReactMarkdown>
                           ) : (
                             <span className="text-zinc-500 italic">No README content found for this repository.</span>

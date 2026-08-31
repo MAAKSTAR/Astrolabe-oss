@@ -45,17 +45,17 @@ const vscode = __importStar(__webpack_require__(1));
 const fs = __importStar(__webpack_require__(2));
 const path = __importStar(__webpack_require__(3));
 const ExovonSidebarProvider_1 = __webpack_require__(4);
-const SettingsProvider_1 = __webpack_require__(281);
-const BrainCoordinator_1 = __webpack_require__(282);
-const LlamaEngine_1 = __webpack_require__(289);
-const CopilotProvider_1 = __webpack_require__(290);
-const AuthService_1 = __webpack_require__(291);
-const PlanReviewProvider_1 = __webpack_require__(277);
-const PlanCommentController_1 = __webpack_require__(292);
-const ProblemCodeActionProvider_1 = __webpack_require__(293);
-const ApiService_1 = __webpack_require__(294);
-const EngineStatusBarManager_1 = __webpack_require__(274);
-const DaemonManager_1 = __webpack_require__(275);
+const SettingsProvider_1 = __webpack_require__(283);
+const BrainCoordinator_1 = __webpack_require__(284);
+const LlamaEngine_1 = __webpack_require__(291);
+const CopilotProvider_1 = __webpack_require__(292);
+const AuthService_1 = __webpack_require__(293);
+const PlanReviewProvider_1 = __webpack_require__(279);
+const PlanCommentController_1 = __webpack_require__(294);
+const ProblemCodeActionProvider_1 = __webpack_require__(295);
+const ApiService_1 = __webpack_require__(296);
+const EngineStatusBarManager_1 = __webpack_require__(276);
+const DaemonManager_1 = __webpack_require__(277);
 let sidebarProvider;
 let brainCoordinator;
 let authService;
@@ -409,12 +409,12 @@ async function activate(context) {
         context.subscriptions.push(rejectDiffDisposable);
         const compileMotionDisposable = vscode.commands.registerCommand('exovon.compileMotion', async (uri, rawTheatreJson) => {
             const targetUri = uri || vscode.window.activeTextEditor?.document.uri;
-            const { MotionCompiler } = __webpack_require__(295);
+            const { MotionCompiler } = __webpack_require__(297);
             await MotionCompiler.getInstance().compileAndApply(targetUri, rawTheatreJson || {}, brainCoordinator);
         });
         context.subscriptions.push(compileMotionDisposable);
         const openMotionStudioDisposable = vscode.commands.registerCommand('exovon.openMotionStudio', async () => {
-            const { MotionStudioServer } = __webpack_require__(303);
+            const { MotionStudioServer } = __webpack_require__(305);
             const server = MotionStudioServer.getInstance();
             server.setBrainCoordinator(brainCoordinator);
             await server.startAndOpen();
@@ -470,23 +470,19 @@ async function activate(context) {
                 sidebarProvider.postMessage({ type: 'cortexGraphUpdate', elements });
             }
         }));
-        // Setup Local exovon agent Engine (Ghost Text / Inline Autocomplete)
-        const enableGhost = vscode.workspace.getConfiguration('exovonhub').get('enableGhostText', false);
-        if (enableGhost) {
-            try {
-                const llamaEngine = new LlamaEngine_1.LlamaEngine(context.globalStorageUri);
-                // Start initialization in background so it doesn't block extension activation
-                llamaEngine.initialize().catch(e => {
-                    console.error('exovon agent init failed', e);
-                });
-                const copilotProvider = new CopilotProvider_1.CopilotProvider(llamaEngine);
-                const copilotDisposable = vscode.languages.registerInlineCompletionItemProvider({ pattern: '**' }, // Trigger for all files
-                copilotProvider);
-                context.subscriptions.push(copilotDisposable);
-            }
-            catch (e) {
-                console.error('Failed to construct exovon agent engine:', e);
-            }
+        // Setup Local Inference Engine (Ghost Text / Inline Autocomplete)
+        try {
+            const llamaEngine = new LlamaEngine_1.LlamaEngine(context.globalStorageUri);
+            llamaEngine.initialize().catch(e => {
+                console.error('Daemon Ghost Engine init failed:', e);
+            });
+            const copilotProvider = new CopilotProvider_1.CopilotProvider(llamaEngine);
+            const copilotDisposable = vscode.languages.registerInlineCompletionItemProvider({ pattern: '**' }, // Trigger for all files
+            copilotProvider);
+            context.subscriptions.push(copilotDisposable);
+        }
+        catch (e) {
+            console.error('Failed to construct Ghost Engine provider:', e);
         }
     }
     catch (err) {
@@ -514,7 +510,7 @@ function deactivate() {
     }
     // Stop Inference Engine to prevent zombie processes
     try {
-        const { DaemonManager } = __webpack_require__(275);
+        const { DaemonManager } = __webpack_require__(277);
         DaemonManager.getInstance().stopDaemon();
     }
     catch (e) {
@@ -590,14 +586,14 @@ const vscode = __importStar(__webpack_require__(1));
 const fs = __importStar(__webpack_require__(2));
 const path = __importStar(__webpack_require__(3));
 const AgentOrchestrator_1 = __webpack_require__(5);
-const DiagnosticsWatchdog_1 = __webpack_require__(276);
+const DiagnosticsWatchdog_1 = __webpack_require__(278);
 const FileSystemTools_1 = __webpack_require__(26);
-const PlanReviewProvider_1 = __webpack_require__(277);
-const PlanViewerProvider_1 = __webpack_require__(278);
+const PlanReviewProvider_1 = __webpack_require__(279);
+const PlanViewerProvider_1 = __webpack_require__(280);
 const InspectorProxy_1 = __webpack_require__(34);
-const DaemonManager_1 = __webpack_require__(275);
-const WorkspacePreparer_1 = __webpack_require__(279);
-const DevServerManager_1 = __webpack_require__(280);
+const DaemonManager_1 = __webpack_require__(277);
+const WorkspacePreparer_1 = __webpack_require__(281);
+const DevServerManager_1 = __webpack_require__(282);
 class ExovonSidebarProvider {
     _context;
     _authService;
@@ -667,7 +663,7 @@ class ExovonSidebarProvider {
         if (this._authService) {
             this._authService.onDidChangeAuthState(async (token) => {
                 if (token) {
-                    const { ApiService } = await Promise.resolve(/* import() */).then(__webpack_require__.bind(__webpack_require__, 294));
+                    const { ApiService } = await Promise.resolve(/* import() */).then(__webpack_require__.bind(__webpack_require__, 296));
                     const profile = await ApiService.getUserProfile(token);
                     this.postMessage({
                         type: 'workspaceInfo',
@@ -798,7 +794,7 @@ class ExovonSidebarProvider {
             const token = this._authService.getToken();
             isLoggedIn = !!token;
             if (isLoggedIn) {
-                const { ApiService } = await Promise.resolve(/* import() */).then(__webpack_require__.bind(__webpack_require__, 294));
+                const { ApiService } = await Promise.resolve(/* import() */).then(__webpack_require__.bind(__webpack_require__, 296));
                 const profile = await ApiService.getUserProfile(token);
                 tokenQuota = profile.remaining;
                 profilePic = profile.profilePic || '';
@@ -813,7 +809,7 @@ class ExovonSidebarProvider {
             }
         }
         // We send this to the SettingsProvider's panel
-        const { SettingsProvider } = await Promise.resolve(/* import() */).then(__webpack_require__.t.bind(__webpack_require__, 281, 23));
+        const { SettingsProvider } = await Promise.resolve(/* import() */).then(__webpack_require__.t.bind(__webpack_require__, 283, 23));
         if (SettingsProvider.currentPanel) {
             SettingsProvider.currentPanel.postMessage({
                 type: 'workspaceInfo',
@@ -884,7 +880,7 @@ class ExovonSidebarProvider {
                         const token = this._authService.getToken();
                         isLoggedIn = !!token;
                         if (isLoggedIn) {
-                            const { ApiService } = await Promise.resolve(/* import() */).then(__webpack_require__.bind(__webpack_require__, 294));
+                            const { ApiService } = await Promise.resolve(/* import() */).then(__webpack_require__.bind(__webpack_require__, 296));
                             const profile = await ApiService.getUserProfile(token);
                             tokenQuota = profile.remaining;
                             modelRates = profile.modelRates;
@@ -976,6 +972,47 @@ class ExovonSidebarProvider {
                     vscode.window.showInformationMessage('Exovon Engine: KV Cache & Agent Context Cleared.');
                     break;
                 }
+                case 'rollbackToCheckpoint': {
+                    const { checkpointId } = data;
+                    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+                    if (workspaceRoot && checkpointId) {
+                        const { StateGraphCheckpointer } = await Promise.resolve(/* import() */).then(__webpack_require__.t.bind(__webpack_require__, 273, 23));
+                        const checkpointer = this._activeOrchestrator?.getCheckpointer() || new StateGraphCheckpointer(workspaceRoot);
+                        const res = await checkpointer.rollback(undefined, checkpointId);
+                        if (res.success && res.restoredCheckpoint) {
+                            webviewView.webview.postMessage({
+                                type: 'checkpointRollbackComplete',
+                                checkpoint: res.restoredCheckpoint,
+                                checkpointId: res.restoredCheckpoint.id,
+                                text: `Restored files to Checkpoint #${res.restoredCheckpoint.stepNumber}`
+                            });
+                            vscode.window.showInformationMessage(`Exovon Engine: Restored files to Checkpoint #${res.restoredCheckpoint.stepNumber} (${res.restoredFiles.length} files restored)`);
+                        }
+                        else {
+                            vscode.window.showErrorMessage(`Rollback failed: ${res.error || 'Checkpoint not found'}`);
+                        }
+                    }
+                    break;
+                }
+                case 'branchFromCheckpoint': {
+                    const { checkpointId, branchName } = data;
+                    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+                    if (workspaceRoot && checkpointId) {
+                        const { StateGraphCheckpointer } = await Promise.resolve(/* import() */).then(__webpack_require__.t.bind(__webpack_require__, 273, 23));
+                        const checkpointer = this._activeOrchestrator?.getCheckpointer() || new StateGraphCheckpointer(workspaceRoot);
+                        const newThreadId = `branch_${Date.now()}`;
+                        const branchedChk = checkpointer.branch('default_thread', checkpointId, newThreadId, branchName || 'Alternative Approach');
+                        if (branchedChk) {
+                            webviewView.webview.postMessage({
+                                type: 'checkpointBranchComplete',
+                                newThreadId,
+                                branchedCheckpoint: branchedChk
+                            });
+                            vscode.window.showInformationMessage(`Exovon Engine: Branched chat from Checkpoint #${branchedChk.stepNumber}`);
+                        }
+                    }
+                    break;
+                }
                 case 'setContextKeepLastNTurns': {
                     const turns = Math.max(1, Math.min(20, Number(data.turns) || 3));
                     const config = vscode.workspace.getConfiguration('exovonhub');
@@ -999,7 +1036,7 @@ class ExovonSidebarProvider {
                     const config = vscode.workspace.getConfiguration('exovonhub');
                     let activeCtxSize = 8192;
                     try {
-                        const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 305))).default;
+                        const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 307))).default;
                         const res = await fetch('http://127.0.0.1:47990/v1/health');
                         if (res.ok) {
                             const data = await res.json();
@@ -1245,7 +1282,13 @@ Developer Action Request: "${finalPrompt}"
                             webviewView.webview.postMessage({ type: 'agentToolStart', toolId: update.toolId, toolName: update.toolName, toolArgs: update.toolArgs, messageId });
                         }
                         else if (update.type === 'agentToolComplete') {
-                            webviewView.webview.postMessage({ type: 'agentToolComplete', toolId: update.toolId, toolStatus: update.toolStatus, messageId });
+                            webviewView.webview.postMessage({ type: 'agentToolComplete', toolId: update.toolId, toolStatus: update.toolStatus, toolOutput: update.toolOutput, messageId });
+                        }
+                        else if (update.type === 'checkpointCreated') {
+                            webviewView.webview.postMessage({ type: 'checkpointCreated', checkpoint: update.checkpoint, checkpointId: update.checkpointId, messageId });
+                        }
+                        else if (update.type === 'checkpointRollbackComplete') {
+                            webviewView.webview.postMessage({ type: 'checkpointRollbackComplete', checkpoint: update.checkpoint, text: update.text, messageId });
                         }
                         else if (update.type === 'plan') {
                             webviewView.webview.postMessage({ type: 'agentPlanUpdate', planSteps: update.planSteps, messageId });
@@ -1433,7 +1476,7 @@ Developer Action Request: "${finalPrompt}"
                 }
                 case 'getDaemonHealth': {
                     try {
-                        const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 305))).default;
+                        const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 307))).default;
                         const controller = new AbortController();
                         const timeout = setTimeout(() => { controller.abort(); }, 3000);
                         const res = await fetch('http://127.0.0.1:47990/v1/health', { signal: controller.signal });
@@ -1454,7 +1497,7 @@ Developer Action Request: "${finalPrompt}"
                 }
                 case 'getLocalModels': {
                     try {
-                        const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 305))).default;
+                        const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 307))).default;
                         const controller = new AbortController();
                         const timeout = setTimeout(() => { controller.abort(); }, 8000);
                         const res = await fetch('http://127.0.0.1:47990/v1/models', { signal: controller.signal });
@@ -1508,7 +1551,7 @@ Developer Action Request: "${finalPrompt}"
                 case 'searchHuggingFace': {
                     if (data.query) {
                         try {
-                            const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 305))).default;
+                            const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 307))).default;
                             const controller = new AbortController();
                             const timeout = setTimeout(() => { controller.abort(); }, 8000);
                             const res = await fetch(`http://127.0.0.1:47990/v1/models/search?q=${encodeURIComponent(data.query)}`, { signal: controller.signal });
@@ -1536,7 +1579,7 @@ Developer Action Request: "${finalPrompt}"
                                 break;
                             }
                             vscode.window.showInformationMessage(`Starting download for ${data.filename}... Check the terminal for progress if attached.`);
-                            const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 305))).default;
+                            const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 307))).default;
                             fetch('http://127.0.0.1:47990/v1/models/download', {
                                 method: 'POST',
                                 headers: { 'Content-Type': 'application/json' },
@@ -1566,7 +1609,7 @@ Developer Action Request: "${finalPrompt}"
                 case 'installSGLang': {
                     vscode.window.showInformationMessage('Starting SGLang installation... This may take a few minutes.');
                     try {
-                        const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 305))).default;
+                        const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 307))).default;
                         const res = await fetch('http://127.0.0.1:47990/v1/system/install_sglang', {
                             method: 'POST'
                         });
@@ -1668,6 +1711,48 @@ Developer Action Request: "${finalPrompt}"
                                 webviewView.webview.postMessage({ type: 'chatThreadsLoaded', threads });
                             }
                         });
+                    }
+                    break;
+                }
+                case 'renameChatThread': {
+                    if (this._brainCoordinator && data.threadId && data.title) {
+                        this._brainCoordinator.renameChatThread(data.threadId, data.title);
+                        const threads = this._brainCoordinator.getChatThreads();
+                        webviewView.webview.postMessage({ type: 'chatThreadsLoaded', threads });
+                    }
+                    break;
+                }
+                case 'clearAllChatThreads': {
+                    if (this._brainCoordinator) {
+                        vscode.window.showWarningMessage('Are you sure you want to delete ALL chat history?', { modal: true }, 'Yes, Delete All', 'Cancel').then(selection => {
+                            if (selection === 'Yes, Delete All') {
+                                this._brainCoordinator.clearAllChatThreads();
+                                const newThreadId = this._brainCoordinator.createNewThread();
+                                const threads = this._brainCoordinator.getChatThreads();
+                                webviewView.webview.postMessage({ type: 'chatThreadsLoaded', threads });
+                                webviewView.webview.postMessage({ type: 'newThreadCreated', threadId: newThreadId });
+                                vscode.window.showInformationMessage('All chat history cleared.');
+                            }
+                        });
+                    }
+                    break;
+                }
+                case 'exportChatThread': {
+                    if (this._brainCoordinator && data.threadId) {
+                        const messages = this._brainCoordinator.loadChatThread(data.threadId);
+                        const thread = this._brainCoordinator.getChatThreads().find(t => t.id === data.threadId);
+                        const title = thread?.title || 'Chat';
+                        let markdown = `# ${title}\n\n*Exported on ${new Date().toLocaleString()}*\n\n---\n\n`;
+                        for (const msg of messages) {
+                            const sender = msg.sender === 'user' ? '👤 User' : '🤖 Astrolabe Agent';
+                            markdown += `### ${sender} (${msg.timestamp || ''})\n\n${msg.text || ''}\n\n`;
+                            if (msg.toolCalls && msg.toolCalls.length > 0) {
+                                markdown += `> **Tools Used**: ${msg.toolCalls.map((tc) => tc.name).join(', ')}\n\n`;
+                            }
+                            markdown += `---\n\n`;
+                        }
+                        vscode.env.clipboard.writeText(markdown);
+                        vscode.window.showInformationMessage(`Chat "${title}" copied to clipboard as Markdown!`);
                     }
                     break;
                 }
@@ -1833,6 +1918,7 @@ const WebSearchTools_1 = __webpack_require__(33);
 const InspectorProxy_1 = __webpack_require__(34);
 const McpClientRouter_1 = __webpack_require__(38);
 const modelMapper_1 = __webpack_require__(272);
+const StateGraphCheckpointer_1 = __webpack_require__(273);
 let GoogleGenAIClass = null;
 class AgentOrchestrator {
     approvalCallback;
@@ -1851,6 +1937,9 @@ class AgentOrchestrator {
     _currentMessageId;
     brainCoordinator; // To be injected
     mcpRouter;
+    checkpointer;
+    lastCheckpointId = null;
+    currentThreadId = 'default_thread';
     constructor(approvalCallback, fileApprovalCallback, rawOnUpdate, brainCoordinator, context, authDelegate) {
         this.approvalCallback = approvalCallback;
         this.fileApprovalCallback = fileApprovalCallback;
@@ -1860,6 +1949,9 @@ class AgentOrchestrator {
         this.fsTools = new FileSystemTools_1.FileSystemTools();
         this.brainCoordinator = brainCoordinator;
         this.mcpRouter = new McpClientRouter_1.McpClientRouter();
+        if (this.fsTools.getWorkspaceRoot()) {
+            this.checkpointer = new StateGraphCheckpointer_1.StateGraphCheckpointer(this.fsTools.getWorkspaceRoot());
+        }
         // Dynamic approval callback with strict whitelist for autonomous mode
         this.terminalTools = new TerminalTools_1.TerminalTools(async (cmd) => {
             const config = vscode.workspace.getConfiguration('exovonhub');
@@ -1868,11 +1960,29 @@ class AgentOrchestrator {
             const whitelist = ['npm', 'node', 'cat', 'ls', 'grep', 'git', 'echo', 'mkdir', 'touch', 'npx', 'tsc', 'python', 'python3', 'pip'];
             const isWhitelisted = whitelist.includes(firstWord) && !cmd.includes('|') && !cmd.includes('&&') && !cmd.includes(';') && !cmd.includes('`') && !cmd.includes('$') && !cmd.includes('\n') && !cmd.includes('<') && !cmd.includes('>');
             if (isAutonomous && isWhitelisted) {
-                this.onUpdate({ type: 'log', text: `⚡ [AUTO-APPROVED] Shell execution: "${cmd}"`, logType: 'info' });
+                this.onUpdate({ type: 'log', text: `[AUTO-APPROVED] Shell execution: "${cmd}"`, logType: 'info' });
                 return true;
             }
             return this.approvalCallback(cmd);
         });
+    }
+    getCheckpointer() {
+        return this.checkpointer;
+    }
+    async rollbackToCheckpoint(checkpointId) {
+        if (!this.checkpointer)
+            return { success: false, restoredCheckpoint: null, restoredFiles: [], error: 'Checkpointer not available' };
+        const res = await this.checkpointer.rollback(this.currentThreadId, checkpointId);
+        if (res.success && res.restoredCheckpoint) {
+            this.lastCheckpointId = res.restoredCheckpoint.id;
+            this.onUpdate({
+                type: 'checkpointRollbackComplete',
+                checkpoint: res.restoredCheckpoint,
+                checkpointId: res.restoredCheckpoint.id,
+                text: `Rolled back to Checkpoint #${res.restoredCheckpoint.stepNumber} (${res.restoredFiles.length} files restored)`
+            });
+        }
+        return res;
     }
     onUpdate(update) {
         if (this._currentMessageId) {
@@ -1890,7 +2000,7 @@ class AgentOrchestrator {
             this._planApprovalResolver({ approved: false });
             this._planApprovalResolver = undefined;
         }
-        this.onUpdate({ type: 'log', text: '🛑 Agent cancelled by user.', logType: 'warning' });
+        this.onUpdate({ type: 'log', text: 'Agent execution cancelled by user.', logType: 'warning' });
         this.onUpdate({ type: 'complete' });
     }
     /**
@@ -1947,7 +2057,7 @@ class AgentOrchestrator {
                 if (this.apiKey) {
                     try {
                         if (!GoogleGenAIClass) {
-                            const sdk = await __webpack_require__.e(/* import() */ 4).then(__webpack_require__.bind(__webpack_require__, 336));
+                            const sdk = await __webpack_require__.e(/* import() */ 4).then(__webpack_require__.bind(__webpack_require__, 338));
                             GoogleGenAIClass = sdk.GoogleGenAI;
                         }
                         const gatewayUrl = config.get('apiGatewayUrl') || 'https://exovon.in';
@@ -2032,6 +2142,18 @@ class AgentOrchestrator {
                 text: `Starting Exovon AI Agent (Model: ${resolvedModel})...`,
                 logType: 'header'
             });
+            if (this.checkpointer) {
+                const threadId = messageId || `thread_${Date.now()}`;
+                this.currentThreadId = threadId;
+                try {
+                    const initialChk = await this.checkpointer.createCheckpoint(threadId, this.lastCheckpointId, 'reasoning', prompt.length > 40 ? prompt.substring(0, 40) + '...' : prompt, previousMessages, [], [], [], undefined, { activeSubgoal: prompt });
+                    this.lastCheckpointId = initialChk.id;
+                    this.onUpdate({ type: 'checkpointCreated', checkpoint: initialChk, checkpointId: initialChk.id });
+                }
+                catch (chkErr) {
+                    console.warn('[Exovon] Initial checkpoint warning:', chkErr);
+                }
+            }
             if (images && images.length > 0) {
                 if (resolvedModel.startsWith('deepseek') || resolvedModel.startsWith('mimo')) {
                     this.onUpdate({ type: 'log', text: `❌ ERROR: ${resolvedModel} does not support image inputs. Please select a vision-capable model like Gemini 3.5 Flash.`, logType: 'error' });
@@ -2067,7 +2189,7 @@ class AgentOrchestrator {
             // Prompt injection hardened system prompt with explicit boundary markers
             const isLocalModel = resolvedModel.startsWith('local:') || resolvedModel === 'local-custom-model';
             const config = vscode.workspace.getConfiguration('exovonhub');
-            const { DEFAULT_LOCAL_SYSTEM_PROMPT } = __webpack_require__(273);
+            const { DEFAULT_LOCAL_SYSTEM_PROMPT } = __webpack_require__(275);
             let systemInstruction;
             if (isLocalModel) {
                 const localPrompt = config.get('localModelSystemPrompt') || DEFAULT_LOCAL_SYSTEM_PROMPT;
@@ -2328,13 +2450,12 @@ MANDATORY RULES:
             while (!completed && loopCount < maxLoops) {
                 // Check cancellation at top of each iteration
                 if (this._cancelled) {
-                    this.onUpdate({ type: 'log', text: '🛑 Agent execution cancelled.', logType: 'warning' });
                     break;
                 }
                 loopCount++;
                 this.onUpdate({
                     type: 'log',
-                    text: `🤖 AI reasoning step ${loopCount}...`,
+                    text: `AI reasoning step ${loopCount}...`,
                     logType: 'info'
                 });
                 // --- Agentic Context Compression Hook ---
@@ -2686,7 +2807,6 @@ MANDATORY RULES:
                 let streamingText = '';
                 for await (const chunk of responseStream) {
                     if (this._cancelled) {
-                        this.onUpdate({ type: 'log', text: '🛑 Agent stream cancelled by user.', logType: 'warning' });
                         break;
                     }
                     const candidate = chunk.candidates?.[0];
@@ -2701,7 +2821,7 @@ MANDATORY RULES:
                                 // Detects classic LLM loops like "Wait, I'll just... Actually, I'll just..."
                                 const loopMatch = streamingText.match(/(.{20,100}?)\1\1/i);
                                 if (loopMatch) {
-                                    this.onUpdate({ type: 'log', text: '🛑 Agent reasoning loop detected. Intercepting...', logType: 'warning' });
+                                    this.onUpdate({ type: 'log', text: 'Agent reasoning loop detected. Intercepting...', logType: 'warning' });
                                     // Forcefully end the streaming loop by truncating the text to break the pattern
                                     streamingText = streamingText.substring(0, streamingText.indexOf(loopMatch[0]) + loopMatch[1].length);
                                     break;
@@ -2750,7 +2870,6 @@ MANDATORY RULES:
                     // 4. Parse Model Response
                     for (const callPart of functionCalls) {
                         if (this._cancelled) {
-                            this.onUpdate({ type: 'log', text: '🛑 Agent tool execution cancelled by user.', logType: 'warning' });
                             break;
                         }
                         const call = callPart.functionCall;
@@ -2846,7 +2965,7 @@ MANDATORY RULES:
                                     if (!result.startsWith('Error')) {
                                         await this.fsTools.commitShadowFile(call.args.relativePath);
                                         this.modifiedFiles.add(call.args.relativePath);
-                                        this.onUpdate({ type: 'log', text: `⚡ [AUTO-APPROVED] Applying patch to file: "${call.args.relativePath}"`, logType: 'info' });
+                                        this.onUpdate({ type: 'log', text: `[AUTO-APPROVED] Applying patch to file: "${call.args.relativePath}"`, logType: 'info' });
                                     }
                                     else {
                                         throw new Error(result);
@@ -2890,7 +3009,7 @@ MANDATORY RULES:
                                     if (!result.startsWith('Error')) {
                                         await this.fsTools.commitShadowFile(call.args.relativePath);
                                         this.modifiedFiles.add(call.args.relativePath);
-                                        this.onUpdate({ type: 'log', text: `⚡ [AUTO-APPROVED] Applying multi-replace to file: "${call.args.relativePath}"`, logType: 'info' });
+                                        this.onUpdate({ type: 'log', text: `[AUTO-APPROVED] Applying multi-replace to file: "${call.args.relativePath}"`, logType: 'info' });
                                     }
                                     else {
                                         throw new Error(result);
@@ -2930,7 +3049,7 @@ MANDATORY RULES:
                                     if (!result.startsWith('Error')) {
                                         await this.fsTools.commitShadowFile(call.args.relativePath);
                                         this.modifiedFiles.add(call.args.relativePath);
-                                        this.onUpdate({ type: 'log', text: `⚡ [AUTO-APPROVED] Creating file: "${call.args.relativePath}"`, logType: 'info' });
+                                        this.onUpdate({ type: 'log', text: `[AUTO-APPROVED] Creating file: "${call.args.relativePath}"`, logType: 'info' });
                                     }
                                     else {
                                         throw new Error(result);
@@ -2969,7 +3088,7 @@ MANDATORY RULES:
                                             await vscode.workspace.fs.delete(vscode.Uri.file(realFilePath), { useTrash: true });
                                         }
                                         this.modifiedFiles.add(call.args.relativePath);
-                                        this.onUpdate({ type: 'log', text: `⚡ [AUTO-APPROVED] Deleting file: "${call.args.relativePath}"`, logType: 'info' });
+                                        this.onUpdate({ type: 'log', text: `[AUTO-APPROVED] Deleting file: "${call.args.relativePath}"`, logType: 'info' });
                                     }
                                     else {
                                         throw new Error(result);
@@ -3033,7 +3152,7 @@ MANDATORY RULES:
                                         const outputDir = call.args.outputDir || 'dist';
                                         this.onUpdate({ type: 'log', text: `🚀 Deploying workspace to Exovon Cloud (${projectId})...`, logType: 'info' });
                                         try {
-                                            const { ExovonClient } = await Promise.all(/* import() */[__webpack_require__.e(6), __webpack_require__.e(5)]).then(__webpack_require__.bind(__webpack_require__, 436));
+                                            const { ExovonClient } = await Promise.all(/* import() */[__webpack_require__.e(6), __webpack_require__.e(5)]).then(__webpack_require__.bind(__webpack_require__, 438));
                                             const client = new ExovonClient({ apiKey: token, baseUrl: 'https://exovon-orchestrator-911388870180.asia-south1.run.app/api' });
                                             const { deployId } = await client.deployments.deploy({
                                                 projectId,
@@ -3270,8 +3389,23 @@ MANDATORY RULES:
                         this.onUpdate({
                             type: 'agentToolComplete',
                             toolId,
-                            toolStatus: isFailure ? 'failed' : 'success'
+                            toolStatus: isFailure ? 'failed' : 'success',
+                            toolOutput: result
                         });
+                        if (this.checkpointer && !isFailure) {
+                            try {
+                                const touched = this.fsTools.getTouchedFiles();
+                                const allFiles = [...new Set([...touched.modified, ...touched.created])];
+                                if (allFiles.length > 0) {
+                                    const chk = await this.checkpointer.createCheckpoint(this.currentThreadId, this.lastCheckpointId, 'tool_complete', `Step: ${toolName}`, messages, allFiles, touched.created, touched.deleted);
+                                    this.lastCheckpointId = chk.id;
+                                    this.onUpdate({ type: 'checkpointCreated', checkpoint: chk, checkpointId: chk.id });
+                                }
+                            }
+                            catch (chkErr) {
+                                console.warn('[Exovon] Tool checkpoint warning:', chkErr);
+                            }
+                        }
                         toolResponseParts.push({
                             functionResponse: {
                                 name: toolName,
@@ -3562,8 +3696,8 @@ ${transcript.slice(-15000)}
         if (!isLocal)
             return;
         try {
-            const { EngineStatusBarManager } = __webpack_require__(274);
-            const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 305))).default;
+            const { EngineStatusBarManager } = __webpack_require__(276);
+            const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 307))).default;
             const getMetrics = async () => {
                 try {
                     const res = await fetch('http://127.0.0.1:47990/v1/health');
@@ -3753,7 +3887,7 @@ ${transcript.slice(-15000)}
         let targetModel = model;
         if (model === 'local-custom-model' || model.startsWith('local:')) {
             await this.checkAndEnforceThermalGuard(model);
-            const { DaemonManager } = __webpack_require__(275);
+            const { DaemonManager } = __webpack_require__(277);
             const daemon = DaemonManager.getInstance();
             const isDaemonAlive = await daemon.isAlive();
             if (isDaemonAlive) {
@@ -6804,6 +6938,10 @@ class FileSystemTools {
     fsWatcher = null;
     isIndexing = false;
     diagnosticsService;
+    // Checkpointing & Change Tracking
+    modifiedFiles = new Set();
+    createdFiles = new Set();
+    deletedFiles = new Set();
     constructor() {
         this.workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
         this.targetRoot = this.workspaceRoot;
@@ -6811,6 +6949,18 @@ class FileSystemTools {
         if (this.workspaceRoot) {
             this.initializeMerkleTree().catch(e => console.error('Failed to init Merkle Tree:', e));
         }
+    }
+    getTouchedFiles() {
+        return {
+            modified: Array.from(this.modifiedFiles),
+            created: Array.from(this.createdFiles),
+            deleted: Array.from(this.deletedFiles)
+        };
+    }
+    resetTouchedFiles() {
+        this.modifiedFiles.clear();
+        this.createdFiles.clear();
+        this.deletedFiles.clear();
     }
     getWorkspaceRoot() {
         return this.workspaceRoot;
@@ -7233,6 +7383,7 @@ class FileSystemTools {
             lines.splice(start, end - start, replacementContent);
             const updatedContent = lines.join('\n');
             await vscode.workspace.fs.writeFile(uri, new TextEncoder().encode(updatedContent));
+            this.modifiedFiles.add(relativePath);
             let diagInfo = '';
             if (this.diagnosticsService && (relativePath.endsWith('.ts') || relativePath.endsWith('.tsx') || relativePath.endsWith('.js') || relativePath.endsWith('.jsx'))) {
                 diagInfo = this.diagnosticsService.getDiagnosticsForFile(relativePath);
@@ -7265,6 +7416,7 @@ class FileSystemTools {
             }
             const updatedContent = content.replace(targetContent, replacementContent);
             await vscode.workspace.fs.writeFile(uri, new TextEncoder().encode(updatedContent));
+            this.modifiedFiles.add(relativePath);
             return `Successfully modified file: "${relativePath}"`;
         }
         catch (error) {
@@ -7338,6 +7490,7 @@ class FileSystemTools {
             const updatedLines = [...beforeLines, replaceBlock, ...afterLines];
             const updatedContent = updatedLines.join('\n');
             await vscode.workspace.fs.writeFile(uri, new TextEncoder().encode(updatedContent));
+            this.modifiedFiles.add(relativePath);
             let diagInfo = '';
             if (this.diagnosticsService && (relativePath.endsWith('.ts') || relativePath.endsWith('.tsx') || relativePath.endsWith('.js') || relativePath.endsWith('.jsx'))) {
                 diagInfo = this.diagnosticsService.getDiagnosticsForFile(relativePath);
@@ -7504,6 +7657,7 @@ class FileSystemTools {
             }
             const uri = vscode.Uri.file(fullPath);
             await vscode.workspace.fs.writeFile(uri, new TextEncoder().encode(content));
+            this.createdFiles.add(relativePath);
             return `Successfully created new file: "${relativePath}"`;
         }
         catch (error) {
@@ -7519,6 +7673,7 @@ class FileSystemTools {
             const fullPath = this.resolveWritePath(relativePath);
             const uri = vscode.Uri.file(fullPath);
             await vscode.workspace.fs.delete(uri, { recursive: false, useTrash: true });
+            this.deletedFiles.add(relativePath);
             return `Successfully deleted file: "${relativePath}"`;
         }
         catch (error) {
@@ -47009,38 +47164,230 @@ function buildOpenAiPayload(model, openAiMessages, openAiTools = []) {
 
 /***/ }),
 /* 273 */
-/***/ ((__unused_webpack_module, exports) => {
+/***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 "use strict";
 
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.DEFAULT_LOCAL_SYSTEM_PROMPT = void 0;
-exports.DEFAULT_LOCAL_SYSTEM_PROMPT = `You are an expert autonomous AI software engineer and coding agent embedded in the Exovon IDE (Astrolabe).
-Your mission is to solve software engineering tasks with high precision, robust architecture, and verified correctness.
-
-### Core Agent Workflow
-Execute all tasks using a disciplined Plan-Inspect-Execute-Verify loop:
-1. Planning: Formulate a clear step-by-step strategy. Always write your private internal reasoning inside <thought>...</thought> blocks before calling tools or responding.
-2. Codebase Exploration: Inspect existing files using \`viewFile\` and directories using \`listDir\` before asking questions or modifying code. Never guess existing structure when you can inspect it.
-3. Direct Code Modification: Use \`createFile\` to create new files and \`applyPatch\` for modifications. Modify files directly instead of outputting raw code dumps in chat.
-4. Active Verification: Run compiler checks or test commands via \`runCommand\` to verify your changes.
-5. Completion: When ALL actions and file edits are completed, write a clear summary of what was accomplished.
-
-### Available Tools & Calling Syntax
-To execute a tool, emit the exact tool call tag:
-- Inspect folders: <call:listDir(relativePath=".")>
-- Inspect file: <call:viewFile(relativePath="src/game.js")>
-- Modify code: <call:applyPatch(relativePath="src/game.js", searchBlock="exact old code", replaceBlock="new code")>
-- Create new file: <call:createFile(relativePath="src/index.html", content="<!DOCTYPE html>\\n<html>\\n...")>
-- Run command: <call:runCommand(command="npm test")>
-
-### Critical File Writing Rules (Never Violate)
-1. NEVER just write code in markdown blocks (\`\`\`javascript). Markdown code in chat DOES NOT write to disk!
-2. To create a new file or write a script, you MUST emit:
-   <call:createFile(relativePath="src/index.html", content="...")>
-3. To modify existing code, you MUST emit:
-   <call:applyPatch(relativePath="src/game.js", searchBlock="exact old code", replaceBlock="new code")>
-4. Do NOT stop after planning or exploring. If the task requires creating or modifying code, execute the file tools immediately!`;
+exports.StateGraphCheckpointer = void 0;
+const path = __importStar(__webpack_require__(3));
+const fs = __importStar(__webpack_require__(2));
+const WorkspaceSnapshotter_1 = __webpack_require__(274);
+class StateGraphCheckpointer {
+    workspaceRoot;
+    checkpointDir;
+    sessionsFile;
+    snapshotter;
+    sessions = {
+        version: '1.0.0',
+        lastUpdated: Date.now(),
+        threads: {}
+    };
+    constructor(workspaceRoot) {
+        this.workspaceRoot = workspaceRoot;
+        this.checkpointDir = path.join(workspaceRoot, '.exovon', 'checkpoints');
+        this.sessionsFile = path.join(this.checkpointDir, 'sessions.json');
+        this.snapshotter = new WorkspaceSnapshotter_1.WorkspaceSnapshotter(workspaceRoot);
+        this.loadSessions();
+    }
+    getSnapshotter() {
+        return this.snapshotter;
+    }
+    loadSessions() {
+        try {
+            if (fs.existsSync(this.sessionsFile)) {
+                const raw = fs.readFileSync(this.sessionsFile, 'utf-8');
+                this.sessions = JSON.parse(raw);
+            }
+        }
+        catch (e) {
+            console.warn('[StateGraphCheckpointer] Failed to load sessions, initializing fresh:', e);
+            this.sessions = {
+                version: '1.0.0',
+                lastUpdated: Date.now(),
+                threads: {}
+            };
+        }
+    }
+    saveSessions() {
+        try {
+            if (!fs.existsSync(this.checkpointDir)) {
+                fs.mkdirSync(this.checkpointDir, { recursive: true });
+            }
+            this.sessions.lastUpdated = Date.now();
+            fs.writeFileSync(this.sessionsFile, JSON.stringify(this.sessions, null, 2), 'utf-8');
+        }
+        catch (e) {
+            console.error('[StateGraphCheckpointer] Failed to save sessions:', e);
+        }
+    }
+    /**
+     * Generates a unique checkpoint ID.
+     */
+    generateId() {
+        return `chk_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    }
+    /**
+     * Creates and stores a new State Graph checkpoint.
+     */
+    async createCheckpoint(threadId, parentId, node, title, messages, trackedFiles = [], createdFiles = [], deletedFiles = [], pendingTools, memoryVariables, activeFile) {
+        const chkId = this.generateId();
+        if (!this.sessions.threads[threadId]) {
+            this.sessions.threads[threadId] = {
+                activeCheckpointId: chkId,
+                checkpoints: []
+            };
+        }
+        const thread = this.sessions.threads[threadId];
+        const stepNumber = thread.checkpoints.length + 1;
+        // Snapshot files if there are tracked files
+        let fileSnapshot = undefined;
+        if (trackedFiles.length > 0 || createdFiles.length > 0 || deletedFiles.length > 0) {
+            fileSnapshot = await this.snapshotter.snapshotFiles(chkId, trackedFiles, createdFiles, deletedFiles);
+        }
+        else if (parentId) {
+            // Inherit previous snapshot manifest if no new files were touched
+            const parent = thread.checkpoints.find(c => c.id === parentId);
+            if (parent && parent.state.fileSnapshot) {
+                fileSnapshot = parent.state.fileSnapshot;
+            }
+        }
+        // Clone messages safely (strip non-serializable elements)
+        const sanitizedMessages = JSON.parse(JSON.stringify(messages || []));
+        const checkpoint = {
+            id: chkId,
+            threadId,
+            parentId,
+            node,
+            timestamp: Date.now(),
+            title,
+            stepNumber,
+            state: {
+                messages: sanitizedMessages,
+                pendingTools: pendingTools ? JSON.parse(JSON.stringify(pendingTools)) : undefined,
+                memoryVariables: memoryVariables ? JSON.parse(JSON.stringify(memoryVariables)) : undefined,
+                fileSnapshot,
+                filesChangedCount: fileSnapshot ? Object.keys(fileSnapshot.files).length : 0,
+                activeFile
+            }
+        };
+        thread.checkpoints.push(checkpoint);
+        thread.activeCheckpointId = chkId;
+        this.saveSessions();
+        return checkpoint;
+    }
+    /**
+     * Retrieves a specific checkpoint by ID. Searches threadId if provided, or all threads as fallback.
+     */
+    getCheckpoint(threadId, checkpointId) {
+        if (threadId && this.sessions.threads[threadId]) {
+            const found = this.sessions.threads[threadId].checkpoints.find(c => c.id === checkpointId);
+            if (found)
+                return found;
+        }
+        // Fallback: Search all session threads
+        for (const thread of Object.values(this.sessions.threads)) {
+            const found = thread.checkpoints.find(c => c.id === checkpointId);
+            if (found)
+                return found;
+        }
+        return null;
+    }
+    /**
+     * Returns all checkpoints for a thread.
+     */
+    getThreadCheckpoints(threadId) {
+        const thread = this.sessions.threads[threadId];
+        return thread ? thread.checkpoints : [];
+    }
+    /**
+     * Rollback: Restores both the agent memory state and physical workspace files
+     * to the exact point of the target checkpoint.
+     */
+    async rollback(threadId, checkpointId) {
+        const target = this.getCheckpoint(threadId, checkpointId);
+        if (!target) {
+            return { success: false, restoredCheckpoint: null, restoredFiles: [], error: `Checkpoint ${checkpointId} not found.` };
+        }
+        let restoredFiles = [];
+        // 1. Restore physical workspace files
+        if (target.state.fileSnapshot) {
+            const res = await this.snapshotter.restoreSnapshot(target.state.fileSnapshot);
+            if (!res.success) {
+                return { success: false, restoredCheckpoint: target, restoredFiles: [], error: `File restoration failed: ${res.error}` };
+            }
+            restoredFiles = res.restored;
+        }
+        // 2. Set thread active checkpoint pointer
+        const activeThreadId = threadId || target.threadId;
+        if (this.sessions.threads[activeThreadId]) {
+            this.sessions.threads[activeThreadId].activeCheckpointId = checkpointId;
+        }
+        this.saveSessions();
+        return {
+            success: true,
+            restoredCheckpoint: target,
+            restoredFiles
+        };
+    }
+    /**
+     * Branch: Forks a conversation thread from a specific checkpoint into a new thread.
+     */
+    branch(sourceThreadId, checkpointId, newThreadId, branchName) {
+        const sourceCheckpoint = this.getCheckpoint(sourceThreadId, checkpointId);
+        if (!sourceCheckpoint)
+            return null;
+        const branchedCheckpoint = {
+            ...sourceCheckpoint,
+            id: this.generateId(),
+            threadId: newThreadId,
+            parentId: checkpointId,
+            timestamp: Date.now(),
+            branchName,
+            title: `Branch: ${branchName} (from Step ${sourceCheckpoint.stepNumber})`
+        };
+        this.sessions.threads[newThreadId] = {
+            activeCheckpointId: branchedCheckpoint.id,
+            checkpoints: [branchedCheckpoint]
+        };
+        this.saveSessions();
+        return branchedCheckpoint;
+    }
+}
+exports.StateGraphCheckpointer = StateGraphCheckpointer;
 
 
 /***/ }),
@@ -47083,15 +47430,261 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.WorkspaceSnapshotter = void 0;
+const vscode = __importStar(__webpack_require__(1));
+const path = __importStar(__webpack_require__(3));
+const fs = __importStar(__webpack_require__(2));
+const crypto = __importStar(__webpack_require__(27));
+class WorkspaceSnapshotter {
+    workspaceRoot;
+    checkpointDir;
+    blobsDir;
+    constructor(workspaceRoot) {
+        this.workspaceRoot = workspaceRoot;
+        this.checkpointDir = path.join(workspaceRoot, '.exovon', 'checkpoints');
+        this.blobsDir = path.join(this.checkpointDir, 'blobs');
+        this.ensureDirs();
+    }
+    ensureDirs() {
+        try {
+            if (!fs.existsSync(this.blobsDir)) {
+                fs.mkdirSync(this.blobsDir, { recursive: true });
+            }
+        }
+        catch (e) {
+            console.error('[WorkspaceSnapshotter] Failed to create blob directory:', e);
+        }
+    }
+    /**
+     * Computes SHA-256 hash of a buffer or string.
+     */
+    hashContent(content) {
+        return crypto.createHash('sha256').update(content).digest('hex');
+    }
+    /**
+     * Stores content in the blob cache if not already present.
+     */
+    storeBlob(content) {
+        const hash = this.hashContent(content);
+        const blobPath = path.join(this.blobsDir, `${hash}.blob`);
+        if (!fs.existsSync(blobPath)) {
+            fs.writeFileSync(blobPath, content);
+        }
+        return hash;
+    }
+    /**
+     * Reads content from the blob cache by hash.
+     */
+    readBlob(hash) {
+        const blobPath = path.join(this.blobsDir, `${hash}.blob`);
+        if (fs.existsSync(blobPath)) {
+            return fs.readFileSync(blobPath);
+        }
+        return null;
+    }
+    /**
+     * Takes a snapshot of specific files or all currently modified files in the workspace.
+     */
+    async snapshotFiles(snapshotId, relativePaths, createdFiles = [], deletedFiles = []) {
+        this.ensureDirs();
+        const manifest = {
+            id: snapshotId,
+            timestamp: Date.now(),
+            files: {},
+            createdFiles: [...createdFiles],
+            deletedFiles: [...deletedFiles]
+        };
+        for (const relPath of relativePaths) {
+            const normalizedRel = relPath.replace(/\\/g, '/').replace(/^\.\//, '');
+            const fullPath = path.resolve(this.workspaceRoot, normalizedRel);
+            const shadowPath = path.resolve(this.workspaceRoot, '.exovon-shadow', normalizedRel);
+            try {
+                let pathToRead = fullPath;
+                // If file exists in shadow sandbox, read latest version from shadow
+                if (fs.existsSync(shadowPath) && fs.statSync(shadowPath).isFile()) {
+                    pathToRead = shadowPath;
+                }
+                if (fs.existsSync(pathToRead) && fs.statSync(pathToRead).isFile()) {
+                    const content = fs.readFileSync(pathToRead);
+                    const hash = this.storeBlob(content);
+                    manifest.files[normalizedRel] = hash;
+                }
+            }
+            catch (err) {
+                console.warn(`[WorkspaceSnapshotter] Could not snapshot file ${relPath}:`, err);
+            }
+        }
+        return manifest;
+    }
+    /**
+     * Restores the physical workspace files to match the given snapshot manifest.
+     * Uses VS Code WorkspaceEdit where possible so open editor tabs update live.
+     */
+    async restoreSnapshot(manifest) {
+        const restored = [];
+        try {
+            // 1. Restore all files recorded in the snapshot manifest
+            for (const [relPath, blobHash] of Object.entries(manifest.files)) {
+                const fullPath = path.resolve(this.workspaceRoot, relPath);
+                const shadowPath = path.resolve(this.workspaceRoot, '.exovon-shadow', relPath);
+                const blobContent = this.readBlob(blobHash);
+                if (blobContent !== null) {
+                    // Restore to real workspace
+                    const parentDir = path.dirname(fullPath);
+                    if (!fs.existsSync(parentDir)) {
+                        fs.mkdirSync(parentDir, { recursive: true });
+                    }
+                    const fileUri = vscode.Uri.file(fullPath);
+                    await vscode.workspace.fs.writeFile(fileUri, blobContent);
+                    // If shadow directory exists, also keep shadow in sync
+                    if (fs.existsSync(path.join(this.workspaceRoot, '.exovon-shadow'))) {
+                        const shadowParentDir = path.dirname(shadowPath);
+                        if (!fs.existsSync(shadowParentDir)) {
+                            fs.mkdirSync(shadowParentDir, { recursive: true });
+                        }
+                        fs.writeFileSync(shadowPath, blobContent);
+                    }
+                    restored.push(relPath);
+                }
+            }
+            // 2. Remove files that were created *after* this snapshot
+            if (manifest.createdFiles && manifest.createdFiles.length > 0) {
+                for (const createdRel of manifest.createdFiles) {
+                    if (!manifest.files[createdRel]) {
+                        const fullPath = path.resolve(this.workspaceRoot, createdRel);
+                        const shadowPath = path.resolve(this.workspaceRoot, '.exovon-shadow', createdRel);
+                        if (fs.existsSync(fullPath)) {
+                            const fileUri = vscode.Uri.file(fullPath);
+                            await vscode.workspace.fs.delete(fileUri, { recursive: true, useTrash: false });
+                        }
+                        if (fs.existsSync(shadowPath)) {
+                            try {
+                                fs.unlinkSync(shadowPath);
+                            }
+                            catch { }
+                        }
+                    }
+                }
+            }
+            return { success: true, restored };
+        }
+        catch (e) {
+            console.error('[WorkspaceSnapshotter] Restore error:', e);
+            return { success: false, restored, error: e.message };
+        }
+    }
+    /**
+     * Garbage collection: removes unreferenced blobs.
+     */
+    pruneOldBlobs(activeHashes) {
+        try {
+            if (!fs.existsSync(this.blobsDir))
+                return;
+            const files = fs.readdirSync(this.blobsDir);
+            for (const file of files) {
+                if (file.endsWith('.blob')) {
+                    const hash = file.replace('.blob', '');
+                    if (!activeHashes.has(hash)) {
+                        const blobPath = path.join(this.blobsDir, file);
+                        fs.unlinkSync(blobPath);
+                    }
+                }
+            }
+        }
+        catch (e) {
+            console.warn('[WorkspaceSnapshotter] Blob pruning error:', e);
+        }
+    }
+}
+exports.WorkspaceSnapshotter = WorkspaceSnapshotter;
+
+
+/***/ }),
+/* 275 */
+/***/ ((__unused_webpack_module, exports) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.DEFAULT_LOCAL_SYSTEM_PROMPT = void 0;
+exports.DEFAULT_LOCAL_SYSTEM_PROMPT = `You are an expert autonomous AI software engineer and coding agent embedded in the Exovon IDE (Astrolabe).
+Your mission is to solve software engineering tasks with high precision, robust architecture, and verified correctness.
+
+### Core Agent Workflow
+Execute all tasks using a disciplined Plan-Inspect-Execute-Verify loop:
+1. Planning: Formulate a clear step-by-step strategy. Always write your private internal reasoning inside <thought>...</thought> blocks before calling tools or responding.
+2. Codebase Exploration: Inspect existing files using \`viewFile\` and directories using \`listDir\` before asking questions or modifying code. Never guess existing structure when you can inspect it.
+3. Direct Code Modification: Use \`createFile\` to create new files and \`applyPatch\` for modifications. Modify files directly instead of outputting raw code dumps in chat.
+4. Active Verification: Run compiler checks or test commands via \`runCommand\` to verify your changes.
+5. Completion: When ALL actions and file edits are completed, write a clear summary of what was accomplished.
+
+### Available Tools & Calling Syntax
+To execute a tool, emit the exact tool call tag:
+- Inspect folders: <call:listDir(relativePath=".")>
+- Inspect file: <call:viewFile(relativePath="src/game.js")>
+- Modify code: <call:applyPatch(relativePath="src/game.js", searchBlock="exact old code", replaceBlock="new code")>
+- Create new file: <call:createFile(relativePath="src/index.html", content="<!DOCTYPE html>\\n<html>\\n...")>
+- Run command: <call:runCommand(command="npm test")>
+
+### Critical File Writing Rules (Never Violate)
+1. NEVER just write code in markdown blocks (\`\`\`javascript). Markdown code in chat DOES NOT write to disk!
+2. To create a new file or write a script, you MUST emit:
+   <call:createFile(relativePath="src/index.html", content="...")>
+3. To modify existing code, you MUST emit:
+   <call:applyPatch(relativePath="src/game.js", searchBlock="exact old code", replaceBlock="new code")>
+4. Do NOT stop after planning or exploring. If the task requires creating or modifying code, execute the file tools immediately!`;
+
+
+/***/ }),
+/* 276 */
+/***/ (function(__unused_webpack_module, exports, __webpack_require__) {
+
+"use strict";
+
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.EngineStatusBarManager = void 0;
 const vscode = __importStar(__webpack_require__(1));
 const fs = __importStar(__webpack_require__(2));
 const path = __importStar(__webpack_require__(3));
-const DaemonManager_1 = __webpack_require__(275);
+const DaemonManager_1 = __webpack_require__(277);
 class EngineStatusBarManager {
     static instance;
     statusBarItem;
     healthGuardItem;
+    ghostStatusItem;
     context;
     pollInterval = null;
     activeModel = null;
@@ -47104,7 +47697,10 @@ class EngineStatusBarManager {
         this.statusBarItem = vscode.window.createStatusBarItem('exovon.engineStatusBar', vscode.StatusBarAlignment.Right, 95);
         this.statusBarItem.command = 'exovon.manageEngine';
         this.context.subscriptions.push(this.statusBarItem);
-        this.healthGuardItem = vscode.window.createStatusBarItem('exovon.healthGuard', vscode.StatusBarAlignment.Right, 94);
+        this.ghostStatusItem = vscode.window.createStatusBarItem('exovon.ghostStatusBar', vscode.StatusBarAlignment.Right, 94);
+        this.ghostStatusItem.command = 'exovon.manageGhostText';
+        this.context.subscriptions.push(this.ghostStatusItem);
+        this.healthGuardItem = vscode.window.createStatusBarItem('exovon.healthGuard', vscode.StatusBarAlignment.Right, 93);
         this.healthGuardItem.command = 'exovon.showHealthDetails';
         this.context.subscriptions.push(this.healthGuardItem);
         this.registerCommands();
@@ -47143,11 +47739,12 @@ class EngineStatusBarManager {
             this.pollInterval = null;
         }
         this.statusBarItem.dispose();
+        this.ghostStatusItem.dispose();
         this.healthGuardItem.dispose();
     }
     async checkHealth() {
         try {
-            const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 305))).default;
+            const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 307))).default;
             const controller = new AbortController();
             const timeout = setTimeout(() => controller.abort(), 5000);
             const res = await fetch('http://127.0.0.1:47990/v1/health', {
@@ -47223,6 +47820,48 @@ class EngineStatusBarManager {
             this.updateHealthGuardDisplay();
         }
         this.statusBarItem.show();
+        this.updateGhostDisplay();
+    }
+    updateGhostDisplay() {
+        const config = vscode.workspace.getConfiguration('exovonhub');
+        const ghostEnabled = config.get('enableGhostText', true);
+        const assignedGhostModel = config.get('inlineGhostModel');
+        if (!ghostEnabled) {
+            this.ghostStatusItem.text = '$(circle-slash) Ghost: Off';
+            this.ghostStatusItem.tooltip = new vscode.MarkdownString('**Inline Ghost Code Completion**\n\n' +
+                'Status: **Disabled**\n\n' +
+                'Click to enable real-time local autocomplete or select a model.');
+            this.ghostStatusItem.color = new vscode.ThemeColor('descriptionForeground');
+        }
+        else if (!this.isEngineRunning) {
+            this.ghostStatusItem.text = '$(sparkle) Ghost: Offline';
+            this.ghostStatusItem.tooltip = new vscode.MarkdownString('**Inline Ghost Code Completion**\n\n' +
+                'Status: Daemon is offline (Port 47990)\n\n' +
+                'Click to start local engine.');
+            this.ghostStatusItem.color = new vscode.ThemeColor('charts.orange');
+        }
+        else {
+            const activeGhost = assignedGhostModel || this.activeModel;
+            if (activeGhost) {
+                const shortGhost = this.formatShortModelName(activeGhost);
+                this.ghostStatusItem.text = `$(sparkle) Ghost: ${shortGhost}`;
+                this.ghostStatusItem.tooltip = new vscode.MarkdownString('**Inline Ghost Code Completion (Healthy ⚡)**\n\n' +
+                    `• **Status**: Active & Ready (Local FIM)\n` +
+                    `• **Ghost Model**: \`${activeGhost}\`\n` +
+                    `• **Runtime**: Exovon Daemon (127.0.0.1:47990)\n\n` +
+                    'Click to switch ghost model, test latency, or disable.');
+                this.ghostStatusItem.color = undefined;
+            }
+            else {
+                this.ghostStatusItem.text = '$(sparkle) Ghost: Ready';
+                this.ghostStatusItem.tooltip = new vscode.MarkdownString('**Inline Ghost Code Completion**\n\n' +
+                    '• **Status**: Engine Connected (Ready)\n' +
+                    '• **Assigned Model**: Default / Active Model\n\n' +
+                    'Click to select a dedicated ghost model.');
+                this.ghostStatusItem.color = undefined;
+            }
+        }
+        this.ghostStatusItem.show();
     }
     updateHealthGuardDisplay() {
         if (!this.hardwareInfo) {
@@ -47279,6 +47918,9 @@ class EngineStatusBarManager {
         this.context.subscriptions.push(vscode.commands.registerCommand('exovon.manageEngine', async () => {
             await this.showManagementMenu();
         }));
+        this.context.subscriptions.push(vscode.commands.registerCommand('exovon.manageGhostText', async () => {
+            await this.showGhostManagementMenu();
+        }));
         this.context.subscriptions.push(vscode.commands.registerCommand('exovon.showHealthDetails', async () => {
             await this.showHealthDetailsMenu();
         }));
@@ -47288,6 +47930,129 @@ class EngineStatusBarManager {
         this.context.subscriptions.push(vscode.commands.registerCommand('exovon.restartDaemon', async () => {
             await this.restartDaemon();
         }));
+    }
+    async showGhostManagementMenu() {
+        const config = vscode.workspace.getConfiguration('exovonhub');
+        const enabled = config.get('enableGhostText', true);
+        const assigned = config.get('inlineGhostModel') || '';
+        const items = [
+            {
+                label: enabled ? '$(circle-slash) Disable Inline Ghost Autocomplete' : '$(check) Enable Inline Ghost Autocomplete',
+                description: enabled ? 'Currently Enabled' : 'Currently Disabled',
+                detail: 'Toggles real-time FIM code suggestions at cursor'
+            },
+            {
+                label: '$(symbol-event) Select Model for Inline Ghost',
+                description: assigned ? `Current: ${assigned}` : 'Using Active Engine Model (Auto)',
+                detail: 'Assign any downloaded local GGUF model for inline code predictions'
+            },
+            {
+                label: '$(zap) Test Inline Ghost Latency & Health',
+                description: 'Pings local daemon with FIM probe',
+                detail: 'Verifies response time and token throughput'
+            },
+            {
+                label: '$(gear) Open Model Hub & Local Engine Settings',
+                description: 'Configure GPU memory and models directory'
+            }
+        ];
+        const pick = await vscode.window.showQuickPick(items, {
+            placeHolder: 'Manage Inline Ghost Autocomplete'
+        });
+        if (!pick)
+            return;
+        if (pick.label.includes('Disable') || pick.label.includes('Enable')) {
+            await config.update('enableGhostText', !enabled, vscode.ConfigurationTarget.Global);
+            vscode.window.showInformationMessage(`Inline Ghost Autocomplete is now ${!enabled ? 'Enabled' : 'Disabled'}.`);
+            this.updateDisplay();
+        }
+        else if (pick.label.includes('Select Model')) {
+            await this.promptSelectGhostModel();
+        }
+        else if (pick.label.includes('Test Inline Ghost')) {
+            await this.testGhostLatency();
+        }
+        else if (pick.label.includes('Open Model Hub')) {
+            vscode.commands.executeCommand('exovon.openSettings');
+        }
+    }
+    async promptSelectGhostModel() {
+        try {
+            const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 307))).default;
+            const res = await fetch('http://127.0.0.1:47990/v1/models');
+            if (!res.ok) {
+                vscode.window.showWarningMessage('Daemon offline. Start the engine to select local models.');
+                return;
+            }
+            const data = await res.json();
+            const models = (data.local_models || []).map((m) => m.id || m.name);
+            const items = [
+                {
+                    label: '$(sparkle) Auto (Follow Active Engine Model)',
+                    description: 'Dynamically routes ghost requests to whatever model is loaded in memory'
+                },
+                ...models.map(m => ({
+                    label: `$(chip) ${m}`,
+                    description: 'Set as dedicated Inline Ghost model'
+                }))
+            ];
+            const pick = await vscode.window.showQuickPick(items, {
+                placeHolder: 'Select Model for Inline Ghost Autocomplete'
+            });
+            if (!pick)
+                return;
+            const config = vscode.workspace.getConfiguration('exovonhub');
+            if (pick.label.includes('Auto')) {
+                await config.update('inlineGhostModel', undefined, vscode.ConfigurationTarget.Global);
+                vscode.window.showInformationMessage('Inline Ghost set to Auto (Active Engine Model).');
+            }
+            else {
+                const chosen = pick.label.replace('$(chip) ', '').trim();
+                await config.update('inlineGhostModel', chosen, vscode.ConfigurationTarget.Global);
+                vscode.window.showInformationMessage(`Inline Ghost model set to: ${chosen}`);
+            }
+            this.updateDisplay();
+        }
+        catch (e) {
+            vscode.window.showErrorMessage(`Failed to select ghost model: ${e.message}`);
+        }
+    }
+    async testGhostLatency() {
+        vscode.window.withProgress({
+            location: vscode.ProgressLocation.Notification,
+            title: 'Testing Inline Ghost Latency...',
+            cancellable: false
+        }, async () => {
+            const start = Date.now();
+            try {
+                const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 307))).default;
+                const res = await fetch('http://127.0.0.1:47990/v1/chat/completions', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        messages: [
+                            { role: 'system', content: 'You are a code completion engine. Return only code.' },
+                            { role: 'user', content: 'function calculateSum(a, b) { return' }
+                        ],
+                        max_tokens: 12,
+                        temperature: 0.1,
+                        stream: false
+                    })
+                });
+                const elapsed = Date.now() - start;
+                if (res.ok) {
+                    const data = await res.json();
+                    const completion = data.choices?.[0]?.message?.content || '';
+                    vscode.window.showInformationMessage(`⚡ Ghost Healthy! Latency: ${elapsed}ms | Sample: "${completion.trim()}"`);
+                }
+                else {
+                    vscode.window.showErrorMessage(`Ghost Health Check Failed: HTTP ${res.status}`);
+                }
+            }
+            catch (e) {
+                vscode.window.showErrorMessage(`Ghost Health Check Failed: ${e.message}`);
+            }
+        });
     }
     async showHealthDetailsMenu() {
         await this.checkHealth();
@@ -47434,7 +48199,7 @@ class EngineStatusBarManager {
     }
     async showModelSelector() {
         try {
-            const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 305))).default;
+            const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 307))).default;
             const res = await fetch('http://127.0.0.1:47990/v1/models');
             if (!res.ok) {
                 vscode.window.showWarningMessage('Failed to fetch local model list from daemon.');
@@ -47513,7 +48278,7 @@ class EngineStatusBarManager {
     }
     async unloadModel() {
         try {
-            const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 305))).default;
+            const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 307))).default;
             const res = await fetch('http://127.0.0.1:47990/v1/models/unload', { method: 'POST' });
             if (res.ok) {
                 vscode.window.showInformationMessage('Model unloaded from memory. VRAM freed.');
@@ -47547,7 +48312,7 @@ exports.EngineStatusBarManager = EngineStatusBarManager;
 
 
 /***/ }),
-/* 275 */
+/* 277 */
 /***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 "use strict";
@@ -47760,7 +48525,7 @@ class DaemonManager {
         if (this.daemonProcess !== null)
             return true;
         try {
-            const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 305))).default;
+            const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 307))).default;
             const controller = new AbortController();
             const timeout = setTimeout(() => controller.abort(), 1500);
             const res = await fetch('http://127.0.0.1:47990/v1/health', { signal: controller.signal });
@@ -47782,7 +48547,7 @@ exports.DaemonManager = DaemonManager;
 
 
 /***/ }),
-/* 276 */
+/* 278 */
 /***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 "use strict";
@@ -47902,7 +48667,7 @@ exports.DiagnosticsWatchdog = DiagnosticsWatchdog;
 
 
 /***/ }),
-/* 277 */
+/* 279 */
 /***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 "use strict";
@@ -47964,7 +48729,7 @@ exports.PlanReviewProvider = PlanReviewProvider;
 
 
 /***/ }),
-/* 278 */
+/* 280 */
 /***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 "use strict";
@@ -48120,7 +48885,7 @@ exports.PlanViewerProvider = PlanViewerProvider;
 
 
 /***/ }),
-/* 279 */
+/* 281 */
 /***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 "use strict";
@@ -48275,7 +49040,7 @@ exports.WorkspacePreparer = WorkspacePreparer;
 
 
 /***/ }),
-/* 280 */
+/* 282 */
 /***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 "use strict";
@@ -48460,7 +49225,7 @@ exports.DevServerManager = DevServerManager;
 
 
 /***/ }),
-/* 281 */
+/* 283 */
 /***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 "use strict";
@@ -48540,25 +49305,53 @@ class SettingsProvider {
                 }
                 case 'getSettingsState': {
                     const config = vscode.workspace.getConfiguration('exovonhub');
-                    const { DEFAULT_LOCAL_SYSTEM_PROMPT } = __webpack_require__(273);
+                    const { DEFAULT_LOCAL_SYSTEM_PROMPT } = __webpack_require__(275);
                     this._panel.webview.postMessage({
                         type: 'settingsState',
                         model: config.get('preferredModel') || 'Qwen/Qwen3-235B-A22B-Instruct-2507',
                         localModelsDirectory: config.get('localModelsDirectory') || '',
                         localLlmModelName: config.get('localLlmModelName') || '',
+                        inlineGhostModel: config.get('inlineGhostModel') || '',
+                        enableGhostText: config.get('enableGhostText', true),
                         localModelSystemPrompt: config.get('localModelSystemPrompt') || DEFAULT_LOCAL_SYSTEM_PROMPT
                     });
                     break;
                 }
+                case 'setInlineGhostModel': {
+                    const config = vscode.workspace.getConfiguration('exovonhub');
+                    await config.update('inlineGhostModel', data.model, vscode.ConfigurationTarget.Global);
+                    vscode.window.showInformationMessage(`Inline Ghost Model set to: ${data.model}`);
+                    try {
+                        const { EngineStatusBarManager } = __webpack_require__(276);
+                        EngineStatusBarManager.getInstance()?.updateDisplay();
+                    }
+                    catch { }
+                    this._panel.webview.postMessage({ type: 'inlineGhostModelUpdated', model: data.model });
+                    break;
+                }
+                case 'toggleGhostText': {
+                    const config = vscode.workspace.getConfiguration('exovonhub');
+                    const current = config.get('enableGhostText', true);
+                    const next = data.enabled !== undefined ? data.enabled : !current;
+                    await config.update('enableGhostText', next, vscode.ConfigurationTarget.Global);
+                    vscode.window.showInformationMessage(`Inline Ghost Autocomplete is now ${next ? 'Enabled' : 'Disabled'}.`);
+                    try {
+                        const { EngineStatusBarManager } = __webpack_require__(276);
+                        EngineStatusBarManager.getInstance()?.updateDisplay();
+                    }
+                    catch { }
+                    this._panel.webview.postMessage({ type: 'ghostTextToggled', enabled: next });
+                    break;
+                }
                 case 'startDaemon': {
-                    const { DaemonManager } = __webpack_require__(275);
+                    const { DaemonManager } = __webpack_require__(277);
                     const daemon = DaemonManager.getInstance();
                     const success = await daemon.startDaemon(this._context);
                     this._panel.webview.postMessage({ type: 'daemonStatus', isRunning: success });
                     break;
                 }
                 case 'stopDaemon': {
-                    const { DaemonManager } = __webpack_require__(275);
+                    const { DaemonManager } = __webpack_require__(277);
                     const daemon = DaemonManager.getInstance();
                     daemon.stopDaemon();
                     this._panel.webview.postMessage({ type: 'daemonStatus', isRunning: false });
@@ -48566,7 +49359,7 @@ class SettingsProvider {
                 }
                 case 'getDaemonStatus': {
                     try {
-                        const { DaemonManager } = __webpack_require__(275);
+                        const { DaemonManager } = __webpack_require__(277);
                         const daemon = DaemonManager.getInstance();
                         const alive = await daemon.isAlive();
                         this._panel.webview.postMessage({ type: 'daemonStatus', isRunning: alive });
@@ -48578,7 +49371,7 @@ class SettingsProvider {
                 }
                 case 'getDaemonHealth': {
                     try {
-                        const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 305))).default;
+                        const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 307))).default;
                         const controller = new AbortController();
                         const timeout = setTimeout(() => { controller.abort(); }, 3000);
                         const res = await fetch('http://127.0.0.1:47990/v1/health', { signal: controller.signal });
@@ -48599,7 +49392,7 @@ class SettingsProvider {
                 }
                 case 'getLocalModels': {
                     try {
-                        const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 305))).default;
+                        const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 307))).default;
                         const controller = new AbortController();
                         const timeout = setTimeout(() => { controller.abort(); }, 8000);
                         const res = await fetch('http://127.0.0.1:47990/v1/models', { signal: controller.signal });
@@ -48620,7 +49413,7 @@ class SettingsProvider {
                 }
                 case 'getActiveDownloads': {
                     try {
-                        const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 305))).default;
+                        const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 307))).default;
                         const res = await fetch('http://127.0.0.1:47990/v1/models/downloads');
                         if (res.ok) {
                             const body = await res.json();
@@ -48653,7 +49446,7 @@ class SettingsProvider {
                         if (uri && uri[0]) {
                             const fsPath = uri[0].fsPath;
                             await vscode.workspace.getConfiguration('exovonhub').update('localModelsDirectory', fsPath, vscode.ConfigurationTarget.Global);
-                            const { DaemonManager } = __webpack_require__(275);
+                            const { DaemonManager } = __webpack_require__(277);
                             const daemon = DaemonManager.getInstance();
                             if (daemon.isRunning()) {
                                 daemon.stopDaemon();
@@ -48676,7 +49469,7 @@ class SettingsProvider {
                     try {
                         if (data.directory !== undefined) {
                             await vscode.workspace.getConfiguration('exovonhub').update('localModelsDirectory', data.directory, vscode.ConfigurationTarget.Global);
-                            const { DaemonManager } = __webpack_require__(275);
+                            const { DaemonManager } = __webpack_require__(277);
                             const daemon = DaemonManager.getInstance();
                             if (daemon.isRunning()) {
                                 daemon.stopDaemon();
@@ -48697,7 +49490,7 @@ class SettingsProvider {
                 }
                 case 'loadLocalModel': {
                     try {
-                        const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 305))).default;
+                        const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 307))).default;
                         const payload = { model_path: data.modelId };
                         if (data.ctxSize !== undefined)
                             payload.ctx_size = data.ctxSize;
@@ -48809,7 +49602,7 @@ class SettingsProvider {
                 }
                 case 'unloadLocalModel': {
                     try {
-                        const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 305))).default;
+                        const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 307))).default;
                         const res = await fetch('http://127.0.0.1:47990/v1/models/unload', { method: 'POST' });
                         if (res.ok) {
                             vscode.window.showInformationMessage(`Model unloaded from memory.`);
@@ -48828,7 +49621,7 @@ class SettingsProvider {
                 }
                 case 'searchHuggingFace': {
                     try {
-                        const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 305))).default;
+                        const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 307))).default;
                         const page = data.page || 0;
                         const res = await fetch(`http://127.0.0.1:47990/v1/models/search?q=${encodeURIComponent(data.query)}&page=${page}`);
                         if (res.ok) {
@@ -48848,7 +49641,7 @@ class SettingsProvider {
                 case 'getHfRepoTree': {
                     try {
                         if (data.repo) {
-                            const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 305))).default;
+                            const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 307))).default;
                             const res = await fetch(`http://127.0.0.1:47990/v1/models/tree?repo=${encodeURIComponent(data.repo)}`);
                             if (res.ok) {
                                 const body = await res.json();
@@ -48866,7 +49659,7 @@ class SettingsProvider {
                 }
                 case 'downloadLocalModel': {
                     try {
-                        const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 305))).default;
+                        const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 307))).default;
                         vscode.window.showInformationMessage(`Starting download for ${data.filename}... Check daemon logs for progress.`);
                         const res = await fetch('http://127.0.0.1:47990/v1/models/download', {
                             method: 'POST',
@@ -48879,6 +49672,32 @@ class SettingsProvider {
                     }
                     catch (e) {
                         vscode.window.showErrorMessage('Failed to connect to local daemon.');
+                    }
+                    break;
+                }
+                case 'controlDownload': {
+                    try {
+                        const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 307))).default;
+                        const res = await fetch('http://127.0.0.1:47990/v1/models/downloads/control', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ filename: data.filename, action: data.action })
+                        });
+                        if (res.ok) {
+                            const act = data.action;
+                            if (act === 'pause') {
+                                vscode.window.showInformationMessage(`Paused download for ${data.filename}`);
+                            }
+                            else if (act === 'retry') {
+                                vscode.window.showInformationMessage(`Resuming download for ${data.filename}`);
+                            }
+                            else if (act === 'delete') {
+                                vscode.window.showInformationMessage(`Deleted download for ${data.filename}`);
+                            }
+                        }
+                    }
+                    catch (e) {
+                        vscode.window.showErrorMessage('Failed to control download on local daemon.');
                     }
                     break;
                 }
@@ -48900,7 +49719,7 @@ class SettingsProvider {
                 }
                 case 'resetLocalModelSystemPrompt': {
                     const config = vscode.workspace.getConfiguration('exovonhub');
-                    const { DEFAULT_LOCAL_SYSTEM_PROMPT } = __webpack_require__(273);
+                    const { DEFAULT_LOCAL_SYSTEM_PROMPT } = __webpack_require__(275);
                     await config.update('localModelSystemPrompt', undefined, vscode.ConfigurationTarget.Global);
                     this._panel.webview.postMessage({
                         type: 'settingsState',
@@ -48991,7 +49810,7 @@ exports.SettingsProvider = SettingsProvider;
 
 
 /***/ }),
-/* 282 */
+/* 284 */
 /***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 "use strict";
@@ -49035,14 +49854,14 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.BrainCoordinator = void 0;
 const vscode = __importStar(__webpack_require__(1));
-const better_sqlite3_1 = __importDefault(__webpack_require__(283));
-const sqliteVec = __importStar(__webpack_require__(284));
-const worker_threads_1 = __webpack_require__(285);
+const better_sqlite3_1 = __importDefault(__webpack_require__(285));
+const sqliteVec = __importStar(__webpack_require__(286));
+const worker_threads_1 = __webpack_require__(287);
 const path = __importStar(__webpack_require__(3));
 const fs = __importStar(__webpack_require__(2));
-const os_1 = __importDefault(__webpack_require__(286));
+const os_1 = __importDefault(__webpack_require__(288));
 const crypto = __importStar(__webpack_require__(27));
-const GraphIndexer_1 = __webpack_require__(287);
+const GraphIndexer_1 = __webpack_require__(289);
 function fnv1a32(str) {
     let hash = 0x811c9dc5;
     for (let i = 0; i < str.length; i++) {
@@ -49890,7 +50709,17 @@ class BrainCoordinator {
     getChatThreads() {
         try {
             const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
-            return this.db.prepare('SELECT id, title, updated_at FROM chat_threads WHERE workspace_path = ? ORDER BY updated_at DESC').all(workspaceRoot);
+            return this.db.prepare(`
+        SELECT 
+          ct.id, 
+          ct.title, 
+          ct.updated_at,
+          (SELECT COUNT(*) FROM chat_messages cm WHERE cm.thread_id = ct.id AND cm.id != 'welcome') as message_count,
+          (SELECT text FROM chat_messages cm WHERE cm.thread_id = ct.id AND cm.id != 'welcome' AND cm.text IS NOT NULL AND TRIM(cm.text) != '' ORDER BY cm.timestamp DESC, cm.id DESC LIMIT 1) as preview
+        FROM chat_threads ct 
+        WHERE ct.workspace_path = ? 
+        ORDER BY ct.updated_at DESC
+      `).all(workspaceRoot);
         }
         catch (e) {
             console.error('getChatThreads error:', e);
@@ -49899,7 +50728,7 @@ class BrainCoordinator {
     }
     getChatMessages(threadId) {
         try {
-            return this.db.prepare('SELECT * FROM chat_messages WHERE thread_id = ? ORDER BY timestamp ASC').all(threadId);
+            return this.db.prepare('SELECT * FROM chat_messages WHERE thread_id = ? ORDER BY rowid ASC').all(threadId);
         }
         catch (e) {
             console.error('getChatMessages error:', e);
@@ -49917,6 +50746,17 @@ class BrainCoordinator {
         }
         return threadId;
     }
+    renameChatThread(threadId, title) {
+        try {
+            const trimmed = title.trim();
+            if (!trimmed)
+                return;
+            this.db.prepare('UPDATE chat_threads SET title = ?, updated_at = ? WHERE id = ?').run(trimmed, Date.now(), threadId);
+        }
+        catch (e) {
+            console.error('renameChatThread error:', e);
+        }
+    }
     deleteChatThread(threadId) {
         try {
             this.db.prepare('DELETE FROM chat_messages WHERE thread_id = ?').run(threadId);
@@ -49924,6 +50764,19 @@ class BrainCoordinator {
         }
         catch (e) {
             console.error('deleteChatThread error:', e);
+        }
+    }
+    clearAllChatThreads() {
+        try {
+            const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
+            const threads = this.db.prepare('SELECT id FROM chat_threads WHERE workspace_path = ?').all(workspaceRoot);
+            for (const t of threads) {
+                this.db.prepare('DELETE FROM chat_messages WHERE thread_id = ?').run(t.id);
+            }
+            this.db.prepare('DELETE FROM chat_threads WHERE workspace_path = ?').run(workspaceRoot);
+        }
+        catch (e) {
+            console.error('clearAllChatThreads error:', e);
         }
     }
     saveChatMessage(threadId, message) {
@@ -49943,10 +50796,21 @@ class BrainCoordinator {
                 commandToApprove: message.commandToApprove,
                 filePathToApprove: message.filePathToApprove,
                 approvalId: message.approvalId,
-                timeline: message.timeline
+                timeline: message.timeline,
+                images: message.images,
+                metrics: message.metrics,
+                checkpointId: message.checkpointId,
+                checkpoint: message.checkpoint,
+                promptTokens: message.promptTokens,
+                promptProcessed: message.promptProcessed
             }));
             // Update thread title and timestamp
-            const title = message.text ? message.text.substring(0, 30) + (message.text.length > 30 ? '...' : '') : 'Exovon Chat';
+            let cleanText = (message.text || '')
+                .replace(/^\[IDE WORKSPACE ACTIVE CONTEXT\][\s\S]*?\[\/IDE WORKSPACE ACTIVE CONTEXT\]/, '')
+                .replace(/^Developer Action Request:\s*"?/, '')
+                .replace(/^[#*`\s]+/, '')
+                .trim();
+            const title = cleanText ? cleanText.substring(0, 45) + (cleanText.length > 45 ? '...' : '') : 'Exovon Chat';
             // Only update title if it's a user message and not the first message
             if (message.sender === 'user') {
                 this.db.prepare('UPDATE chat_threads SET updated_at = ?, title = CASE WHEN title = \'New Chat\' THEN ? ELSE title END WHERE id = ?').run(Date.now(), title, threadId);
@@ -49969,7 +50833,7 @@ class BrainCoordinator {
     }
     loadChatThread(threadId) {
         try {
-            const rows = this.db.prepare('SELECT * FROM chat_messages WHERE thread_id = ? ORDER BY timestamp ASC, id ASC').all(threadId);
+            const rows = this.db.prepare('SELECT * FROM chat_messages WHERE thread_id = ? ORDER BY rowid ASC').all(threadId);
             return rows.map(r => {
                 const meta = r.meta ? JSON.parse(r.meta) : {};
                 return {
@@ -50014,7 +50878,7 @@ class BrainCoordinator {
         }
         try {
             const { exec } = __webpack_require__(31);
-            const util = __webpack_require__(288);
+            const util = __webpack_require__(290);
             const execAsync = util.promisify(exec);
             const { stdout } = await execAsync(`git diff --name-status ${oldCommit} ${newCommit}`, { cwd: workspaceRoot });
             const lines = stdout.trim().split('\n');
@@ -50058,7 +50922,7 @@ class BrainCoordinator {
             let diffFiles = [];
             if (workspaceRoot) {
                 const childProcess = __webpack_require__(31);
-                const util = __webpack_require__(288);
+                const util = __webpack_require__(290);
                 const exec = util.promisify(childProcess.exec);
                 try {
                     const { stdout } = await exec(`git diff HEAD~1 HEAD --name-only`, { cwd: workspaceRoot });
@@ -50126,35 +50990,35 @@ exports.BrainCoordinator = BrainCoordinator;
 
 
 /***/ }),
-/* 283 */
+/* 285 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("better-sqlite3");
 
 /***/ }),
-/* 284 */
+/* 286 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("sqlite-vec");
 
 /***/ }),
-/* 285 */
+/* 287 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("worker_threads");
 
 /***/ }),
-/* 286 */
+/* 288 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("os");
 
 /***/ }),
-/* 287 */
+/* 289 */
 /***/ ((__unused_webpack_module, exports) => {
 
 "use strict";
@@ -50205,14 +51069,14 @@ exports.GraphIndexer = GraphIndexer;
 
 
 /***/ }),
-/* 288 */
+/* 290 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("util");
 
 /***/ }),
-/* 289 */
+/* 291 */
 /***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 "use strict";
@@ -50252,194 +51116,132 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.LlamaEngine = void 0;
-const path = __importStar(__webpack_require__(3));
-const fs = __importStar(__webpack_require__(2));
-const os = __importStar(__webpack_require__(286));
 const vscode = __importStar(__webpack_require__(1));
-const https = __importStar(__webpack_require__(25));
 class LlamaEngine {
     storageUri;
-    llama;
-    model;
-    context;
-    LlamaCompletion;
     ready = false;
-    isDownloading = false;
-    generationLock = Promise.resolve();
-    modelUrl = 'https://huggingface.co/Qwen/Qwen2.5-Coder-0.5B-Instruct-GGUF/resolve/main/qwen2.5-coder-0.5b-instruct-q4_k_m.gguf';
-    modelFileName = 'qwen2.5-coder-0.5b-instruct-q4_k_m.gguf';
+    lastLatencyMs = 0;
+    activeGhostModel = null;
     constructor(storageUri) {
         this.storageUri = storageUri;
     }
     async initialize() {
         try {
-            const homedir = os.homedir();
-            const config = vscode.workspace.getConfiguration('exovonhub');
-            const customModelsDir = config.get('localModelsDirectory')?.replace(/^~/, homedir);
-            const searchDirs = [
-                customModelsDir,
-                path.join(homedir, '.exovon', 'models'),
-                path.join(this.storageUri.fsPath, 'models')
-            ].filter(Boolean);
-            let modelPath = '';
-            for (const dir of searchDirs) {
-                const candidate = path.join(dir, this.modelFileName);
-                if (fs.existsSync(candidate)) {
-                    modelPath = candidate;
-                    break;
-                }
-            }
-            if (!modelPath) {
-                const targetDir = customModelsDir || path.join(homedir, '.exovon', 'models');
-                if (!fs.existsSync(targetDir)) {
-                    fs.mkdirSync(targetDir, { recursive: true });
-                }
-                modelPath = path.join(targetDir, this.modelFileName);
-                await this.downloadModel(modelPath);
-            }
-            const logDir = path.dirname(modelPath);
-            fs.appendFileSync(path.join(logDir, 'exovon agent.log'), 'Initializing exovon agent...\n');
-            // Bypass Webpack transpilation to preserve native ESM dynamic import
-            const nodeLlamaCpp = await new Function("return import('node-llama-cpp')")();
-            const { getLlama, LlamaCompletion } = nodeLlamaCpp;
-            this.LlamaCompletion = LlamaCompletion;
-            this.llama = await getLlama();
-            this.model = await this.llama.loadModel({
-                modelPath: modelPath,
-            });
-            this.context = await this.model.createContext({
-                contextSize: 2048,
-                threads: 4 // Use 4 threads to prevent maxing out CPU
-            });
-            this.ready = true;
-            fs.appendFileSync(path.join(logDir, 'exovon agent.log'), 'LlamaEngine initialized successfully\n');
-            console.log('LlamaEngine initialized with Qwen2.5-Coder-0.5B');
+            await this.checkHealth();
+            console.log('Daemon Ghost Engine initialized successfully.');
         }
         catch (e) {
-            console.error('Failed to initialize LlamaEngine', e);
-            this.ready = false;
-            throw e;
+            console.error('Failed to initialize Daemon Ghost Engine:', e);
         }
-    }
-    async downloadModel(modelPath) {
-        if (this.isDownloading)
-            return;
-        this.isDownloading = true;
-        return vscode.window.withProgress({
-            location: vscode.ProgressLocation.Notification,
-            title: "Downloading local exovon agent SLM (Qwen2.5-Coder-0.5B)",
-            cancellable: false
-        }, async (progress) => {
-            return new Promise((resolve, reject) => {
-                try {
-                    const file = fs.createWriteStream(modelPath);
-                    const fetchWithRedirect = (url, hops = 0) => {
-                        if (hops > 10)
-                            return reject(new Error('Too many redirects'));
-                        https.get(url, (response) => {
-                            if ([301, 302, 307, 308].includes(response.statusCode || 200)) {
-                                if (!response.headers.location)
-                                    return reject(new Error('Redirect with no location header'));
-                                const newUrl = new URL(response.headers.location, url).toString();
-                                fetchWithRedirect(newUrl, hops + 1);
-                            }
-                            else {
-                                this.pipeDownload(response, file, progress, resolve, reject, modelPath);
-                            }
-                        }).on('error', (err) => {
-                            fs.unlink(modelPath, () => reject(err));
-                        });
-                    };
-                    fetchWithRedirect(this.modelUrl);
-                }
-                catch (e) {
-                    reject(e);
-                }
-            });
-        });
-    }
-    pipeDownload(response, file, progress, resolve, reject, modelPath) {
-        const len = parseInt(response.headers['content-length'] || '0', 10);
-        let downloaded = 0;
-        let lastPercent = 0;
-        response.pipe(file);
-        response.on('data', (chunk) => {
-            downloaded += chunk.length;
-            if (len > 0) {
-                const percent = Math.floor((downloaded / len) * 100);
-                if (percent > lastPercent) {
-                    progress.report({ increment: percent - lastPercent, message: `${percent}%` });
-                    lastPercent = percent;
-                }
-            }
-        });
-        file.on('finish', () => {
-            file.close();
-            this.isDownloading = false;
-            resolve();
-        });
-        file.on('error', (err) => {
-            fs.unlink(modelPath, () => { });
-            this.isDownloading = false;
-            reject(err);
-        });
     }
     isReady() {
-        return this.ready && this.context !== undefined;
+        return this.ready;
     }
-    async getFimCompletion(prefix, suffix, token) {
-        if (!this.ready || !this.context || !this.LlamaCompletion)
-            return '';
-        const abortController = new AbortController();
-        const tokenListener = token.onCancellationRequested(() => {
-            abortController.abort();
-        });
-        // Await the previous generation to fully finish and dispose its sequence
-        await this.generationLock;
-        if (token.isCancellationRequested) {
-            tokenListener.dispose();
-            return '';
-        }
-        let releaseLock;
-        this.generationLock = new Promise(resolve => releaseLock = resolve);
+    async checkHealth() {
+        const config = vscode.workspace.getConfiguration('exovonhub');
+        const enabled = config.get('enableGhostText', true);
+        const assignedGhostModel = config.get('inlineGhostModel') || null;
         try {
-            const sequence = this.context.getSequence();
-            const completion = new this.LlamaCompletion({
-                contextSequence: sequence
+            const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 307))).default;
+            const start = Date.now();
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 2000);
+            const res = await fetch('http://127.0.0.1:47990/v1/health', {
+                signal: controller.signal
             });
-            try {
-                const result = await completion.generateInfillCompletion(prefix, suffix, {
-                    temperature: 0.1,
-                    maxTokens: 100,
-                    signal: abortController.signal,
-                    stopOnAbortSignal: true
-                });
-                const modelsDir = path.join(this.storageUri.fsPath, 'models');
-                fs.appendFileSync(path.join(modelsDir, 'exovon agent.log'), 'Completion returned: ' + result + '\n');
-                return result;
+            clearTimeout(timeout);
+            if (res.ok) {
+                const data = (await res.json());
+                this.ready = true;
+                this.lastLatencyMs = Date.now() - start;
+                this.activeGhostModel = assignedGhostModel || data.active_model || null;
             }
-            finally {
-                // Manually dispose sequence to prevent "No sequences left" leak on AbortError
-                sequence.dispose();
+            else {
+                this.ready = false;
             }
+        }
+        catch {
+            this.ready = false;
+        }
+        return {
+            healthy: this.ready,
+            latencyMs: this.lastLatencyMs,
+            activeModel: this.activeGhostModel,
+            enabled
+        };
+    }
+    async getFimCompletion(prefix, suffix, token, languageId = 'plaintext') {
+        const config = vscode.workspace.getConfiguration('exovonhub');
+        const enabled = config.get('enableGhostText', true);
+        if (!enabled)
+            return '';
+        const ghostModel = config.get('inlineGhostModel') || undefined;
+        const startTime = Date.now();
+        try {
+            const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 307))).default;
+            const controller = new AbortController();
+            token.onCancellationRequested(() => controller.abort());
+            // Trim context for ultra-low latency completion
+            const prefixContext = prefix.length > 1500 ? prefix.slice(-1500) : prefix;
+            const suffixContext = suffix.length > 400 ? suffix.slice(0, 400) : suffix;
+            const payload = {
+                model: ghostModel,
+                messages: [
+                    {
+                        role: 'system',
+                        content: 'You are an ultra-fast code completion engine. Continue the code directly at the cursor. Output ONLY the raw completion code without markdown backticks, explanations, comments, or repeating the prefix.'
+                    },
+                    {
+                        role: 'user',
+                        content: `Language: ${languageId}\n\nExisting Code Before Cursor:\n${prefixContext}\n\nExisting Code After Cursor:\n${suffixContext}\n\nInline Completion:`
+                    }
+                ],
+                max_tokens: 48,
+                temperature: 0.1,
+                stream: false
+            };
+            const res = await fetch('http://127.0.0.1:47990/v1/chat/completions', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+                signal: controller.signal
+            });
+            if (!res.ok) {
+                this.ready = false;
+                return '';
+            }
+            const data = (await res.json());
+            this.lastLatencyMs = Date.now() - startTime;
+            this.ready = true;
+            let text = data.choices?.[0]?.message?.content || '';
+            // Strip markdown code fences if output by chat model
+            text = text.replace(/^```[a-zA-Z0-9_-]*\r?\n?/, '').replace(/\r?\n?```$/, '');
+            // Remove accidental duplicate prefix line
+            const lastLine = prefixContext.trim().split('\n').pop() || '';
+            if (lastLine && text.startsWith(lastLine)) {
+                text = text.slice(lastLine.length);
+            }
+            return text;
         }
         catch (e) {
-            const modelsDir = path.join(this.storageUri.fsPath, 'models');
-            fs.appendFileSync(path.join(modelsDir, 'exovon agent.log'), 'Inference error: ' + e + '\n');
-            console.error('Inference error:', e);
+            if (e.name !== 'AbortError') {
+                this.ready = false;
+            }
             return '';
         }
-        finally {
-            tokenListener.dispose();
-            releaseLock();
-        }
+    }
+    getLatency() {
+        return this.lastLatencyMs;
+    }
+    getActiveGhostModel() {
+        return this.activeGhostModel;
     }
 }
 exports.LlamaEngine = LlamaEngine;
 
 
 /***/ }),
-/* 290 */
+/* 292 */
 /***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 "use strict";
@@ -50483,7 +51285,7 @@ const vscode = __importStar(__webpack_require__(1));
 class CopilotProvider {
     engine;
     debounceTimer = null;
-    debounceMs = 500;
+    debounceMs = 250;
     constructor(engine) {
         this.engine = engine;
     }
@@ -50505,7 +51307,7 @@ class CopilotProvider {
                 return result;
             }
             catch (e) {
-                console.error('exovon agent Provider Error:', e);
+                console.error('Ghost Inline Completion Error:', e);
                 return null;
             }
         }
@@ -50524,7 +51326,7 @@ class CopilotProvider {
             return [];
         }
         // Ask the engine for FIM completion
-        const completionText = await this.engine.getFimCompletion(prefix, suffix, token);
+        const completionText = await this.engine.getFimCompletion(prefix, suffix, token, document.languageId);
         if (!completionText || completionText.trim() === '') {
             return [];
         }
@@ -50537,7 +51339,7 @@ exports.CopilotProvider = CopilotProvider;
 
 
 /***/ }),
-/* 291 */
+/* 293 */
 /***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 "use strict";
@@ -50672,7 +51474,7 @@ exports.AuthService = AuthService;
 
 
 /***/ }),
-/* 292 */
+/* 294 */
 /***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 "use strict";
@@ -50781,7 +51583,7 @@ exports.PlanCommentController = PlanCommentController;
 
 
 /***/ }),
-/* 293 */
+/* 295 */
 /***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 "use strict";
@@ -50845,7 +51647,7 @@ exports.ProblemCodeActionProvider = ProblemCodeActionProvider;
 
 
 /***/ }),
-/* 294 */
+/* 296 */
 /***/ ((__unused_webpack_module, exports) => {
 
 "use strict";
@@ -50969,7 +51771,7 @@ exports.ApiService = ApiService;
 
 
 /***/ }),
-/* 295 */
+/* 297 */
 /***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 "use strict";
@@ -51015,8 +51817,8 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.MotionCompiler = void 0;
 const vscode = __importStar(__webpack_require__(1));
-const MotionWorker_1 = __webpack_require__(296);
-const MotionOnboarding_1 = __webpack_require__(302);
+const MotionWorker_1 = __webpack_require__(298);
+const MotionOnboarding_1 = __webpack_require__(304);
 class MotionCompiler {
     static instance;
     static getInstance() {
@@ -51090,7 +51892,7 @@ class MotionCompiler {
             const targetUri = vscode.Uri.file(targetFilePath);
             const document = await vscode.workspace.openTextDocument(targetUri);
             const fileContent = document.getText();
-            const { Project, SyntaxKind } = __webpack_require__(300);
+            const { Project, SyntaxKind } = __webpack_require__(302);
             const project = new Project({ useInMemoryFileSystem: true });
             const sourceFile = project.createSourceFile(targetFilePath, fileContent);
             const validStyles = Object.entries(styles).filter(([_, v]) => v !== undefined && v !== null && v !== '');
@@ -51157,7 +51959,7 @@ exports.MotionCompiler = MotionCompiler;
 
 
 /***/ }),
-/* 296 */
+/* 298 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -51169,15 +51971,15 @@ exports.MotionCompiler = MotionCompiler;
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.processMotionCompile = processMotionCompile;
-const worker_threads_1 = __webpack_require__(285);
-const MotionIR_1 = __webpack_require__(297);
-const InsertionResolver_1 = __webpack_require__(298);
-const MotionEmitter_1 = __webpack_require__(299);
-const RecompilePolicy_1 = __webpack_require__(301);
+const worker_threads_1 = __webpack_require__(287);
+const MotionIR_1 = __webpack_require__(299);
+const InsertionResolver_1 = __webpack_require__(300);
+const MotionEmitter_1 = __webpack_require__(301);
+const RecompilePolicy_1 = __webpack_require__(303);
 function processMotionCompile(request) {
     try {
         const ir = (0, MotionIR_1.parseTheatreJsonToMotionIR)(request.rawTheatreJson);
-        const { Project } = __webpack_require__(300);
+        const { Project } = __webpack_require__(302);
         const project = new Project({ useInMemoryFileSystem: true });
         const sourceFile = project.createSourceFile(request.targetFilePath, request.fileContent);
         const strategy = (0, InsertionResolver_1.analyzeInsertionStrategy)(sourceFile, ir);
@@ -51212,7 +52014,7 @@ if (!worker_threads_1.isMainThread && worker_threads_1.parentPort) {
 
 
 /***/ }),
-/* 297 */
+/* 299 */
 /***/ ((__unused_webpack_module, exports) => {
 
 "use strict";
@@ -51327,7 +52129,7 @@ function mapTheatreEasingToGSAP(handles) {
 
 
 /***/ }),
-/* 298 */
+/* 300 */
 /***/ ((__unused_webpack_module, exports) => {
 
 "use strict";
@@ -51403,7 +52205,7 @@ function analyzeInsertionStrategy(sourceFile, ir) {
 
 
 /***/ }),
-/* 299 */
+/* 301 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -51418,7 +52220,7 @@ Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.emitMotionCode = emitMotionCode;
 function emitMotionCode(targetFilePath, fileContent, ir, strategy) {
     // Load target file into a single isolated in-memory ts-morph SourceFile
-    const { Project } = __webpack_require__(300);
+    const { Project } = __webpack_require__(302);
     const project = new Project({ useInMemoryFileSystem: true });
     const sourceFile = project.createSourceFile(targetFilePath, fileContent);
     // 1. Ensure required imports
@@ -51558,14 +52360,14 @@ function buildGsapBlock(ir) {
 
 
 /***/ }),
-/* 300 */
+/* 302 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("ts-morph");
 
 /***/ }),
-/* 301 */
+/* 303 */
 /***/ ((__unused_webpack_module, exports) => {
 
 "use strict";
@@ -51612,7 +52414,7 @@ function normalizeCode(code) {
 
 
 /***/ }),
-/* 302 */
+/* 304 */
 /***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 "use strict";
@@ -51802,7 +52604,7 @@ exports.MotionOnboarding = MotionOnboarding;
 
 
 /***/ }),
-/* 303 */
+/* 305 */
 /***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 "use strict";
@@ -51851,8 +52653,8 @@ Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.MotionStudioServer = void 0;
 const http = __importStar(__webpack_require__(35));
 const vscode = __importStar(__webpack_require__(1));
-const MotionCompiler_1 = __webpack_require__(295);
-const MotionOnboarding_1 = __webpack_require__(302);
+const MotionCompiler_1 = __webpack_require__(297);
+const MotionOnboarding_1 = __webpack_require__(304);
 class MotionStudioServer {
     static instance;
     server = null;
@@ -52298,64 +53100,62 @@ exports.MotionStudioServer = MotionStudioServer;
 
 
 /***/ }),
-/* 304 */,
-/* 305 */,
-/* 306 */
+/* 306 */,
+/* 307 */,
+/* 308 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("node:http");
 
 /***/ }),
-/* 307 */
+/* 309 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("node:https");
 
 /***/ }),
-/* 308 */
+/* 310 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("node:zlib");
 
 /***/ }),
-/* 309 */
+/* 311 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("node:buffer");
 
 /***/ }),
-/* 310 */,
-/* 311 */,
-/* 312 */
+/* 312 */,
+/* 313 */,
+/* 314 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("node:util");
 
 /***/ }),
-/* 313 */,
-/* 314 */,
-/* 315 */
+/* 315 */,
+/* 316 */,
+/* 317 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("node:stream/web");
 
 /***/ }),
-/* 316 */,
-/* 317 */
+/* 318 */,
+/* 319 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("buffer");
 
 /***/ }),
-/* 318 */,
-/* 319 */,
 /* 320 */,
 /* 321 */,
 /* 322 */,
@@ -52363,40 +53163,40 @@ module.exports = require("buffer");
 /* 324 */,
 /* 325 */,
 /* 326 */,
-/* 327 */
+/* 327 */,
+/* 328 */,
+/* 329 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("node:url");
 
 /***/ }),
-/* 328 */,
-/* 329 */,
-/* 330 */
+/* 330 */,
+/* 331 */,
+/* 332 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("node:net");
 
 /***/ }),
-/* 331 */,
-/* 332 */,
-/* 333 */
+/* 333 */,
+/* 334 */,
+/* 335 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("node:fs");
 
 /***/ }),
-/* 334 */
+/* 336 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("node:path");
 
 /***/ }),
-/* 335 */,
-/* 336 */,
 /* 337 */,
 /* 338 */,
 /* 339 */,
@@ -52410,15 +53210,15 @@ module.exports = require("node:path");
 /* 347 */,
 /* 348 */,
 /* 349 */,
-/* 350 */
+/* 350 */,
+/* 351 */,
+/* 352 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("stream");
 
 /***/ }),
-/* 351 */,
-/* 352 */,
 /* 353 */,
 /* 354 */,
 /* 355 */,
@@ -52426,37 +53226,37 @@ module.exports = require("stream");
 /* 357 */,
 /* 358 */,
 /* 359 */,
-/* 360 */
+/* 360 */,
+/* 361 */,
+/* 362 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("events");
 
 /***/ }),
-/* 361 */
+/* 363 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("process");
 
 /***/ }),
-/* 362 */,
-/* 363 */,
 /* 364 */,
 /* 365 */,
 /* 366 */,
 /* 367 */,
 /* 368 */,
 /* 369 */,
-/* 370 */
+/* 370 */,
+/* 371 */,
+/* 372 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("querystring");
 
 /***/ }),
-/* 371 */,
-/* 372 */,
 /* 373 */,
 /* 374 */,
 /* 375 */,
@@ -52501,46 +53301,46 @@ module.exports = require("querystring");
 /* 414 */,
 /* 415 */,
 /* 416 */,
-/* 417 */
+/* 417 */,
+/* 418 */,
+/* 419 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("fs/promises");
 
 /***/ }),
-/* 418 */
+/* 420 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("node:stream/promises");
 
 /***/ }),
-/* 419 */,
-/* 420 */,
 /* 421 */,
-/* 422 */
+/* 422 */,
+/* 423 */,
+/* 424 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("net");
 
 /***/ }),
-/* 423 */
+/* 425 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("tls");
 
 /***/ }),
-/* 424 */
+/* 426 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("url");
 
 /***/ }),
-/* 425 */,
-/* 426 */,
 /* 427 */,
 /* 428 */,
 /* 429 */,
@@ -52661,34 +53461,36 @@ module.exports = require("url");
 /* 544 */,
 /* 545 */,
 /* 546 */,
-/* 547 */
+/* 547 */,
+/* 548 */,
+/* 549 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("assert");
 
 /***/ }),
-/* 548 */,
-/* 549 */,
 /* 550 */,
 /* 551 */,
 /* 552 */,
-/* 553 */
+/* 553 */,
+/* 554 */,
+/* 555 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("tty");
 
 /***/ }),
-/* 554 */,
-/* 555 */
+/* 556 */,
+/* 557 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("node:os");
 
 /***/ }),
-/* 556 */
+/* 558 */
 /***/ ((module) => {
 
 "use strict";

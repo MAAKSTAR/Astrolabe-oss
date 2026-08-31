@@ -45,6 +45,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/v1/models/unload", post(unload_model))
         .route("/v1/models/download", post(download_model))
         .route("/v1/models/downloads", get(active_downloads))
+        .route("/v1/models/downloads/control", post(control_download))
         .route("/v1/models/search", get(search_models))
         .route("/v1/models/tree", get(repo_tree))
         .route("/v1/health", get(health_check))
@@ -511,6 +512,7 @@ async fn download_model(
     Json(req): Json<DownloadRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let filename = req.filename.clone();
+    let url = req.url.clone();
     
     // Check if it's already downloading
     if state.active_downloads.read().await.contains_key(&filename) {
@@ -519,6 +521,9 @@ async fn download_model(
             return Err((StatusCode::CONFLICT, format!("{} is already downloading", filename)));
         }
     }
+
+    // Cache the download URL for pause/retry support
+    state.download_urls.write().await.insert(filename.clone(), url.clone());
 
     let (tx, mut rx) = tokio::sync::watch::channel(crate::models::DownloadProgress {
         model_name: filename.clone(),
@@ -543,30 +548,133 @@ async fn download_model(
     });
 
     let models_dir = state.models_dir.clone();
-    let url = req.url.clone();
     let filename_for_task = filename.clone();
     let state_clone2 = Arc::clone(&state);
 
-    tokio::spawn(async move {
+    let task = tokio::spawn(async move {
         match models::download_model(&url, &models_dir, &filename_for_task, Some(tx)).await {
             Ok(_) => {
-                if let Some(mut dl) = state_clone2.active_downloads.write().await.get_mut(&filename_for_task) {
+                if let Some(dl) = state_clone2.active_downloads.write().await.get_mut(&filename_for_task) {
                     dl.status = "finished".to_string();
                     dl.percent = 100.0;
                 }
+                state_clone2.download_tasks.write().await.remove(&filename_for_task);
             }
             Err(e) => {
-                if let Some(mut dl) = state_clone2.active_downloads.write().await.get_mut(&filename_for_task) {
+                if let Some(dl) = state_clone2.active_downloads.write().await.get_mut(&filename_for_task) {
                     dl.status = format!("error: {}", e);
                 }
+                state_clone2.download_tasks.write().await.remove(&filename_for_task);
             }
         }
     });
+
+    state.download_tasks.write().await.insert(filename.clone(), task.abort_handle());
 
     Ok(Json(serde_json::json!({
         "status": "started",
         "filename": filename,
     })))
+}
+
+#[derive(Debug, Deserialize)]
+struct DownloadControlRequest {
+    filename: String,
+    action: String, // "pause" | "retry" | "delete"
+}
+
+/// POST /v1/models/downloads/control — Control active downloads (pause, retry, delete)
+async fn control_download(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<DownloadControlRequest>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let filename = req.filename;
+    let action = req.action.to_lowercase();
+
+    match action.as_str() {
+        "pause" => {
+            if let Some(handle) = state.download_tasks.write().await.remove(&filename) {
+                handle.abort();
+            }
+            if let Some(dl) = state.active_downloads.write().await.get_mut(&filename) {
+                dl.status = "paused".to_string();
+                dl.speed_display = None;
+                dl.speed_bytes_per_sec = None;
+                dl.eta_seconds = None;
+            }
+            Ok(Json(serde_json::json!({ "status": "paused", "filename": filename })))
+        }
+        "retry" | "resume" => {
+            let url_opt = state.download_urls.read().await.get(&filename).cloned();
+            if let Some(url) = url_opt {
+                if let Some(handle) = state.download_tasks.write().await.remove(&filename) {
+                    handle.abort();
+                }
+
+                let (tx, mut rx) = tokio::sync::watch::channel(crate::models::DownloadProgress {
+                    model_name: filename.clone(),
+                    downloaded_bytes: 0,
+                    total_bytes: 0,
+                    percent: 0.0,
+                    speed_bytes_per_sec: None,
+                    speed_display: None,
+                    eta_seconds: None,
+                    status: "starting".to_string(),
+                });
+
+                let state_clone = Arc::clone(&state);
+                let filename_clone = filename.clone();
+                tokio::spawn(async move {
+                    while rx.changed().await.is_ok() {
+                        let progress = rx.borrow().clone();
+                        state_clone.active_downloads.write().await.insert(filename_clone.clone(), progress);
+                    }
+                });
+
+                let models_dir = state.models_dir.clone();
+                let filename_for_task = filename.clone();
+                let state_clone2 = Arc::clone(&state);
+
+                let task = tokio::spawn(async move {
+                    match models::download_model(&url, &models_dir, &filename_for_task, Some(tx)).await {
+                        Ok(_) => {
+                            if let Some(dl) = state_clone2.active_downloads.write().await.get_mut(&filename_for_task) {
+                                dl.status = "finished".to_string();
+                                dl.percent = 100.0;
+                            }
+                            state_clone2.download_tasks.write().await.remove(&filename_for_task);
+                        }
+                        Err(e) => {
+                            if let Some(dl) = state_clone2.active_downloads.write().await.get_mut(&filename_for_task) {
+                                dl.status = format!("error: {}", e);
+                            }
+                            state_clone2.download_tasks.write().await.remove(&filename_for_task);
+                        }
+                    }
+                });
+
+                state.download_tasks.write().await.insert(filename.clone(), task.abort_handle());
+                Ok(Json(serde_json::json!({ "status": "resumed", "filename": filename })))
+            } else {
+                Err((StatusCode::NOT_FOUND, format!("No URL cached for {}", filename)))
+            }
+        }
+        "delete" | "cancel" => {
+            if let Some(handle) = state.download_tasks.write().await.remove(&filename) {
+                handle.abort();
+            }
+            state.active_downloads.write().await.remove(&filename);
+            state.download_urls.write().await.remove(&filename);
+
+            let file_path = std::path::PathBuf::from(&state.models_dir).join(&filename);
+            if file_path.exists() {
+                let _ = tokio::fs::remove_file(&file_path).await;
+            }
+
+            Ok(Json(serde_json::json!({ "status": "deleted", "filename": filename })))
+        }
+        _ => Err((StatusCode::BAD_REQUEST, format!("Unknown action '{}'. Use pause, retry, or delete", action)))
+    }
 }
 
 /// GET /v1/models/downloads — Get active downloads

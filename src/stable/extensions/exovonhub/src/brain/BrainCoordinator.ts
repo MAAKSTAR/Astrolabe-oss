@@ -905,10 +905,20 @@ export class BrainCoordinator implements IBrainCoordinator {
   }
 
   // --- CHAT PERSISTENCE METHODS ---
-  public getChatThreads(): { id: string; title: string; updated_at: number }[] {
+  public getChatThreads(): { id: string; title: string; updated_at: number; message_count?: number; preview?: string }[] {
     try {
       const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
-      return this.db.prepare('SELECT id, title, updated_at FROM chat_threads WHERE workspace_path = ? ORDER BY updated_at DESC').all(workspaceRoot) as any[];
+      return this.db.prepare(`
+        SELECT 
+          ct.id, 
+          ct.title, 
+          ct.updated_at,
+          (SELECT COUNT(*) FROM chat_messages cm WHERE cm.thread_id = ct.id AND cm.id != 'welcome') as message_count,
+          (SELECT text FROM chat_messages cm WHERE cm.thread_id = ct.id AND cm.id != 'welcome' AND cm.text IS NOT NULL AND TRIM(cm.text) != '' ORDER BY cm.timestamp DESC, cm.id DESC LIMIT 1) as preview
+        FROM chat_threads ct 
+        WHERE ct.workspace_path = ? 
+        ORDER BY ct.updated_at DESC
+      `).all(workspaceRoot) as any[];
     } catch (e) {
       console.error('getChatThreads error:', e);
       return [];
@@ -917,7 +927,7 @@ export class BrainCoordinator implements IBrainCoordinator {
 
   public getChatMessages(threadId: string): any[] {
     try {
-      return this.db.prepare('SELECT * FROM chat_messages WHERE thread_id = ? ORDER BY timestamp ASC').all(threadId) as any[];
+      return this.db.prepare('SELECT * FROM chat_messages WHERE thread_id = ? ORDER BY rowid ASC').all(threadId) as any[];
     } catch (e) {
       console.error('getChatMessages error:', e);
       return [];
@@ -937,12 +947,37 @@ export class BrainCoordinator implements IBrainCoordinator {
     return threadId;
   }
 
+  public renameChatThread(threadId: string, title: string): void {
+    try {
+      const trimmed = title.trim();
+      if (!trimmed) return;
+      this.db.prepare('UPDATE chat_threads SET title = ?, updated_at = ? WHERE id = ?').run(
+        trimmed, Date.now(), threadId
+      );
+    } catch (e) {
+      console.error('renameChatThread error:', e);
+    }
+  }
+
   public deleteChatThread(threadId: string): void {
     try {
       this.db.prepare('DELETE FROM chat_messages WHERE thread_id = ?').run(threadId);
       this.db.prepare('DELETE FROM chat_threads WHERE id = ?').run(threadId);
     } catch (e) {
       console.error('deleteChatThread error:', e);
+    }
+  }
+
+  public clearAllChatThreads(): void {
+    try {
+      const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
+      const threads = this.db.prepare('SELECT id FROM chat_threads WHERE workspace_path = ?').all(workspaceRoot) as { id: string }[];
+      for (const t of threads) {
+        this.db.prepare('DELETE FROM chat_messages WHERE thread_id = ?').run(t.id);
+      }
+      this.db.prepare('DELETE FROM chat_threads WHERE workspace_path = ?').run(workspaceRoot);
+    } catch (e) {
+      console.error('clearAllChatThreads error:', e);
     }
   }
 
@@ -972,12 +1007,23 @@ export class BrainCoordinator implements IBrainCoordinator {
           commandToApprove: message.commandToApprove,
           filePathToApprove: message.filePathToApprove,
           approvalId: message.approvalId,
-          timeline: message.timeline
+          timeline: message.timeline,
+          images: message.images,
+          metrics: message.metrics,
+          checkpointId: message.checkpointId,
+          checkpoint: message.checkpoint,
+          promptTokens: message.promptTokens,
+          promptProcessed: message.promptProcessed
         })
       );
       
       // Update thread title and timestamp
-      const title = message.text ? message.text.substring(0, 30) + (message.text.length > 30 ? '...' : '') : 'Exovon Chat';
+      let cleanText = (message.text || '')
+        .replace(/^\[IDE WORKSPACE ACTIVE CONTEXT\][\s\S]*?\[\/IDE WORKSPACE ACTIVE CONTEXT\]/, '')
+        .replace(/^Developer Action Request:\s*"?/, '')
+        .replace(/^[#*`\s]+/, '')
+        .trim();
+      const title = cleanText ? cleanText.substring(0, 45) + (cleanText.length > 45 ? '...' : '') : 'Exovon Chat';
       // Only update title if it's a user message and not the first message
       if (message.sender === 'user') {
          this.db.prepare('UPDATE chat_threads SET updated_at = ?, title = CASE WHEN title = \'New Chat\' THEN ? ELSE title END WHERE id = ?').run(
@@ -1001,7 +1047,7 @@ export class BrainCoordinator implements IBrainCoordinator {
 
   public loadChatThread(threadId: string): any[] {
     try {
-      const rows = this.db.prepare('SELECT * FROM chat_messages WHERE thread_id = ? ORDER BY timestamp ASC, id ASC').all(threadId) as any[];
+      const rows = this.db.prepare('SELECT * FROM chat_messages WHERE thread_id = ? ORDER BY rowid ASC').all(threadId) as any[];
       return rows.map(r => {
         const meta = r.meta ? JSON.parse(r.meta) : {};
         return {

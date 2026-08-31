@@ -434,6 +434,48 @@ export class ExovonSidebarProvider implements vscode.WebviewViewProvider {
           break;
         }
 
+        case 'rollbackToCheckpoint': {
+          const { checkpointId } = data;
+          const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+          if (workspaceRoot && checkpointId) {
+            const { StateGraphCheckpointer } = await import('./agent/checkpoint/StateGraphCheckpointer');
+            const checkpointer = this._activeOrchestrator?.getCheckpointer() || new StateGraphCheckpointer(workspaceRoot);
+            const res = await checkpointer.rollback(undefined, checkpointId);
+            if (res.success && res.restoredCheckpoint) {
+              webviewView.webview.postMessage({
+                type: 'checkpointRollbackComplete',
+                checkpoint: res.restoredCheckpoint,
+                checkpointId: res.restoredCheckpoint.id,
+                text: `Restored files to Checkpoint #${res.restoredCheckpoint.stepNumber}`
+              });
+              vscode.window.showInformationMessage(`Exovon Engine: Restored files to Checkpoint #${res.restoredCheckpoint.stepNumber} (${res.restoredFiles.length} files restored)`);
+            } else {
+              vscode.window.showErrorMessage(`Rollback failed: ${res.error || 'Checkpoint not found'}`);
+            }
+          }
+          break;
+        }
+
+        case 'branchFromCheckpoint': {
+          const { checkpointId, branchName } = data;
+          const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+          if (workspaceRoot && checkpointId) {
+            const { StateGraphCheckpointer } = await import('./agent/checkpoint/StateGraphCheckpointer');
+            const checkpointer = this._activeOrchestrator?.getCheckpointer() || new StateGraphCheckpointer(workspaceRoot);
+            const newThreadId = `branch_${Date.now()}`;
+            const branchedChk = checkpointer.branch('default_thread', checkpointId, newThreadId, branchName || 'Alternative Approach');
+            if (branchedChk) {
+              webviewView.webview.postMessage({
+                type: 'checkpointBranchComplete',
+                newThreadId,
+                branchedCheckpoint: branchedChk
+              });
+              vscode.window.showInformationMessage(`Exovon Engine: Branched chat from Checkpoint #${branchedChk.stepNumber}`);
+            }
+          }
+          break;
+        }
+
         case 'setContextKeepLastNTurns': {
           const turns = Math.max(1, Math.min(20, Number(data.turns) || 3));
           const config = vscode.workspace.getConfiguration('exovonhub');
@@ -721,7 +763,11 @@ Developer Action Request: "${finalPrompt}"
               } else if (update.type === 'toolStart') {
                 webviewView.webview.postMessage({ type: 'agentToolStart', toolId: update.toolId, toolName: update.toolName, toolArgs: update.toolArgs, messageId });
               } else if (update.type === 'agentToolComplete') {
-                webviewView.webview.postMessage({ type: 'agentToolComplete', toolId: update.toolId, toolStatus: update.toolStatus, messageId });
+                webviewView.webview.postMessage({ type: 'agentToolComplete', toolId: update.toolId, toolStatus: update.toolStatus, toolOutput: update.toolOutput, messageId });
+              } else if (update.type === 'checkpointCreated') {
+                webviewView.webview.postMessage({ type: 'checkpointCreated', checkpoint: update.checkpoint, checkpointId: update.checkpointId, messageId });
+              } else if (update.type === 'checkpointRollbackComplete') {
+                webviewView.webview.postMessage({ type: 'checkpointRollbackComplete', checkpoint: update.checkpoint, text: update.text, messageId });
               } else if (update.type === 'plan') {
                 webviewView.webview.postMessage({ type: 'agentPlanUpdate', planSteps: update.planSteps, messageId });
               } else if (update.type === 'planReview') {
@@ -1167,6 +1213,51 @@ Developer Action Request: "${finalPrompt}"
                     webviewView.webview.postMessage({ type: 'chatThreadsLoaded', threads });
                 }
              });
+          }
+          break;
+        }
+
+        case 'renameChatThread': {
+          if (this._brainCoordinator && data.threadId && data.title) {
+            this._brainCoordinator.renameChatThread(data.threadId, data.title);
+            const threads = this._brainCoordinator.getChatThreads();
+            webviewView.webview.postMessage({ type: 'chatThreadsLoaded', threads });
+          }
+          break;
+        }
+
+        case 'clearAllChatThreads': {
+          if (this._brainCoordinator) {
+            vscode.window.showWarningMessage('Are you sure you want to delete ALL chat history?', { modal: true }, 'Yes, Delete All', 'Cancel').then(selection => {
+              if (selection === 'Yes, Delete All') {
+                this._brainCoordinator!.clearAllChatThreads();
+                const newThreadId = this._brainCoordinator!.createNewThread();
+                const threads = this._brainCoordinator!.getChatThreads();
+                webviewView.webview.postMessage({ type: 'chatThreadsLoaded', threads });
+                webviewView.webview.postMessage({ type: 'newThreadCreated', threadId: newThreadId });
+                vscode.window.showInformationMessage('All chat history cleared.');
+              }
+            });
+          }
+          break;
+        }
+
+        case 'exportChatThread': {
+          if (this._brainCoordinator && data.threadId) {
+            const messages = this._brainCoordinator.loadChatThread(data.threadId);
+            const thread = this._brainCoordinator.getChatThreads().find(t => t.id === data.threadId);
+            const title = thread?.title || 'Chat';
+            let markdown = `# ${title}\n\n*Exported on ${new Date().toLocaleString()}*\n\n---\n\n`;
+            for (const msg of messages) {
+              const sender = msg.sender === 'user' ? '👤 User' : '🤖 Astrolabe Agent';
+              markdown += `### ${sender} (${msg.timestamp || ''})\n\n${msg.text || ''}\n\n`;
+              if (msg.toolCalls && msg.toolCalls.length > 0) {
+                markdown += `> **Tools Used**: ${msg.toolCalls.map((tc: any) => tc.name).join(', ')}\n\n`;
+              }
+              markdown += `---\n\n`;
+            }
+            vscode.env.clipboard.writeText(markdown);
+            vscode.window.showInformationMessage(`Chat "${title}" copied to clipboard as Markdown!`);
           }
           break;
         }

@@ -39,9 +39,6 @@ const extensionConfig = {
   resolve: {
     // support reading TypeScript and JavaScript files, 📖 -> https://github.com/TypeStrong/ts-loader
     extensions: ['.ts', '.js'],
-    alias: {
-      '@exovon/sdk': path.resolve(__dirname, '../../../../packages/exovon-sdk/dist/index.js')
-    },
     extensionAlias: {
       '.js': ['.js', '.ts'],
       '.cjs': ['.cjs', '.cts'],

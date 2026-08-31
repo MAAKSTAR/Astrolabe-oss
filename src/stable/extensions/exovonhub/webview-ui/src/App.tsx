@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { flushSync } from 'react-dom'
 import type { Message, ToolCall, ChatThread } from './types'
 import { ChatScreen } from './components/ChatScreen'
+import { ChatHistoryDrawer } from './components/ChatHistoryDrawer'
 import { CortexCanvas } from './components/CortexCanvas'
 import { HubScreen } from './components/HubScreen'
 import { getVsCodeApi } from './vscodeApi'
@@ -59,7 +60,7 @@ export default function App() {
   const [isThreadsSidebarOpen, setIsThreadsSidebarOpen] = useState<boolean>(false);
 
   const [isLoadingThread, setIsLoadingThread] = useState<boolean>(false);
-  const [isPlanMode, setIsPlanMode] = useState<boolean>(true);
+  const [planLevel, setPlanLevel] = useState<'none' | 'auto' | 'strict'>('auto');
   const [inspectorActive, setInspectorActive] = useState<boolean>(false);
 
   // Quota Info State
@@ -89,12 +90,45 @@ export default function App() {
   const chatEndRef = useRef<HTMLDivElement>(null);
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSavedStateRef = useRef<Record<string, string>>({});
+  const messagesRef = useRef<Message[]>(messages);
+  messagesRef.current = messages;
+
+  const flushSaveMessages = (threadId: string | null, msgs: Message[]) => {
+    if (!threadId || msgs.length === 0 || !vscodeApi) return;
+    const msgsToSave = msgs.filter(m => m.id !== 'welcome' && !m.isFileApproval && !m.isCommandApproval && !m.isPlanReview).map(msg => {
+      const copy = { ...msg };
+      if (copy.fileDetailsToApprove) copy.fileDetailsToApprove = undefined;
+      if (copy.commandToApprove) copy.commandToApprove = undefined;
+      return copy;
+    });
+    
+    let changedCount = 0;
+    msgsToSave.forEach(msg => {
+      const stringified = JSON.stringify(msg);
+      if (lastSavedStateRef.current[msg.id] !== stringified) {
+        vscodeApi.postMessage({ command: 'saveChatMessage', threadId, message: msg });
+        lastSavedStateRef.current[msg.id] = stringified;
+        changedCount++;
+      }
+    });
+    
+    if (changedCount > 0) {
+      vscodeApi.postMessage({ command: 'getChatThreads' });
+    }
+  };
 
   useEffect(() => {
-    lastSavedStateRef.current = {};
+    return () => {
+      // Flush before switching thread
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+        flushSaveMessages(activeThreadId, messagesRef.current);
+      }
+      lastSavedStateRef.current = {};
+    };
   }, [activeThreadId]);
 
-  // Save latest messages to SQLite instantly
+  // Save latest messages to SQLite with smooth debounce
   useEffect(() => {
     if (activeThreadId && messages.length > 0 && vscodeApi) {
       if (debounceTimerRef.current) {
@@ -102,29 +136,8 @@ export default function App() {
       }
       
       debounceTimerRef.current = setTimeout(() => {
-        // Filter out the client-side welcome message and transient approval/review prompts
-        const msgsToSave = messages.filter(m => m.id !== 'welcome' && !m.isFileApproval && !m.isCommandApproval && !m.isPlanReview).map(msg => {
-          const copy = { ...msg };
-          if (copy.fileDetailsToApprove) copy.fileDetailsToApprove = undefined;
-          if (copy.commandToApprove) copy.commandToApprove = undefined;
-          return copy;
-        });
-        
-        let changedCount = 0;
-        msgsToSave.forEach(msg => {
-          const stringified = JSON.stringify(msg);
-          if (lastSavedStateRef.current[msg.id] !== stringified) {
-            vscodeApi.postMessage({ command: 'saveChatMessage', threadId: activeThreadId, message: msg });
-            lastSavedStateRef.current[msg.id] = stringified;
-            changedCount++;
-          }
-        });
-        
-        // Also request an updated thread list to update timestamps in the sidebar
-        if (changedCount > 0) {
-          vscodeApi.postMessage({ command: 'getChatThreads' });
-        }
-      }, 2000); // 2 second debounce
+        flushSaveMessages(activeThreadId, messages);
+      }, 600); // 600ms responsive debounce
     }
     
     return () => {
@@ -135,6 +148,37 @@ export default function App() {
   const handleClearChat = () => {
     if (vscodeApi) {
       vscodeApi.postMessage({ command: 'createNewThread' });
+    }
+  };
+
+  const handleSelectThread = (threadId: string) => {
+    if (vscodeApi && threadId !== activeThreadId) {
+      setIsLoadingThread(true);
+      vscodeApi.postMessage({ command: 'loadChatThread', threadId });
+    }
+  };
+
+  const handleDeleteThread = (threadId: string) => {
+    if (vscodeApi) {
+      vscodeApi.postMessage({ command: 'requestDeleteChatThread', threadId });
+    }
+  };
+
+  const handleRenameThread = (threadId: string, newTitle: string) => {
+    if (vscodeApi) {
+      vscodeApi.postMessage({ command: 'renameChatThread', threadId, title: newTitle });
+    }
+  };
+
+  const handleClearAllThreads = () => {
+    if (vscodeApi) {
+      vscodeApi.postMessage({ command: 'clearAllChatThreads' });
+    }
+  };
+
+  const handleExportThread = (threadId: string) => {
+    if (vscodeApi) {
+      vscodeApi.postMessage({ command: 'exportChatThread', threadId });
     }
   };
 
@@ -577,7 +621,11 @@ export default function App() {
                 const timeline = [...(lastMsg.timeline || [])];
                 const toolIdx = timeline.findIndex(e => e.id === message.toolId);
                 if (toolIdx !== -1) {
-                  timeline[toolIdx] = { ...timeline[toolIdx], status: message.toolStatus as 'running' | 'success' | 'failed' };
+                  timeline[toolIdx] = {
+                    ...timeline[toolIdx],
+                    status: message.toolStatus as 'running' | 'success' | 'failed',
+                    output: message.toolOutput || timeline[toolIdx].output
+                  };
                 }
 
                 copy[targetIdx] = {
@@ -589,6 +637,35 @@ export default function App() {
             }
             return copy;
           });
+          break;
+
+        case 'checkpointCreated':
+          if (message.checkpoint) {
+            setMessages(prev => {
+              const copy = [...prev];
+              const targetIdx = message.messageId ? copy.findIndex(m => m.id === message.messageId) : copy.length - 1;
+              if (targetIdx !== -1) {
+                copy[targetIdx] = {
+                  ...copy[targetIdx],
+                  checkpointId: message.checkpoint.id,
+                  checkpoint: message.checkpoint
+                };
+              }
+              return copy;
+            });
+          }
+          break;
+
+        case 'checkpointRollbackComplete':
+          if (message.checkpoint) {
+            setMessages(prev => {
+              const targetIdx = prev.findIndex(m => m.checkpointId === message.checkpoint.id);
+              if (targetIdx !== -1) {
+                return prev.slice(0, targetIdx + 1);
+              }
+              return prev;
+            });
+          }
           break;
 
         case 'commandApprovalRequested':
@@ -959,7 +1036,7 @@ export default function App() {
         <div className="flex items-center gap-1 ml-1.5 border-l border-white/10 pl-1.5 shrink-0">
           <button
             onClick={() => handleClearChat()}
-            className="flex items-center gap-1 px-2 py-1 bg-emerald-600/30 hover:bg-emerald-600/60 text-emerald-300 hover:text-white border border-emerald-500/30 rounded-lg text-[10px] font-mono font-bold transition-all shadow-sm shrink-0"
+            className="flex items-center gap-1 px-2 py-1 bg-violet-600/30 hover:bg-violet-600/60 text-violet-300 hover:text-white border border-violet-500/30 rounded-lg text-[10px] font-mono font-bold transition-all shadow-sm shrink-0"
             title="Start New Chat"
           >
             <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1004,8 +1081,8 @@ export default function App() {
             setSelectedContextFiles={setSelectedContextFiles}
             speculativeDiffs={speculativeDiffs}
             setSpeculativeDiffs={setSpeculativeDiffs}
-            isPlanMode={isPlanMode}
-            setIsPlanMode={setIsPlanMode}
+            planLevel={planLevel}
+            setPlanLevel={setPlanLevel}
             vscodeApi={vscodeApi}
             chatEndRef={chatEndRef}
             activeEditorFile={activeEditorFile}
@@ -1104,70 +1181,19 @@ export default function App() {
         </div>
       )}
 
-      {/* PAST CHATS SIDEBAR MODAL */}
-      {isThreadsSidebarOpen && (
-        <div className="absolute inset-0 z-50 bg-zinc-950/80 backdrop-blur-sm flex justify-end" onClick={() => setIsThreadsSidebarOpen(false)}>
-          <div role="dialog" aria-modal="true" aria-label="Past Chats" className="w-64 bg-zinc-900 border-l border-zinc-800 h-full flex flex-col shadow-2xl animate-slide-in-right" onClick={e => e.stopPropagation()}>
-            <div className="p-3 border-b border-zinc-800 flex items-center justify-between">
-              <h2 className="text-xs font-bold font-mono text-zinc-200">Past Chats</h2>
-              <button aria-label="Close Past Chats" onClick={() => setIsThreadsSidebarOpen(false)} className="text-zinc-500 hover:text-zinc-300">
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-              </button>
-            </div>
-            
-            <div className="p-2 border-b border-zinc-800/50 bg-zinc-900/50">
-              <button
-                aria-label="Start New Chat"
-                onClick={() => {
-                  handleClearChat();
-                  setIsThreadsSidebarOpen(false);
-                }}
-                className="w-full flex items-center justify-center gap-2 py-2 mb-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded font-bold text-[11px] shadow-sm transition-colors"
-              >
-                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4"/></svg>
-                New Chat
-              </button>
-            </div>
-
-            <div className="flex-1 overflow-y-auto p-2 space-y-1">
-              {chatThreads.map(thread => (
-                <div key={thread.id} className={`group flex items-center justify-between p-2 rounded-lg cursor-pointer transition-colors ${activeThreadId === thread.id ? 'bg-zinc-800 border border-zinc-700' : 'hover:bg-zinc-800/50 border border-transparent'}`}>
-                  <button
-                    aria-label={`Select Chat Thread: ${thread.title || 'Empty chat'}`}
-                    onClick={() => {
-                      if (vscodeApi && thread.id !== activeThreadId) {
-                        vscodeApi.postMessage({ command: 'loadChatThread', threadId: thread.id });
-                        setIsThreadsSidebarOpen(false);
-                      }
-                    }}
-                    className="flex-1 text-left min-w-0"
-                  >
-                    <div className="text-[10px] text-zinc-300 truncate font-semibold mb-0.5">{thread.title || 'Empty chat'}</div>
-                    <div className="text-[9px] text-zinc-500 truncate">{new Date(thread.updated_at).toLocaleString()}</div>
-                  </button>
-                  <button
-                    aria-label={`Delete Chat Thread: ${thread.title || 'Empty chat'}`}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (vscodeApi) {
-                        vscodeApi.postMessage({ command: 'requestDeleteChatThread', threadId: thread.id });
-                      }
-                    }}
-                    className="p-2 text-zinc-500 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity mr-1"
-                    title="Delete Chat"
-                  >
-                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
-                  </button>
-                </div>
-              ))}
-              {chatThreads.length === 0 && (
-                <div className="text-center p-4 text-[10px] text-zinc-500">No past chats found.</div>
-              )}
-            </div>
-          </div>
-          <div className="flex-1" onClick={() => setIsThreadsSidebarOpen(false)} />
-        </div>
-      )}
+      {/* CHAT HISTORY DRAWER */}
+      <ChatHistoryDrawer
+        isOpen={isThreadsSidebarOpen}
+        onClose={() => setIsThreadsSidebarOpen(false)}
+        chatThreads={chatThreads}
+        activeThreadId={activeThreadId}
+        onSelectThread={handleSelectThread}
+        onNewChat={handleClearChat}
+        onDeleteThread={handleDeleteThread}
+        onRenameThread={handleRenameThread}
+        onClearAllThreads={handleClearAllThreads}
+        onExportThread={handleExportThread}
+      />
 
     </div>
   );

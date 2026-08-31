@@ -7,6 +7,7 @@ export class EngineStatusBarManager {
     private static instance: EngineStatusBarManager;
     private statusBarItem: vscode.StatusBarItem;
     private healthGuardItem: vscode.StatusBarItem;
+    private ghostStatusItem: vscode.StatusBarItem;
     private context: vscode.ExtensionContext;
     private pollInterval: NodeJS.Timeout | null = null;
     private activeModel: string | null = null;
@@ -25,10 +26,18 @@ export class EngineStatusBarManager {
         this.statusBarItem.command = 'exovon.manageEngine';
         this.context.subscriptions.push(this.statusBarItem);
 
+        this.ghostStatusItem = vscode.window.createStatusBarItem(
+            'exovon.ghostStatusBar',
+            vscode.StatusBarAlignment.Right,
+            94
+        );
+        this.ghostStatusItem.command = 'exovon.manageGhostText';
+        this.context.subscriptions.push(this.ghostStatusItem);
+
         this.healthGuardItem = vscode.window.createStatusBarItem(
             'exovon.healthGuard',
             vscode.StatusBarAlignment.Right,
-            94
+            93
         );
         this.healthGuardItem.command = 'exovon.showHealthDetails';
         this.context.subscriptions.push(this.healthGuardItem);
@@ -76,6 +85,7 @@ export class EngineStatusBarManager {
             this.pollInterval = null;
         }
         this.statusBarItem.dispose();
+        this.ghostStatusItem.dispose();
         this.healthGuardItem.dispose();
     }
 
@@ -126,7 +136,7 @@ export class EngineStatusBarManager {
         this.updateDisplay();
     }
 
-    private updateDisplay() {
+    public updateDisplay() {
         if (!this.isEngineRunning) {
             this.statusBarItem.text = '$(circle-slash) Engine: Offline';
             this.statusBarItem.tooltip = new vscode.MarkdownString(
@@ -160,6 +170,56 @@ export class EngineStatusBarManager {
             this.updateHealthGuardDisplay();
         }
         this.statusBarItem.show();
+
+        this.updateGhostDisplay();
+    }
+
+    private updateGhostDisplay() {
+        const config = vscode.workspace.getConfiguration('exovonhub');
+        const ghostEnabled = config.get<boolean>('enableGhostText', true);
+        const assignedGhostModel = config.get<string>('inlineGhostModel');
+
+        if (!ghostEnabled) {
+            this.ghostStatusItem.text = '$(circle-slash) Ghost: Off';
+            this.ghostStatusItem.tooltip = new vscode.MarkdownString(
+                '**Inline Ghost Code Completion**\n\n' +
+                'Status: **Disabled**\n\n' +
+                'Click to enable real-time local autocomplete or select a model.'
+            );
+            this.ghostStatusItem.color = new vscode.ThemeColor('descriptionForeground');
+        } else if (!this.isEngineRunning) {
+            this.ghostStatusItem.text = '$(sparkle) Ghost: Offline';
+            this.ghostStatusItem.tooltip = new vscode.MarkdownString(
+                '**Inline Ghost Code Completion**\n\n' +
+                'Status: Daemon is offline (Port 47990)\n\n' +
+                'Click to start local engine.'
+            );
+            this.ghostStatusItem.color = new vscode.ThemeColor('charts.orange');
+        } else {
+            const activeGhost = assignedGhostModel || this.activeModel;
+            if (activeGhost) {
+                const shortGhost = this.formatShortModelName(activeGhost);
+                this.ghostStatusItem.text = `$(sparkle) Ghost: ${shortGhost}`;
+                this.ghostStatusItem.tooltip = new vscode.MarkdownString(
+                    '**Inline Ghost Code Completion (Healthy ⚡)**\n\n' +
+                    `• **Status**: Active & Ready (Local FIM)\n` +
+                    `• **Ghost Model**: \`${activeGhost}\`\n` +
+                    `• **Runtime**: Exovon Daemon (127.0.0.1:47990)\n\n` +
+                    'Click to switch ghost model, test latency, or disable.'
+                );
+                this.ghostStatusItem.color = undefined;
+            } else {
+                this.ghostStatusItem.text = '$(sparkle) Ghost: Ready';
+                this.ghostStatusItem.tooltip = new vscode.MarkdownString(
+                    '**Inline Ghost Code Completion**\n\n' +
+                    '• **Status**: Engine Connected (Ready)\n' +
+                    '• **Assigned Model**: Default / Active Model\n\n' +
+                    'Click to select a dedicated ghost model.'
+                );
+                this.ghostStatusItem.color = undefined;
+            }
+        }
+        this.ghostStatusItem.show();
     }
 
     private updateHealthGuardDisplay() {
@@ -225,6 +285,12 @@ export class EngineStatusBarManager {
         );
 
         this.context.subscriptions.push(
+            vscode.commands.registerCommand('exovon.manageGhostText', async () => {
+                await this.showGhostManagementMenu();
+            })
+        );
+
+        this.context.subscriptions.push(
             vscode.commands.registerCommand('exovon.showHealthDetails', async () => {
                 await this.showHealthDetailsMenu();
             })
@@ -241,6 +307,131 @@ export class EngineStatusBarManager {
                 await this.restartDaemon();
             })
         );
+    }
+
+    private async showGhostManagementMenu() {
+        const config = vscode.workspace.getConfiguration('exovonhub');
+        const enabled = config.get<boolean>('enableGhostText', true);
+        const assigned = config.get<string>('inlineGhostModel') || '';
+
+        const items: vscode.QuickPickItem[] = [
+            {
+                label: enabled ? '$(circle-slash) Disable Inline Ghost Autocomplete' : '$(check) Enable Inline Ghost Autocomplete',
+                description: enabled ? 'Currently Enabled' : 'Currently Disabled',
+                detail: 'Toggles real-time FIM code suggestions at cursor'
+            },
+            {
+                label: '$(symbol-event) Select Model for Inline Ghost',
+                description: assigned ? `Current: ${assigned}` : 'Using Active Engine Model (Auto)',
+                detail: 'Assign any downloaded local GGUF model for inline code predictions'
+            },
+            {
+                label: '$(zap) Test Inline Ghost Latency & Health',
+                description: 'Pings local daemon with FIM probe',
+                detail: 'Verifies response time and token throughput'
+            },
+            {
+                label: '$(gear) Open Model Hub & Local Engine Settings',
+                description: 'Configure GPU memory and models directory'
+            }
+        ];
+
+        const pick = await vscode.window.showQuickPick(items, {
+            placeHolder: 'Manage Inline Ghost Autocomplete'
+        });
+
+        if (!pick) return;
+
+        if (pick.label.includes('Disable') || pick.label.includes('Enable')) {
+            await config.update('enableGhostText', !enabled, vscode.ConfigurationTarget.Global);
+            vscode.window.showInformationMessage(`Inline Ghost Autocomplete is now ${!enabled ? 'Enabled' : 'Disabled'}.`);
+            this.updateDisplay();
+        } else if (pick.label.includes('Select Model')) {
+            await this.promptSelectGhostModel();
+        } else if (pick.label.includes('Test Inline Ghost')) {
+            await this.testGhostLatency();
+        } else if (pick.label.includes('Open Model Hub')) {
+            vscode.commands.executeCommand('exovon.openSettings');
+        }
+    }
+
+    private async promptSelectGhostModel() {
+        try {
+            const fetch = (await import('node-fetch')).default;
+            const res = await fetch('http://127.0.0.1:47990/v1/models');
+            if (!res.ok) {
+                vscode.window.showWarningMessage('Daemon offline. Start the engine to select local models.');
+                return;
+            }
+            const data = await res.json() as any;
+            const models: string[] = (data.local_models || []).map((m: any) => m.id || m.name);
+
+            const items: vscode.QuickPickItem[] = [
+                {
+                    label: '$(sparkle) Auto (Follow Active Engine Model)',
+                    description: 'Dynamically routes ghost requests to whatever model is loaded in memory'
+                },
+                ...models.map(m => ({
+                    label: `$(chip) ${m}`,
+                    description: 'Set as dedicated Inline Ghost model'
+                }))
+            ];
+
+            const pick = await vscode.window.showQuickPick(items, {
+                placeHolder: 'Select Model for Inline Ghost Autocomplete'
+            });
+
+            if (!pick) return;
+
+            const config = vscode.workspace.getConfiguration('exovonhub');
+            if (pick.label.includes('Auto')) {
+                await config.update('inlineGhostModel', undefined, vscode.ConfigurationTarget.Global);
+                vscode.window.showInformationMessage('Inline Ghost set to Auto (Active Engine Model).');
+            } else {
+                const chosen = pick.label.replace('$(chip) ', '').trim();
+                await config.update('inlineGhostModel', chosen, vscode.ConfigurationTarget.Global);
+                vscode.window.showInformationMessage(`Inline Ghost model set to: ${chosen}`);
+            }
+            this.updateDisplay();
+        } catch (e: any) {
+            vscode.window.showErrorMessage(`Failed to select ghost model: ${e.message}`);
+        }
+    }
+
+    private async testGhostLatency() {
+        vscode.window.withProgress({
+            location: vscode.ProgressLocation.Notification,
+            title: 'Testing Inline Ghost Latency...',
+            cancellable: false
+        }, async () => {
+            const start = Date.now();
+            try {
+                const fetch = (await import('node-fetch')).default;
+                const res = await fetch('http://127.0.0.1:47990/v1/chat/completions', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        messages: [
+                            { role: 'system', content: 'You are a code completion engine. Return only code.' },
+                            { role: 'user', content: 'function calculateSum(a, b) { return' }
+                        ],
+                        max_tokens: 12,
+                        temperature: 0.1,
+                        stream: false
+                    })
+                });
+                const elapsed = Date.now() - start;
+                if (res.ok) {
+                    const data = await res.json() as any;
+                    const completion = data.choices?.[0]?.message?.content || '';
+                    vscode.window.showInformationMessage(`⚡ Ghost Healthy! Latency: ${elapsed}ms | Sample: "${completion.trim()}"`);
+                } else {
+                    vscode.window.showErrorMessage(`Ghost Health Check Failed: HTTP ${res.status}`);
+                }
+            } catch (e: any) {
+                vscode.window.showErrorMessage(`Ghost Health Check Failed: ${e.message}`);
+            }
+        });
     }
 
     private async showHealthDetailsMenu() {
