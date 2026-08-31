@@ -1,7 +1,47 @@
 import { getVsCodeApi } from '../vscodeApi';
-import { Clapperboard, Monitor, Zap, Sparkles } from 'lucide-react';
 
 const vscode = getVsCodeApi();
+
+function ClapperboardIcon({ size = 20, color = "#a78bfa" }: { size?: number; color?: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M20.2 6 3 11l-.9-2.4c-.4-1.1.2-2.4 1.3-2.8l13.6-5c1.1-.4 2.4.2 2.8 1.3Z" />
+      <path d="m6.2 5.3 3.1 3.9" />
+      <path d="m12.4 3 3.1 4" />
+      <path d="M3 11h18v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" />
+    </svg>
+  );
+}
+
+function MonitorIcon({ size = 16 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect width="20" height="14" x="2" y="3" rx="2" />
+      <line x1="8" x2="16" y1="21" y2="21" />
+      <line x1="12" x2="12" y1="17" y2="21" />
+    </svg>
+  );
+}
+
+function ZapIcon({ size = 16 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+    </svg>
+  );
+}
+
+function SparklesIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z" />
+      <path d="M5 3v4" />
+      <path d="M19 17v4" />
+      <path d="M3 5h4" />
+      <path d="M17 19h4" />
+    </svg>
+  );
+}
 
 export function MotionStudioPanel() {
   const handleOpenStudioWindow = () => {
@@ -25,7 +65,7 @@ export function MotionStudioPanel() {
   return (
     <div style={{ padding: '16px', color: '#e0e0e0', fontFamily: 'sans-serif' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
-        <Clapperboard size={20} color="#a78bfa" />
+        <ClapperboardIcon size={20} color="#a78bfa" />
         <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 600 }}>Astrolabe Motion Studio</h2>
       </div>
 
@@ -54,7 +94,7 @@ export function MotionStudioPanel() {
           marginBottom: '16px'
         }}
       >
-        <Monitor size={16} /> Open Motion Studio Window
+        <MonitorIcon size={16} /> Open Motion Studio Window
       </button>
 
       {/* Status Card */}
@@ -92,7 +132,7 @@ export function MotionStudioPanel() {
             boxShadow: '0 2px 8px rgba(99, 102, 241, 0.3)'
           }}
         >
-          <Zap size={16} /> Compile Motion to Code
+          <ZapIcon size={16} /> Compile Motion to Code
         </button>
 
         <button
@@ -111,7 +151,7 @@ export function MotionStudioPanel() {
             gap: '6px'
           }}
         >
-          <Sparkles size={14} /> Scaffold Starter 3D Scene (.tsx)
+          <SparklesIcon size={14} /> Scaffold Starter 3D Scene (.tsx)
         </button>
       </div>
 

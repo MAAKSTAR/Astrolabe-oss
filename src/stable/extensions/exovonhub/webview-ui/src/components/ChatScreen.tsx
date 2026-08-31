@@ -2,8 +2,6 @@ import React from 'react';
 import type { Message, VsCodeApi } from '../types';
 import ReactMarkdown from 'react-markdown';
 import rehypeHighlight from 'rehype-highlight';
-import rehypeRaw from 'rehype-raw';
-import remarkGfm from 'remark-gfm';
 import 'highlight.js/styles/atom-one-dark.css';
 import TextareaAutosize from 'react-textarea-autosize';
 import {
