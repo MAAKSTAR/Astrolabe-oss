@@ -35,21 +35,28 @@ export class DaemonManager {
         this.isStarting = true;
 
         try {
+            const isWin = process.platform === 'win32';
+            const binName = isWin ? 'exovon-daemon.exe' : 'exovon-daemon';
+
             const candidatePaths = [
                 process.env.ASTROLABE_DAEMON_PATH || '',
-                path.join(vscode.env.appRoot, 'bin', 'exovon-daemon'),
-                path.join(vscode.env.appRoot, 'resources', 'app', 'bin', 'exovon-daemon'),
-                path.join(context.extensionPath, 'bin', 'exovon-daemon'),
-                path.resolve(__dirname, '../../../daemon/target/release/exovon-daemon'),
-                path.resolve(__dirname, '../../../../daemon/target/release/exovon-daemon'),
-                '/run/media/maakstar/c/vscodium/daemon/target/release/exovon-daemon',
-                path.join(context.extensionPath, '..', 'exovon-daemon', 'target', 'release', 'exovon-daemon'),
-                '/home/maakstar/EXOVON_ECOSYSTEM/exovon-daemon/target/release/exovon-daemon',
-                path.join(context.extensionPath, '..', 'exovon-daemon', 'target', 'debug', 'exovon-daemon'),
-                '/home/maakstar/EXOVON_ECOSYSTEM/exovon-daemon/target/debug/exovon-daemon'
+                path.join(vscode.env.appRoot, 'daemon', binName),
+                path.join(vscode.env.appRoot, '..', binName),
+                path.join(vscode.env.appRoot, '..', '..', binName),
+                path.join(context.extensionPath, '..', '..', 'daemon', binName),
+                path.join(context.extensionPath, '..', '..', '..', binName),
+                path.join(context.extensionPath, 'bin', binName),
+                path.resolve(__dirname, '../../../daemon/target/release', binName),
+                path.resolve(__dirname, '../../../../daemon/target/release', binName)
             ].filter(Boolean);
 
-            let daemonPath = candidatePaths.find(p => fs.existsSync(p)) || candidatePaths[candidatePaths.length - 1];
+            let daemonPath = candidatePaths.find(p => fs.existsSync(p));
+            if (!daemonPath) {
+                console.warn('Exovon daemon binary not found in standard paths:', candidatePaths);
+                vscode.window.showWarningMessage('Astrolabe Local Daemon binary not found. Running in cloud/remote inference mode.');
+                this.isStarting = false;
+                return false;
+            }
 
             const config = vscode.workspace.getConfiguration('exovonhub');
             const customModelsDir = config.get<string>('localModelsDirectory');

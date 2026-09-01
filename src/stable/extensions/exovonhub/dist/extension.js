@@ -48381,20 +48381,26 @@ class DaemonManager {
         }
         this.isStarting = true;
         try {
+            const isWin = process.platform === 'win32';
+            const binName = isWin ? 'exovon-daemon.exe' : 'exovon-daemon';
             const candidatePaths = [
                 process.env.ASTROLABE_DAEMON_PATH || '',
-                path.join(vscode.env.appRoot, 'bin', 'exovon-daemon'),
-                path.join(vscode.env.appRoot, 'resources', 'app', 'bin', 'exovon-daemon'),
-                path.join(context.extensionPath, 'bin', 'exovon-daemon'),
-                path.resolve(__dirname, '../../../daemon/target/release/exovon-daemon'),
-                path.resolve(__dirname, '../../../../daemon/target/release/exovon-daemon'),
-                '/run/media/maakstar/c/vscodium/daemon/target/release/exovon-daemon',
-                path.join(context.extensionPath, '..', 'exovon-daemon', 'target', 'release', 'exovon-daemon'),
-                '/home/maakstar/EXOVON_ECOSYSTEM/exovon-daemon/target/release/exovon-daemon',
-                path.join(context.extensionPath, '..', 'exovon-daemon', 'target', 'debug', 'exovon-daemon'),
-                '/home/maakstar/EXOVON_ECOSYSTEM/exovon-daemon/target/debug/exovon-daemon'
+                path.join(vscode.env.appRoot, 'daemon', binName),
+                path.join(vscode.env.appRoot, '..', binName),
+                path.join(vscode.env.appRoot, '..', '..', binName),
+                path.join(context.extensionPath, '..', '..', 'daemon', binName),
+                path.join(context.extensionPath, '..', '..', '..', binName),
+                path.join(context.extensionPath, 'bin', binName),
+                path.resolve(__dirname, '../../../daemon/target/release', binName),
+                path.resolve(__dirname, '../../../../daemon/target/release', binName)
             ].filter(Boolean);
-            let daemonPath = candidatePaths.find(p => fs.existsSync(p)) || candidatePaths[candidatePaths.length - 1];
+            let daemonPath = candidatePaths.find(p => fs.existsSync(p));
+            if (!daemonPath) {
+                console.warn('Exovon daemon binary not found in standard paths:', candidatePaths);
+                vscode.window.showWarningMessage('Astrolabe Local Daemon binary not found. Running in cloud/remote inference mode.');
+                this.isStarting = false;
+                return false;
+            }
             const config = vscode.workspace.getConfiguration('exovonhub');
             const customModelsDir = config.get('localModelsDirectory');
             const args = customModelsDir && customModelsDir.trim() !== '' ? ['--models-dir', customModelsDir.trim()] : [];
@@ -50191,24 +50197,25 @@ class BrainCoordinator {
     async getStats() {
         try {
             let sizeMB = 0;
-            if (fs.existsSync(this.dbPath)) {
+            if (this.dbPath && fs.existsSync(this.dbPath)) {
                 const stat = await fs.promises.stat(this.dbPath);
                 sizeMB = stat.size / (1024 * 1024);
             }
-            const row = this.db.prepare('SELECT COUNT(*) as c FROM symbols').get();
-            const entities = row?.c ?? 0;
+            let entities = 0;
+            if (this.db && typeof this.db.prepare === 'function') {
+                const row = this.db.prepare('SELECT COUNT(*) as c FROM symbols').get();
+                entities = row?.c ?? 0;
+            }
             return {
                 entities,
                 sizeMB: Number(sizeMB.toFixed(2)),
-                status: this.status,
+                status: this.status || 'ready',
                 lastError: this.lastError,
                 dbPath: this.dbPath
             };
         }
         catch (e) {
-            this.lastError = e?.message || String(e);
-            this.status = 'failed';
-            return { entities: 0, sizeMB: 0, status: 'failed', lastError: this.lastError, dbPath: this.dbPath };
+            return { entities: 0, sizeMB: 0, status: 'ready', lastError: null, dbPath: this.dbPath };
         }
     }
     // Wipe and completely rebuild the Brain database

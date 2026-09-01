@@ -142,6 +142,30 @@ jobs:
             echo "✓ Injected Astrolabe Frosted Glass UI into Linux workbench CSS"
           fi
           
+          # Generate astrolabe.desktop file for Linux dock/taskbar integration
+          cat << 'EOF' > dist-linux/astrolabe/astrolabe.desktop
+[Desktop Entry]
+Name=Astrolabe IDE
+Comment=The Sovereign AI-Native IDE
+GenericName=Text Editor
+Exec=/usr/share/astrolabe/astrolabe %F
+Icon=astrolabe
+Type=Application
+StartupNotify=false
+StartupWMClass=Astrolabe
+Categories=TextEditor;Development;IDE;
+MimeType=text/plain;inode/directory;
+Actions=new-empty-window;
+Keywords=astrolabe;codium;vscode;ide;ai;
+
+[Desktop Action new-empty-window]
+Name=New Empty Window
+Exec=/usr/share/astrolabe/astrolabe --new-window %F
+Icon=astrolabe
+EOF
+          cp dist-linux/astrolabe/astrolabe.desktop dist-linux/astrolabe/resources/linux/code.desktop 2>/dev/null || true
+          cp dist-linux/astrolabe/astrolabe.desktop dist-linux/astrolabe/resources/app/resources/linux/code.desktop 2>/dev/null || true
+
           cp README.md LICENSE build-all-astrolabe.sh install.sh dist-linux/astrolabe/
           
           # Create clean archive

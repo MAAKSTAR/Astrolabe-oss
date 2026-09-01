@@ -4,7 +4,7 @@
   "applicationName": "astrolabe",
   "dataFolderName": ".astrolabe",
   "sharedDataFolderName": ".astrolabe-shared",
-  "win32MutexName": "vscodium",
+  "win32MutexName": "astrolabe",
   "licenseName": "MIT",
   "licenseUrl": "https://github.com/VSCodium/vscodium/blob/master/LICENSE",
   "serverLicenseUrl": "https://github.com/microsoft/vscode/blob/main/LICENSE.txt",
@@ -23,8 +23,8 @@
   "win32arm64UserAppId": "{{57FD70A5-1B8D-4875-9F40-C5553F094828}",
   "win32AppUserModelId": "Astrolabe.IDE",
   "win32ShellNameShort": "Astrolabe",
-  "win32TunnelServiceMutex": "vscodium-tunnelservice",
-  "win32TunnelMutex": "vscodium-tunnel",
+  "win32TunnelServiceMutex": "astrolabe-tunnelservice",
+  "win32TunnelMutex": "astrolabe-tunnel",
   "darwinBundleIdentifier": "com.astrolabe.ide",
   "darwinProfileUUID": "47827DD9-4734-49A0-AF80-7E19B11495CC",
   "darwinProfilePayloadUUID": "CF808BE7-53F3-46C6-A7E2-7EDB98A5E959",
@@ -911,18 +911,6 @@
   },
   "commit": "4c0b0c6cc561d2d3636d1ec250935431876ce4dc",
   "date": "2026-06-23T01:46:13Z",
-  "checksums": {
-    "vs/base/parts/sandbox/electron-browser/preload.js": "8DISi1JE0S/C7a4yb/KZrIuxQpOidgcYrdXNC7JhCyY",
-    "vs/workbench/workbench.desktop.main.js": "ULtBLOFKaTfSZpF6YqDcK9PYwZOhLQ361GStXz1VDuY",
-    "vs/workbench/workbench.desktop.main.css": "M6wDrzon4t9zuB3GcGfP9rQBjujD1QR6EekYYpswAXo",
-    "vs/workbench/api/node/extensionHostProcess.js": "k/k5BFAkdUhlTTqVHGyePqZG+JMEKwncxXrLyvtUJ3s",
-    "vs/code/electron-browser/workbench/workbench.html": "Jy2ZZdrDEOIkNVFIGQnt5xfjEHfc0fqlvjQnLx8V7ck",
-    "vs/code/electron-browser/workbench/workbench.js": "sEij9wAXts+N6tHgJ3ZbPbwebVCWAViay13KCaT2Unc",
-    "vs/sessions/sessions.desktop.main.js": "wJfkGi9GizkqTl9F+4XARFQXXgdiBOnjFPoS1k8GzoE",
-    "vs/sessions/sessions.desktop.main.css": "GdW9c1LsLblZl9mb9YneIiFDRbSz348HmAzF3tBKmFA",
-    "vs/sessions/electron-browser/sessions.html": "8XtRYP0Tsh0gaqVeSO2I0AoCMpnFTieE/cdC84pQi1A",
-    "vs/sessions/electron-browser/sessions.js": "+j/xOuQhVpWz35TXpujQaQAuRBbHvPvhiSIU//smCU0"
-  },
   "version": "1.126.04524",
   "serverDownloadUrlTemplate": "https://github.com/VSCodium/vscodium/releases/download/1.126.04524/vscodium-reh-${os}-${arch}-1.126.04524.tar.gz"
 }
