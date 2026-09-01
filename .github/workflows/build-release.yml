@@ -255,16 +255,8 @@ jobs:
           # Inject Astrolabe SVG icons & empty-screen watermarks into workbench
           $pngBytes = [System.IO.File]::ReadAllBytes("icons\stable\astrolabe.png")
           $b64 = [System.Convert]::ToBase64String($pngBytes)
-          $iconSvg = @"
-<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="100" height="100" viewBox="0 0 100 100">
-  <image width="100" height="100" xlink:href="data:image/png;base64,$b64"/>
-</svg>
-"@
-          $watermarkSvg = @"
-<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200" opacity="0.2">
-  <image width="200" height="200" xlink:href="data:image/png;base64,$b64"/>
-</svg>
-"@
+          $iconSvg = '<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="100" height="100" viewBox="0 0 100 100"><image width="100" height="100" xlink:href="data:image/png;base64,' + $b64 + '"/></svg>'
+          $watermarkSvg = '<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200" opacity="0.2"><image width="200" height="200" xlink:href="data:image/png;base64,' + $b64 + '"/></svg>'
           $mediaDir = "dist-win\astrolabe\resources\app\out\media"
           if (Test-Path $mediaDir) {
             Set-Content "$mediaDir\code-icon.svg" $iconSvg
