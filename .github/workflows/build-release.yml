@@ -272,7 +272,7 @@ jobs:
           $cssPath = "dist-win\astrolabe\resources\app\out\vs\workbench\workbench.desktop.main.css"
           if ((Test-Path $glassPath) -and (Test-Path $cssPath)) {
             Get-Content $glassPath | Out-File -FilePath $cssPath -Append -Encoding utf8
-            Write-Host "✓ Injected Astrolabe Frosted Glass UI into Windows workbench CSS"
+            Write-Host "[OK] Injected Astrolabe Frosted Glass UI into Windows workbench CSS"
           }
           
           # Create real clean Windows zip archive
