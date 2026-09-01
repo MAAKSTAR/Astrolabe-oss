@@ -34,7 +34,8 @@ const extensionConfig = {
     'typescript': 'commonjs typescript',
     'ts-morph': 'commonjs ts-morph',
     'node-llama-cpp': 'commonjs node-llama-cpp',
-    '@exovon/core': 'commonjs @exovon/core'
+    '@exovon/core': 'commonjs @exovon/core',
+    '@exovon/sdk': 'commonjs @exovon/sdk'
   },
   resolve: {
     // support reading TypeScript and JavaScript files, 📖 -> https://github.com/TypeStrong/ts-loader
