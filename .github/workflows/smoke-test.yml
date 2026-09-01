@@ -52,7 +52,7 @@ jobs:
       - name: Install GUI Display & Screenshot Tools (Xvfb + Openbox + Scrot)
         run: |
           sudo apt-get update
-          sudo apt-get install -y xvfb openbox scrot imagemagick libxkbfile-dev libsecret-1-dev libasound2 libgbm1
+          sudo apt-get install -y xvfb openbox scrot imagemagick
 
       - name: Launch Astrolabe GUI & Capture Visual Screenshot
         run: |
