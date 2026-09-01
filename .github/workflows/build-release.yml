@@ -95,14 +95,13 @@ jobs:
           # Inject Astrolabe product branding & identity
           cp product.json dist-linux/astrolabe/resources/app/product.json
           
-          # Replace welcome strings & branding in workbench assets
-          find dist-linux/astrolabe/resources/app/out -name "*.js" -exec sed -i 's/Editing evolved/The Sovereign AI-Native IDE/g' {} +
-          find dist-linux/astrolabe/resources/app/out -name "*.js" -exec sed -i 's/VSCodium/Astrolabe/g' {} +
-          
-          # Inject compiled ExovonHub extension
+          # Inject compiled ExovonHub extension (code + themes + media)
           mkdir -p dist-linux/astrolabe/resources/app/extensions/exovonhub
           cp -r src/stable/extensions/exovonhub/package.json dist-linux/astrolabe/resources/app/extensions/exovonhub/
           cp -r src/stable/extensions/exovonhub/dist dist-linux/astrolabe/resources/app/extensions/exovonhub/
+          if [ -d "src/stable/extensions/exovonhub/themes" ]; then
+            cp -r src/stable/extensions/exovonhub/themes dist-linux/astrolabe/resources/app/extensions/exovonhub/
+          fi
           if [ -d "src/stable/extensions/exovonhub/media" ]; then
             cp -r src/stable/extensions/exovonhub/media dist-linux/astrolabe/resources/app/extensions/exovonhub/
           fi
@@ -111,8 +110,37 @@ jobs:
           cp -r apps/astrolabe-motion-studio dist-linux/astrolabe/
           cp -r icons dist-linux/astrolabe/
           cp icons/stable/astrolabe.png dist-linux/astrolabe/astrolabe.png
-          mkdir -p dist-linux/astrolabe/resources/app/resources/linux
+          mkdir -p dist-linux/astrolabe/resources/linux dist-linux/astrolabe/resources/app/resources/linux
+          cp icons/stable/astrolabe.png dist-linux/astrolabe/resources/linux/code.png 2>/dev/null || true
           cp icons/stable/astrolabe.png dist-linux/astrolabe/resources/app/resources/linux/code.png 2>/dev/null || true
+          
+          # Inject Astrolabe SVG icons & empty-screen watermarks into workbench
+          python3 -c "
+          import base64, os
+          with open('icons/stable/astrolabe.png', 'rb') as f:
+              b64 = base64.b64encode(f.read()).decode('ascii')
+          icon_svg = f'''<svg xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" width=\"100\" height=\"100\" viewBox=\"0 0 100 100\">
+            <image width=\"100\" height=\"100\" xlink:href=\"data:image/png;base64,{b64}\"/>
+          </svg>'''
+          watermark_svg = f'''<svg xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" width=\"200\" height=\"200\" viewBox=\"0 0 200 200\" opacity=\"0.2\">
+            <image width=\"200\" height=\"200\" xlink:href=\"data:image/png;base64,{b64}\"/>
+          </svg>'''
+          media_dir = 'dist-linux/astrolabe/resources/app/out/media'
+          if os.path.exists(media_dir):
+              for name in ['code-icon.svg', 'vscode-icon.svg']:
+                  with open(os.path.join(media_dir, name), 'w') as f:
+                      f.write(icon_svg)
+              for name in ['letterpress-dark.svg', 'letterpress-light.svg', 'letterpress-hcDark.svg', 'letterpress-hcLight.svg']:
+                  with open(os.path.join(media_dir, name), 'w') as f:
+                      f.write(watermark_svg)
+          "
+
+          # Inject Astrolabe Glass UI into workbench CSS
+          if [ -f "dist-linux/astrolabe/resources/app/out/vs/workbench/workbench.desktop.main.css" ]; then
+            cat src/stable/src/vs/workbench/browser/media/astrolabe-glass.css >> dist-linux/astrolabe/resources/app/out/vs/workbench/workbench.desktop.main.css
+            echo "✓ Injected Astrolabe Frosted Glass UI into Linux workbench CSS"
+          fi
+          
           cp README.md LICENSE build-all-astrolabe.sh install.sh dist-linux/astrolabe/
           
           # Create clean archive
@@ -207,15 +235,13 @@ jobs:
           # Inject Astrolabe product branding
           Copy-Item "product.json" "dist-win\astrolabe\resources\app\product.json" -Force
 
-          # Brand UI strings (remove VSCodium references)
-          Get-ChildItem -Path "dist-win\astrolabe\resources\app\out" -Filter "*.js" -Recurse | ForEach-Object {
-            (Get-Content $_.FullName -Raw) -replace 'Editing evolved', 'The Sovereign AI-Native IDE' -replace 'VSCodium', 'Astrolabe' | Set-Content $_.FullName
-          }
-
-          # Inject compiled ExovonHub extension
+          # Inject compiled ExovonHub extension (code + themes + media)
           New-Item -ItemType Directory -Path "dist-win\astrolabe\resources\app\extensions\exovonhub" -Force | Out-Null
           Copy-Item "src\stable\extensions\exovonhub\package.json" "dist-win\astrolabe\resources\app\extensions\exovonhub\" -Force
           Copy-Item -Recurse "src\stable\extensions\exovonhub\dist" "dist-win\astrolabe\resources\app\extensions\exovonhub\" -Force
+          if (Test-Path "src\stable\extensions\exovonhub\themes") {
+            Copy-Item -Recurse "src\stable\extensions\exovonhub\themes" "dist-win\astrolabe\resources\app\extensions\exovonhub\" -Force
+          }
           if (Test-Path "src\stable\extensions\exovonhub\media") {
             Copy-Item -Recurse "src\stable\extensions\exovonhub\media" "dist-win\astrolabe\resources\app\extensions\exovonhub\" -Force
           }
@@ -225,6 +251,38 @@ jobs:
           Copy-Item -Recurse "icons" "dist-win\astrolabe\" -Force
           Copy-Item "icons\stable\astrolabe.png" "dist-win\astrolabe\astrolabe.png" -Force
           Copy-Item "README.md", "LICENSE" "dist-win\astrolabe\" -Force
+          
+          # Inject Astrolabe SVG icons & empty-screen watermarks into workbench
+          $pngBytes = [System.IO.File]::ReadAllBytes("icons\stable\astrolabe.png")
+          $b64 = [System.Convert]::ToBase64String($pngBytes)
+          $iconSvg = @"
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="100" height="100" viewBox="0 0 100 100">
+  <image width="100" height="100" xlink:href="data:image/png;base64,$b64"/>
+</svg>
+"@
+          $watermarkSvg = @"
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200" opacity="0.2">
+  <image width="200" height="200" xlink:href="data:image/png;base64,$b64"/>
+</svg>
+"@
+          $mediaDir = "dist-win\astrolabe\resources\app\out\media"
+          if (Test-Path $mediaDir) {
+            Set-Content "$mediaDir\code-icon.svg" $iconSvg
+            Set-Content "$mediaDir\vscode-icon.svg" $iconSvg
+            Set-Content "$mediaDir\letterpress-dark.svg" $watermarkSvg
+            Set-Content "$mediaDir\letterpress-light.svg" $watermarkSvg
+            Set-Content "$mediaDir\letterpress-hcDark.svg" $watermarkSvg
+            Set-Content "$mediaDir\letterpress-hcLight.svg" $watermarkSvg
+          }
+
+          # Inject Astrolabe Glass UI into workbench CSS
+          $glassPath = "src\stable\src\vs\workbench\browser\media\astrolabe-glass.css"
+          $cssPath = "dist-win\astrolabe\resources\app\out\vs\workbench\workbench.desktop.main.css"
+          if ((Test-Path $glassPath) -and (Test-Path $cssPath)) {
+            $glassCss = Get-Content $glassPath -Raw
+            Add-Content -Path $cssPath -Value "`n$glassCss"
+            Write-Host "✓ Injected Astrolabe Frosted Glass UI into Windows workbench CSS"
+          }
           
           # Create real clean Windows zip archive
           Compress-Archive -Path "dist-win\astrolabe\*" -DestinationPath "astrolabe-windows-x64.zip" -Force

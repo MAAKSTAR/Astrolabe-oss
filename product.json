@@ -1,20 +1,272 @@
 {
-  
   "nameShort": "Astrolabe",
   "nameLong": "Astrolabe IDE",
   "applicationName": "astrolabe",
   "dataFolderName": ".astrolabe",
-  "win32MutexName": "astrolabe",
+  "sharedDataFolderName": ".astrolabe-shared",
+  "win32MutexName": "vscodium",
+  "licenseName": "MIT",
+  "licenseUrl": "https://github.com/VSCodium/vscodium/blob/master/LICENSE",
+  "serverLicenseUrl": "https://github.com/microsoft/vscode/blob/main/LICENSE.txt",
+  "serverGreeting": [],
+  "serverLicense": [],
+  "serverLicensePrompt": "",
+  "serverApplicationName": "astrolabe-server",
+  "serverDataFolderName": ".astrolabe-server",
+  "tunnelApplicationName": "astrolabe-tunnel",
   "win32DirName": "Astrolabe",
   "win32NameVersion": "Astrolabe",
   "win32RegValueName": "Astrolabe",
+  "win32x64AppId": "{{88DA3577-054F-4CA1-8122-7D820494CFFB}",
+  "win32arm64AppId": "{{67DEE444-3D04-4258-B92A-BC1F0FF2CAE4}",
+  "win32x64UserAppId": "{{2E1F05D1-C245-4562-81EE-28188DB6FD17}",
+  "win32arm64UserAppId": "{{57FD70A5-1B8D-4875-9F40-C5553F094828}",
   "win32AppUserModelId": "Astrolabe.IDE",
   "win32ShellNameShort": "Astrolabe",
+  "win32TunnelServiceMutex": "vscodium-tunnelservice",
+  "win32TunnelMutex": "vscodium-tunnel",
   "darwinBundleIdentifier": "com.astrolabe.ide",
-
-  "extensionsGallery": {
-    "serviceUrl": "https://open-vsx.org/vscode/gallery"
+  "darwinProfileUUID": "47827DD9-4734-49A0-AF80-7E19B11495CC",
+  "darwinProfilePayloadUUID": "CF808BE7-53F3-46C6-A7E2-7EDB98A5E959",
+  "linuxIconName": "astrolabe",
+  "licenseFileName": "LICENSE.txt",
+  "reportIssueUrl": "https://github.com/MAAKSTAR/Astrolabe-oss/issues",
+  "nodejsRepository": "https://nodejs.org",
+  "urlProtocol": "astrolabe",
+  "agentsTelemetryAppName": "agents",
+  "webviewContentExternalBaseUrlTemplate": "https://{{uuid}}.vscode-cdn.net/insider/ef65ac1ba57f57f2a3961bfe94aa20481caca4c6/out/vs/workbench/contrib/webview/browser/pre/",
+  "builtInExtensions": [
+    {
+      "name": "ms-vscode.js-debug-companion",
+      "version": "1.1.3",
+      "sha256": "7380a890787452f14b2db7835dfa94de538caf358ebc263f9d46dd68ac52de93",
+      "repo": "https://github.com/microsoft/vscode-js-debug-companion",
+      "metadata": {
+        "id": "99cb0b7f-7354-4278-b8da-6cc79972169d",
+        "publisherId": {
+          "publisherId": "5f5636e7-69ed-4afe-b5d6-8d231fb3d3ee",
+          "publisherName": "ms-vscode",
+          "displayName": "Microsoft",
+          "flags": "verified"
+        },
+        "publisherDisplayName": "Microsoft"
+      }
     },
+    {
+      "name": "ms-vscode.js-debug",
+      "version": "1.117.0",
+      "sha256": "854eeb8a785b1f41ba2bd02d7ccd4fdbe10021b61473293973c7e96d036c7fb8",
+      "repo": "https://github.com/microsoft/vscode-js-debug",
+      "metadata": {
+        "id": "25629058-ddac-4e17-abba-74678e126c5d",
+        "publisherId": {
+          "publisherId": "5f5636e7-69ed-4afe-b5d6-8d231fb3d3ee",
+          "publisherName": "ms-vscode",
+          "displayName": "Microsoft",
+          "flags": "verified"
+        },
+        "publisherDisplayName": "Microsoft"
+      }
+    },
+    {
+      "name": "ms-vscode.vscode-js-profile-table",
+      "version": "1.0.10",
+      "sha256": "7361748ddf9fd09d8a2ed1f2a2d7376a2cf9aae708692820b799708385c38e08",
+      "repo": "https://github.com/microsoft/vscode-js-profile-visualizer",
+      "metadata": {
+        "id": "7e52b41b-71ad-457b-ab7e-0620f1fc4feb",
+        "publisherId": {
+          "publisherId": "5f5636e7-69ed-4afe-b5d6-8d231fb3d3ee",
+          "publisherName": "ms-vscode",
+          "displayName": "Microsoft",
+          "flags": "verified"
+        },
+        "publisherDisplayName": "Microsoft"
+      }
+    }
+  ],
+  "defaultChatAgent": {
+    "extensionId": "GitHub.copilot",
+    "chatExtensionId": "GitHub.copilot-chat",
+    "chatExtensionOutputId": "GitHub.copilot-chat.GitHub Copilot Chat.log",
+    "chatExtensionOutputExtensionStateCommand": "github.copilot.debug.extensionState",
+    "documentationUrl": "https://aka.ms/github-copilot-overview",
+    "termsStatementUrl": "https://aka.ms/github-copilot-terms-statement",
+    "privacyStatementUrl": "https://aka.ms/github-copilot-privacy-statement",
+    "skusDocumentationUrl": "https://aka.ms/github-copilot-plans",
+    "publicCodeMatchesUrl": "https://aka.ms/github-copilot-match-public-code",
+    "managePlanUrl": "https://aka.ms/github-copilot-manage-plan",
+    "upgradePlanUrl": "https://aka.ms/github-copilot-upgrade-plan",
+    "signUpUrl": "https://aka.ms/github-sign-up",
+    "provider": {
+      "default": {
+        "id": "github",
+        "name": "GitHub"
+      },
+      "enterprise": {
+        "id": "github-enterprise",
+        "name": "GHE"
+      },
+      "google": {
+        "id": "google",
+        "name": "Google"
+      },
+      "apple": {
+        "id": "apple",
+        "name": "Apple"
+      }
+    },
+    "providerExtensionId": "vscode.github-authentication",
+    "providerUriSetting": "github-enterprise.uri",
+    "providerScopes": [
+      [
+        "read:user",
+        "user:email",
+        "repo",
+        "workflow"
+      ],
+      [
+        "user:email"
+      ],
+      [
+        "read:user"
+      ]
+    ],
+    "entitlementUrl": "https://api.github.com/copilot_internal/user",
+    "entitlementSignupLimitedUrl": "https://api.github.com/copilot_internal/subscribe_limited_user",
+    "chatQuotaExceededContext": "github.copilot.chat.quotaExceeded",
+    "completionsQuotaExceededContext": "github.copilot.completions.quotaExceeded",
+    "walkthroughCommand": "github.copilot.open.walkthrough",
+    "completionsMenuCommand": "github.copilot.toggleStatusMenu",
+    "chatRefreshTokenCommand": "github.copilot.refreshToken",
+    "generateCommitMessageCommand": "github.copilot.git.generateCommitMessage",
+    "resolveMergeConflictsCommand": "github.copilot.git.resolveMergeConflicts",
+    "completionsAdvancedSetting": "github.copilot.advanced",
+    "completionsEnablementSetting": "github.copilot.enable",
+    "nextEditSuggestionsSetting": "github.copilot.nextEditSuggestions.enabled",
+    "tokenEntitlementUrl": "https://api.github.com/copilot_internal/v2/token",
+    "mcpRegistryDataUrl": "https://api.github.com/copilot/mcp_registry",
+    "managedSettingsUrl": "https://api.github.com/copilot_internal/managed_settings"
+  },
+  "trustedExtensionAuthAccess": {
+    "github": [
+      "GitHub.copilot-chat"
+    ],
+    "github-enterprise": [
+      "GitHub.copilot-chat"
+    ]
+  },
+  "onboardingKeymaps": [
+    {
+      "id": "vscode",
+      "label": "VS Code",
+      "description": "Default keyboard mapping"
+    },
+    {
+      "id": "sublime",
+      "label": "Sublime Text",
+      "extensionId": "ms-vscode.sublime-keybindings",
+      "description": "Keyboard mapping from Sublime Text"
+    },
+    {
+      "id": "intellij",
+      "label": "IntelliJ / JetBrains",
+      "extensionId": "k--kato.intellij-idea-keybindings",
+      "description": "Keyboard mapping from IntelliJ IDEA"
+    },
+    {
+      "id": "vim",
+      "label": "Vim",
+      "extensionId": "vscodevim.vim",
+      "description": "Vim modal editing"
+    },
+    {
+      "id": "eclipse",
+      "label": "Eclipse",
+      "extensionId": "alphabotsec.vscode-eclipse-keybindings",
+      "description": "Keyboard mapping from Eclipse"
+    },
+    {
+      "id": "notepadpp",
+      "label": "Notepad++",
+      "extensionId": "ms-vscode.notepadplusplus-keybindings",
+      "description": "Keyboard mapping from Notepad++"
+    }
+  ],
+  "onboardingThemes": [
+    {
+      "id": "dark-2026",
+      "label": "Dark 2026",
+      "themeId": "Dark 2026",
+      "type": "dark"
+    },
+    {
+      "id": "hc-dark",
+      "label": "Dark High Contrast",
+      "themeId": "Default High Contrast",
+      "type": "hcDark"
+    },
+    {
+      "id": "solarized-dark",
+      "label": "Solarized Dark",
+      "themeId": "Solarized Dark",
+      "type": "dark"
+    },
+    {
+      "id": "light-2026",
+      "label": "Light 2026",
+      "themeId": "Light 2026",
+      "type": "light"
+    },
+    {
+      "id": "hc-light",
+      "label": "Light High Contrast",
+      "themeId": "Default High Contrast Light",
+      "type": "hcLight"
+    },
+    {
+      "id": "solarized-light",
+      "label": "Solarized Light",
+      "themeId": "Solarized Light",
+      "type": "light"
+    }
+  ],
+  "builtInExtensionsEnabledWithAutoUpdates": [
+    "GitHub.copilot-chat"
+  ],
+  "sessionsWindowAllowedExtensions": [],
+  "voiceWsUrl": "wss://falcon-caas.mai.microsoft.com/voice-code/api/v1/realtime/voice",
+  "checksumFailMoreInfoUrl": "https://go.microsoft.com/fwlink/?LinkId=828886",
+  "documentationUrl": "https://go.microsoft.com/fwlink/?LinkID=533484#vscode",
+  "extensionsGallery": {
+    "serviceUrl": "https://open-vsx.org/vscode/gallery",
+    "itemUrl": "https://open-vsx.org/vscode/item",
+    "latestUrlTemplate": "https://open-vsx.org/vscode/gallery/{publisher}/{name}/latest",
+    "controlUrl": "https://raw.githubusercontent.com/EclipseFdn/publish-extensions/refs/heads/master/extension-control/extensions.json"
+  },
+  "introductoryVideosUrl": "https://go.microsoft.com/fwlink/?linkid=832146",
+  "keyboardShortcutsUrlLinux": "https://go.microsoft.com/fwlink/?linkid=832144",
+  "keyboardShortcutsUrlMac": "https://go.microsoft.com/fwlink/?linkid=832143",
+  "keyboardShortcutsUrlWin": "https://go.microsoft.com/fwlink/?linkid=832145",
+  "linkProtectionTrustedDomains": [
+    "https://open-vsx.org"
+  ],
+  "releaseNotesUrl": "https://go.microsoft.com/fwlink/?LinkID=533483#vscode",
+  "requestFeatureUrl": "https://go.microsoft.com/fwlink/?LinkID=533482",
+  "tipsAndTricksUrl": "https://go.microsoft.com/fwlink/?linkid=852118",
+  "twitterUrl": "https://go.microsoft.com/fwlink/?LinkID=533687",
+  "quality": "stable",
+  "win32AppId": "{{763CBF88-25C6-4B10-952F-326AE657F16B}",
+  "win32UserAppId": "{{0FD05EB4-651E-4E78-A062-515204B47A3A}",
+  "win32ContextMenu": {
+    "x64": {
+      "clsid": "D910D5E6-B277-4F4A-BDC5-759A34EEE25D"
+    },
+    "arm64": {
+      "clsid": "4852FC55-4A84-4EA1-9C86-D53BE3DF83C0"
+    }
+  },
+  "tunnelApplicationConfig": {},
   "extensionAllowedBadgeProviders": [
     "api.bintray.com",
     "api.travis-ci.com",
@@ -656,5 +908,21 @@
     "gruntfuggly.todo-tree": {
       "default": false
     }
-  }
+  },
+  "commit": "4c0b0c6cc561d2d3636d1ec250935431876ce4dc",
+  "date": "2026-06-23T01:46:13Z",
+  "checksums": {
+    "vs/base/parts/sandbox/electron-browser/preload.js": "8DISi1JE0S/C7a4yb/KZrIuxQpOidgcYrdXNC7JhCyY",
+    "vs/workbench/workbench.desktop.main.js": "ULtBLOFKaTfSZpF6YqDcK9PYwZOhLQ361GStXz1VDuY",
+    "vs/workbench/workbench.desktop.main.css": "M6wDrzon4t9zuB3GcGfP9rQBjujD1QR6EekYYpswAXo",
+    "vs/workbench/api/node/extensionHostProcess.js": "k/k5BFAkdUhlTTqVHGyePqZG+JMEKwncxXrLyvtUJ3s",
+    "vs/code/electron-browser/workbench/workbench.html": "Jy2ZZdrDEOIkNVFIGQnt5xfjEHfc0fqlvjQnLx8V7ck",
+    "vs/code/electron-browser/workbench/workbench.js": "sEij9wAXts+N6tHgJ3ZbPbwebVCWAViay13KCaT2Unc",
+    "vs/sessions/sessions.desktop.main.js": "wJfkGi9GizkqTl9F+4XARFQXXgdiBOnjFPoS1k8GzoE",
+    "vs/sessions/sessions.desktop.main.css": "GdW9c1LsLblZl9mb9YneIiFDRbSz348HmAzF3tBKmFA",
+    "vs/sessions/electron-browser/sessions.html": "8XtRYP0Tsh0gaqVeSO2I0AoCMpnFTieE/cdC84pQi1A",
+    "vs/sessions/electron-browser/sessions.js": "+j/xOuQhVpWz35TXpujQaQAuRBbHvPvhiSIU//smCU0"
+  },
+  "version": "1.126.04524",
+  "serverDownloadUrlTemplate": "https://github.com/VSCodium/vscodium/releases/download/1.126.04524/vscodium-reh-${os}-${arch}-1.126.04524.tar.gz"
 }

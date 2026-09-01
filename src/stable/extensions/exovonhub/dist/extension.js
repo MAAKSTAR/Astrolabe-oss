@@ -49854,14 +49854,28 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.BrainCoordinator = void 0;
 const vscode = __importStar(__webpack_require__(1));
-const better_sqlite3_1 = __importDefault(__webpack_require__(285));
-const sqliteVec = __importStar(__webpack_require__(286));
-const worker_threads_1 = __webpack_require__(287);
+const worker_threads_1 = __webpack_require__(285);
 const path = __importStar(__webpack_require__(3));
 const fs = __importStar(__webpack_require__(2));
-const os_1 = __importDefault(__webpack_require__(288));
+const os_1 = __importDefault(__webpack_require__(286));
 const crypto = __importStar(__webpack_require__(27));
-const GraphIndexer_1 = __webpack_require__(289);
+const GraphIndexer_1 = __webpack_require__(287);
+function getBetterSqlite3() {
+    try {
+        return __webpack_require__(288);
+    }
+    catch {
+        return null;
+    }
+}
+function getSqliteVec() {
+    try {
+        return __webpack_require__(289);
+    }
+    catch {
+        return null;
+    }
+}
 function fnv1a32(str) {
     let hash = 0x811c9dc5;
     for (let i = 0; i < str.length; i++) {
@@ -49894,117 +49908,136 @@ class BrainCoordinator {
         this.onSyncStateChange = onSyncStateChange;
         const storagePath = context.storageUri?.fsPath || context.globalStorageUri.fsPath;
         this.dbPath = path.join(storagePath, '.exovon_brain.db');
-        try {
-            // Ensure directory exists
-            if (!fs.existsSync(storagePath)) {
-                fs.mkdirSync(storagePath, { recursive: true });
+        const SqliteDatabase = getBetterSqlite3();
+        const sqliteVec = getSqliteVec();
+        if (SqliteDatabase) {
+            try {
+                if (!fs.existsSync(storagePath)) {
+                    fs.mkdirSync(storagePath, { recursive: true });
+                }
+                this.db = new SqliteDatabase(this.dbPath);
+                if (sqliteVec?.load) {
+                    sqliteVec.load(this.db);
+                }
+                this.db.pragma?.('journal_mode = WAL');
+                this.db.pragma?.('busy_timeout = 5000');
+                this.status = 'ready';
             }
-            this.db = new better_sqlite3_1.default(this.dbPath);
-            sqliteVec.load(this.db);
-            // Concurrency optimization
-            this.db.pragma('journal_mode = WAL');
-            this.db.pragma('busy_timeout = 5000');
-            this.status = 'ready';
+            catch (err) {
+                this.lastError = err?.message || String(err);
+                this.status = 'failed';
+                console.error('Brain initialization failed:', err);
+                try {
+                    this.db = new SqliteDatabase(':memory:');
+                }
+                catch {
+                    this.db = null;
+                }
+            }
         }
-        catch (err) {
-            this.lastError = err?.message || String(err);
-            this.status = 'failed';
-            console.error('Brain initialization failed:', err);
-            // Fallback in-memory database to prevent crashes
-            this.db = new better_sqlite3_1.default(':memory:');
+        else {
+            console.warn('Native better-sqlite3 not available; running in lightweight brain mode.');
+            this.status = 'idle';
+            this.db = null;
         }
-        // Delta Cache Version Control
-        const CURRENT_ENGINE_VERSION = '1.0.0';
-        this.db.exec(`CREATE TABLE IF NOT EXISTS brain_metadata (key TEXT PRIMARY KEY, value TEXT);`);
-        const dbVersion = this.db.prepare('SELECT value FROM brain_metadata WHERE key = ?').get('engine_version');
-        if (!dbVersion || dbVersion.value !== CURRENT_ENGINE_VERSION) {
-            console.log('🔄 Exovon Engine version changed or corrupted. Wiping cache for clean rebuild...');
-            this.db.exec(`
-         DROP TABLE IF EXISTS symbols;
-         DROP TABLE IF EXISTS edges;
-         DROP TABLE IF EXISTS indexed_files;
-         DROP TABLE IF EXISTS vec_symbols;
-       `);
-            this.db.prepare('INSERT OR REPLACE INTO brain_metadata (key, value) VALUES (?, ?)').run('engine_version', CURRENT_ENGINE_VERSION);
-        }
-        // Setup Schema
-        this.db.exec(`
-      CREATE TABLE IF NOT EXISTS indexed_files (
-        relative_path TEXT PRIMARY KEY,
-        mtime INTEGER,
-        size INTEGER
-      );
-      CREATE TABLE IF NOT EXISTS symbols (
-        id TEXT PRIMARY KEY,
-        hash_id INTEGER,
-        file_path TEXT,
-        name TEXT,
-        kind TEXT,
-        line_start INTEGER,
-        line_end INTEGER,
-        content TEXT
-      );
-      CREATE TABLE IF NOT EXISTS edges (
-        source_id TEXT,
-        target_id TEXT,
-        relation_type TEXT,
-        file_path TEXT,
-        PRIMARY KEY(source_id, target_id, relation_type)
-      );
-      CREATE TABLE IF NOT EXISTS commits (
-        hash TEXT,
-        branch_name TEXT,
-        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-        symbol_ids JSON
-      );
-      CREATE TABLE IF NOT EXISTS chat_threads (
-        id TEXT PRIMARY KEY,
-        title TEXT,
-        created_at INTEGER,
-        updated_at INTEGER,
-        workspace_path TEXT
-      );
-      CREATE TABLE IF NOT EXISTS chat_messages (
-        id TEXT PRIMARY KEY,
-        thread_id TEXT,
-        sender TEXT,
-        text TEXT,
-        reasoning TEXT,
-        timestamp TEXT,
-        plan_steps JSON,
-        tool_calls JSON,
-        proposed_files JSON,
-        FOREIGN KEY(thread_id) REFERENCES chat_threads(id)
-      );
-    `);
-        // Migration for missing columns
-        try {
-            this.db.exec('ALTER TABLE symbols ADD COLUMN hash_id INTEGER');
-        }
-        catch (e) { }
-        try {
-            this.db.exec('ALTER TABLE chat_threads ADD COLUMN workspace_path TEXT');
-        }
-        catch (e) { }
-        try {
-            this.db.exec('ALTER TABLE edges ADD COLUMN file_path TEXT');
-        }
-        catch (e) { }
-        try {
-            this.db.exec('ALTER TABLE chat_messages ADD COLUMN meta JSON');
-        }
-        catch (e) { }
-        // Indexes
-        this.db.exec(`
-      CREATE INDEX IF NOT EXISTS idx_symbols_file ON symbols(file_path);
-      CREATE INDEX IF NOT EXISTS idx_edges_file ON edges(file_path);
-      CREATE INDEX IF NOT EXISTS idx_chat_threads_workspace ON chat_threads(workspace_path);
-    `);
-        try {
-            this.db.exec(`CREATE VIRTUAL TABLE IF NOT EXISTS vec_symbols USING vec0(embedding float[384])`);
-        }
-        catch (e) {
-            // vec0 might already exist
+        if (this.db && typeof this.db.exec === 'function') {
+            try {
+                const CURRENT_ENGINE_VERSION = '1.0.0';
+                this.db.exec(`CREATE TABLE IF NOT EXISTS brain_metadata (key TEXT PRIMARY KEY, value TEXT);`);
+                const dbVersion = this.db.prepare('SELECT value FROM brain_metadata WHERE key = ?').get('engine_version');
+                if (!dbVersion || dbVersion.value !== CURRENT_ENGINE_VERSION) {
+                    console.log('🔄 Exovon Engine version changed or corrupted. Wiping cache for clean rebuild...');
+                    this.db.exec(`
+             DROP TABLE IF EXISTS symbols;
+             DROP TABLE IF EXISTS edges;
+             DROP TABLE IF EXISTS indexed_files;
+             DROP TABLE IF EXISTS vec_symbols;
+           `);
+                    this.db.prepare('INSERT OR REPLACE INTO brain_metadata (key, value) VALUES (?, ?)').run('engine_version', CURRENT_ENGINE_VERSION);
+                }
+                // Setup Schema
+                this.db.exec(`
+          CREATE TABLE IF NOT EXISTS indexed_files (
+            relative_path TEXT PRIMARY KEY,
+            mtime INTEGER,
+            size INTEGER
+          );
+          CREATE TABLE IF NOT EXISTS symbols (
+            id TEXT PRIMARY KEY,
+            hash_id INTEGER,
+            file_path TEXT,
+            name TEXT,
+            kind TEXT,
+            line_start INTEGER,
+            line_end INTEGER,
+            content TEXT
+          );
+          CREATE TABLE IF NOT EXISTS edges (
+            source_id TEXT,
+            target_id TEXT,
+            relation_type TEXT,
+            file_path TEXT,
+            PRIMARY KEY(source_id, target_id, relation_type)
+          );
+          CREATE TABLE IF NOT EXISTS commits (
+            hash TEXT,
+            branch_name TEXT,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+            symbol_ids JSON
+          );
+          CREATE TABLE IF NOT EXISTS chat_threads (
+            id TEXT PRIMARY KEY,
+            title TEXT,
+            created_at INTEGER,
+            updated_at INTEGER,
+            workspace_path TEXT
+          );
+          CREATE TABLE IF NOT EXISTS chat_messages (
+            id TEXT PRIMARY KEY,
+            thread_id TEXT,
+            sender TEXT,
+            text TEXT,
+            reasoning TEXT,
+            timestamp TEXT,
+            plan_steps JSON,
+            tool_calls JSON,
+            proposed_files JSON,
+            FOREIGN KEY(thread_id) REFERENCES chat_threads(id)
+          );
+        `);
+                // Migration for missing columns
+                try {
+                    this.db.exec('ALTER TABLE symbols ADD COLUMN hash_id INTEGER');
+                }
+                catch (e) { }
+                try {
+                    this.db.exec('ALTER TABLE chat_threads ADD COLUMN workspace_path TEXT');
+                }
+                catch (e) { }
+                try {
+                    this.db.exec('ALTER TABLE edges ADD COLUMN file_path TEXT');
+                }
+                catch (e) { }
+                try {
+                    this.db.exec('ALTER TABLE chat_messages ADD COLUMN meta JSON');
+                }
+                catch (e) { }
+                // Indexes
+                this.db.exec(`
+          CREATE INDEX IF NOT EXISTS idx_symbols_file ON symbols(file_path);
+          CREATE INDEX IF NOT EXISTS idx_edges_file ON edges(file_path);
+          CREATE INDEX IF NOT EXISTS idx_chat_threads_workspace ON chat_threads(workspace_path);
+        `);
+                try {
+                    this.db.exec(`CREATE VIRTUAL TABLE IF NOT EXISTS vec_symbols USING vec0(embedding float[384])`);
+                }
+                catch (e) {
+                    // vec0 might already exist
+                }
+            }
+            catch (schemaErr) {
+                console.warn('Schema setup error:', schemaErr);
+            }
         }
         this.initializeWorkers();
     }
@@ -50994,31 +51027,17 @@ exports.BrainCoordinator = BrainCoordinator;
 /***/ ((module) => {
 
 "use strict";
-module.exports = require("better-sqlite3");
+module.exports = require("worker_threads");
 
 /***/ }),
 /* 286 */
 /***/ ((module) => {
 
 "use strict";
-module.exports = require("sqlite-vec");
-
-/***/ }),
-/* 287 */
-/***/ ((module) => {
-
-"use strict";
-module.exports = require("worker_threads");
-
-/***/ }),
-/* 288 */
-/***/ ((module) => {
-
-"use strict";
 module.exports = require("os");
 
 /***/ }),
-/* 289 */
+/* 287 */
 /***/ ((__unused_webpack_module, exports) => {
 
 "use strict";
@@ -51067,6 +51086,20 @@ class GraphIndexer {
 }
 exports.GraphIndexer = GraphIndexer;
 
+
+/***/ }),
+/* 288 */
+/***/ ((module) => {
+
+"use strict";
+module.exports = require("better-sqlite3");
+
+/***/ }),
+/* 289 */
+/***/ ((module) => {
+
+"use strict";
+module.exports = require("sqlite-vec");
 
 /***/ }),
 /* 290 */
@@ -51971,7 +52004,7 @@ exports.MotionCompiler = MotionCompiler;
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.processMotionCompile = processMotionCompile;
-const worker_threads_1 = __webpack_require__(287);
+const worker_threads_1 = __webpack_require__(285);
 const MotionIR_1 = __webpack_require__(299);
 const InsertionResolver_1 = __webpack_require__(300);
 const MotionEmitter_1 = __webpack_require__(301);

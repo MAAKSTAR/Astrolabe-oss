@@ -2,6 +2,8 @@ import React from 'react';
 import type { Message, VsCodeApi } from '../types';
 import ReactMarkdown from 'react-markdown';
 import rehypeHighlight from 'rehype-highlight';
+import rehypeRaw from 'rehype-raw';
+import remarkGfm from 'remark-gfm';
 import 'highlight.js/styles/atom-one-dark.css';
 import TextareaAutosize from 'react-textarea-autosize';
 import {
@@ -52,7 +54,8 @@ function TypewriterMarkdown({ content, chatEndRef, disableAnimation }: { content
   return (
     <div className="animate-fade-in text-zinc-200">
       <ReactMarkdown
-        rehypePlugins={[rehypeHighlight]}
+        remarkPlugins={[remarkGfm]}
+        rehypePlugins={[rehypeRaw, rehypeHighlight]}
         components={{
           h1: ({ children }) => <h1 className="text-base font-bold text-white mt-4 mb-2 pb-1 border-b border-white/10">{children}</h1>,
           h2: ({ children }) => <h2 className="text-sm font-bold text-white mt-3 mb-1.5 pb-0.5 border-b border-white/5">{children}</h2>,
@@ -748,6 +751,8 @@ export function ChatScreen({
                   ) : (
                     <div className="text-zinc-200 text-[13px] leading-relaxed">
                       <ReactMarkdown
+                        remarkPlugins={[remarkGfm]}
+                        rehypePlugins={[rehypeRaw]}
                         components={{
                           p: ({ children }) => <p className="mb-1.5 last:mb-0 text-zinc-200">{children}</p>,
                           code: ({ inline, className, children, ...props }: React.ComponentPropsWithoutRef<'code'> & { inline?: boolean; node?: unknown }) => (
