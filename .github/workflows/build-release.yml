@@ -67,6 +67,7 @@ jobs:
         run: |
           cd src/stable/extensions/exovonhub/webview-ui
           npm install --no-audit --no-fund
+          npm run build
           cd ..
           npm install --ignore-scripts --no-audit --no-fund
           npm run compile
@@ -87,10 +88,22 @@ jobs:
             mv dist-linux/astrolabe/bin/codium dist-linux/astrolabe/bin/astrolabe
           fi
           
-          # Inject native AI daemon (Rust + Vulkan)
-          cp daemon/target/release/exovon-daemon dist-linux/astrolabe/
-          mkdir -p dist-linux/astrolabe/resources/app/daemon
+          # Inject native AI daemon (Rust + Vulkan) & all shared libraries
+          mkdir -p dist-linux/astrolabe/daemon dist-linux/astrolabe/resources/app/daemon
+          cp daemon/target/release/exovon-daemon dist-linux/astrolabe/daemon/
           cp daemon/target/release/exovon-daemon dist-linux/astrolabe/resources/app/daemon/
+          cp -d daemon/target/release/deps/libllama*.so* dist-linux/astrolabe/daemon/ 2>/dev/null || true
+          cp -d daemon/target/release/deps/libggml*.so* dist-linux/astrolabe/daemon/ 2>/dev/null || true
+          cp -d daemon/target/release/deps/libmtmd*.so* dist-linux/astrolabe/daemon/ 2>/dev/null || true
+          cp -d daemon/target/release/deps/libllama*.so* dist-linux/astrolabe/resources/app/daemon/ 2>/dev/null || true
+          cp -d daemon/target/release/deps/libggml*.so* dist-linux/astrolabe/resources/app/daemon/ 2>/dev/null || true
+          cp -d daemon/target/release/deps/libmtmd*.so* dist-linux/astrolabe/resources/app/daemon/ 2>/dev/null || true
+          find daemon/target -name "libllama*.so*" -exec cp -d {} dist-linux/astrolabe/daemon/ \; 2>/dev/null || true
+          find daemon/target -name "libggml*.so*" -exec cp -d {} dist-linux/astrolabe/daemon/ \; 2>/dev/null || true
+          find daemon/target -name "libmtmd*.so*" -exec cp -d {} dist-linux/astrolabe/daemon/ \; 2>/dev/null || true
+          find daemon/target -name "libllama*.so*" -exec cp -d {} dist-linux/astrolabe/resources/app/daemon/ \; 2>/dev/null || true
+          find daemon/target -name "libggml*.so*" -exec cp -d {} dist-linux/astrolabe/resources/app/daemon/ \; 2>/dev/null || true
+          find daemon/target -name "libmtmd*.so*" -exec cp -d {} dist-linux/astrolabe/resources/app/daemon/ \; 2>/dev/null || true
 
           # Inject Astrolabe product branding & identity
           cp product.json dist-linux/astrolabe/resources/app/product.json
@@ -213,6 +226,7 @@ jobs:
         run: |
           cd src/stable/extensions/exovonhub/webview-ui
           npm install --no-audit --no-fund
+          npm run build
           cd ..
           npm install --ignore-scripts --no-audit --no-fund
           npm run compile
@@ -233,10 +247,15 @@ jobs:
             Move-Item "dist-win\astrolabe\bin\codium.cmd" "dist-win\astrolabe\bin\astrolabe.cmd" -Force
           }
           
-          # Inject native AI daemon (Windows)
-          Copy-Item "daemon\target\release\exovon-daemon.exe" "dist-win\astrolabe\" -Force
+          # Inject native AI daemon & all DLLs (Windows)
+          New-Item -ItemType Directory -Path "dist-win\astrolabe\daemon" -Force | Out-Null
           New-Item -ItemType Directory -Path "dist-win\astrolabe\resources\app\daemon" -Force | Out-Null
+          Copy-Item "daemon\target\release\exovon-daemon.exe" "dist-win\astrolabe\daemon\" -Force
           Copy-Item "daemon\target\release\exovon-daemon.exe" "dist-win\astrolabe\resources\app\daemon\" -Force
+          if (Test-Path "daemon\target\release\*.dll") {
+            Copy-Item "daemon\target\release\*.dll" "dist-win\astrolabe\daemon\" -Force
+            Copy-Item "daemon\target\release\*.dll" "dist-win\astrolabe\resources\app\daemon\" -Force
+          }
           
           # Inject Astrolabe product branding
           Copy-Item "product.json" "dist-win\astrolabe\resources\app\product.json" -Force
