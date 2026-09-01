@@ -95,10 +95,11 @@ jobs:
           # Inject Astrolabe product branding & identity
           cp product.json dist-linux/astrolabe/resources/app/product.json
           
-          # Inject compiled ExovonHub extension (code + themes + media)
-          mkdir -p dist-linux/astrolabe/resources/app/extensions/exovonhub
+          # Inject compiled ExovonHub extension (code + webview-ui + themes + media)
+          mkdir -p dist-linux/astrolabe/resources/app/extensions/exovonhub/webview-ui
           cp -r src/stable/extensions/exovonhub/package.json dist-linux/astrolabe/resources/app/extensions/exovonhub/
           cp -r src/stable/extensions/exovonhub/dist dist-linux/astrolabe/resources/app/extensions/exovonhub/
+          cp -r src/stable/extensions/exovonhub/webview-ui/dist dist-linux/astrolabe/resources/app/extensions/exovonhub/webview-ui/
           if [ -d "src/stable/extensions/exovonhub/themes" ]; then
             cp -r src/stable/extensions/exovonhub/themes dist-linux/astrolabe/resources/app/extensions/exovonhub/
           fi
@@ -235,10 +236,11 @@ jobs:
           # Inject Astrolabe product branding
           Copy-Item "product.json" "dist-win\astrolabe\resources\app\product.json" -Force
 
-          # Inject compiled ExovonHub extension (code + themes + media)
-          New-Item -ItemType Directory -Path "dist-win\astrolabe\resources\app\extensions\exovonhub" -Force | Out-Null
+          # Inject compiled ExovonHub extension (code + webview-ui + themes + media)
+          New-Item -ItemType Directory -Path "dist-win\astrolabe\resources\app\extensions\exovonhub\webview-ui" -Force | Out-Null
           Copy-Item "src\stable\extensions\exovonhub\package.json" "dist-win\astrolabe\resources\app\extensions\exovonhub\" -Force
           Copy-Item -Recurse "src\stable\extensions\exovonhub\dist" "dist-win\astrolabe\resources\app\extensions\exovonhub\" -Force
+          Copy-Item -Recurse "src\stable\extensions\exovonhub\webview-ui\dist" "dist-win\astrolabe\resources\app\extensions\exovonhub\webview-ui\" -Force
           if (Test-Path "src\stable\extensions\exovonhub\themes") {
             Copy-Item -Recurse "src\stable\extensions\exovonhub\themes" "dist-win\astrolabe\resources\app\extensions\exovonhub\" -Force
           }
