@@ -159,6 +159,17 @@ jobs:
             echo "✓ Injected Astrolabe Frosted Glass UI into Linux workbench CSS"
           fi
           
+          # Brand desktopName and Walkthrough/Announcements text
+          sed -i 's/"desktopName":"codium.desktop"/"desktopName":"astrolabe.desktop"/g' dist-linux/astrolabe/resources/app/out/main.js 2>/dev/null || true
+          if [ -f "dist-linux/astrolabe/resources/app/out/nls.messages.json" ]; then
+            sed -i 's/Get started with VSCodium/Get started with Astrolabe/g' dist-linux/astrolabe/resources/app/out/nls.messages.json
+            sed -i 's/VSCodium Announcements/Astrolabe Announcements/g' dist-linux/astrolabe/resources/app/out/nls.messages.json
+            sed -i 's/reloading VSCodium/reloading Astrolabe/g' dist-linux/astrolabe/resources/app/out/nls.messages.json
+            sed -i 's/Customize your editor, learn the basics, and start coding/Customize your AI workspace, explore agents, and start coding/g' dist-linux/astrolabe/resources/app/out/nls.messages.json
+          fi
+          sed -i 's/Get started with VSCodium/Get started with Astrolabe/g' dist-linux/astrolabe/resources/app/out/vs/workbench/workbench.desktop.main.js 2>/dev/null || true
+          sed -i 's/VSCodium Announcements/Astrolabe Announcements/g' dist-linux/astrolabe/resources/app/out/vs/workbench/workbench.desktop.main.js 2>/dev/null || true
+
           # Generate astrolabe.desktop file for Linux dock/taskbar integration
           printf "[Desktop Entry]\nName=Astrolabe IDE\nComment=The Sovereign AI-Native IDE\nGenericName=Text Editor\nExec=/usr/share/astrolabe/astrolabe %%F\nIcon=astrolabe\nType=Application\nStartupNotify=false\nStartupWMClass=astrolabe\nCategories=TextEditor;Development;IDE;\nMimeType=text/plain;inode/directory;\nActions=new-empty-window;\nKeywords=astrolabe;codium;vscode;ide;ai;\n\n[Desktop Action new-empty-window]\nName=New Empty Window\nExec=/usr/share/astrolabe/astrolabe --new-window %%F\nIcon=astrolabe\n" > dist-linux/astrolabe/astrolabe.desktop
           cp dist-linux/astrolabe/astrolabe.desktop dist-linux/astrolabe/resources/linux/code.desktop 2>/dev/null || true
@@ -306,9 +317,14 @@ jobs:
           $cssPath = "dist-win\astrolabe\resources\app\out\vs\workbench\workbench.desktop.main.css"
           if ((Test-Path $glassPath) -and (Test-Path $cssPath)) {
             Get-Content $glassPath | Out-File -FilePath $cssPath -Append -Encoding utf8
-            Write-Host "[OK] Injected Astrolabe Frosted Glass UI into Windows workbench CSS"
+          # Brand desktopName and Walkthrough/Announcements text
+          if (Test-Path "dist-win\astrolabe\resources\app\out\main.js") {
+            (Get-Content "dist-win\astrolabe\resources\app\out\main.js") -replace '"desktopName":"codium.desktop"', '"desktopName":"astrolabe.desktop"' | Set-Content "dist-win\astrolabe\resources\app\out\main.js"
           }
-          
+          if (Test-Path "dist-win\astrolabe\resources\app\out\nls.messages.json") {
+            (Get-Content "dist-win\astrolabe\resources\app\out\nls.messages.json") -replace 'Get started with VSCodium', 'Get started with Astrolabe' -replace 'VSCodium Announcements', 'Astrolabe Announcements' -replace 'reloading VSCodium', 'reloading Astrolabe' -replace 'Customize your editor, learn the basics, and start coding', 'Customize your AI workspace, explore agents, and start coding' | Set-Content "dist-win\astrolabe\resources\app\out\nls.messages.json"
+          }
+
           # Create real clean Windows zip archive
           Compress-Archive -Path 'dist-win\astrolabe\*' -DestinationPath 'astrolabe-windows-x64.zip' -Force
         shell: powershell
