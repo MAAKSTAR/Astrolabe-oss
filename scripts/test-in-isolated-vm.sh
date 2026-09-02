@@ -66,6 +66,8 @@ bwrap \
   --ro-bind-try /bin /bin \
   --ro-bind-try /opt /opt \
   --ro-bind-try /tmp/.X11-unix /tmp/.X11-unix \
+  --ro-bind-try /run/systemd/resolve /run/systemd/resolve \
+  --ro-bind-try /run/resolvconf /run/resolvconf \
   --bind "$ISOLATED_ROOT/app" /app \
   --bind "$ISOLATED_ROOT/home/user" /home/user \
   --bind "$ISOLATED_ROOT/tmp" /tmp \
