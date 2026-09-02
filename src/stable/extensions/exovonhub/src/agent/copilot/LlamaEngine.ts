@@ -1,4 +1,10 @@
 import * as vscode from 'vscode';
+import { FimIntentAnalyzer } from './FimIntentAnalyzer';
+
+export interface FimResult {
+  text: string;
+  replacePrefixChars: number;
+}
 
 export class LlamaEngine {
   private ready = false;
@@ -38,14 +44,17 @@ export class LlamaEngine {
 
       if (res.ok) {
         const data = (await res.json()) as any;
-        this.ready = true;
+        const active = assignedGhostModel || data.active_ghost_model || data.active_model || null;
+        this.activeGhostModel = active;
+        this.ready = Boolean(active);
         this.lastLatencyMs = Date.now() - start;
-        this.activeGhostModel = assignedGhostModel || data.active_model || null;
       } else {
         this.ready = false;
+        this.activeGhostModel = null;
       }
     } catch {
       this.ready = false;
+      this.activeGhostModel = null;
     }
 
     return {
@@ -61,10 +70,10 @@ export class LlamaEngine {
     suffix: string,
     token: vscode.CancellationToken,
     languageId = 'plaintext'
-  ): Promise<string> {
+  ): Promise<FimResult | null> {
     const config = vscode.workspace.getConfiguration('exovonhub');
     const enabled = config.get<boolean>('enableGhostText', true);
-    if (!enabled) return '';
+    if (!enabled || !this.ready || !this.activeGhostModel) return null;
 
     const ghostModel = config.get<string>('inlineGhostModel') || undefined;
     const startTime = Date.now();
@@ -74,24 +83,34 @@ export class LlamaEngine {
       const controller = new AbortController();
       token.onCancellationRequested(() => controller.abort());
 
-      // Trim context for ultra-low latency completion
-      const prefixContext = prefix.length > 1500 ? prefix.slice(-1500) : prefix;
-      const suffixContext = suffix.length > 400 ? suffix.slice(0, 400) : suffix;
+      // Analyze intent: directive comments, fuzzy spelling fixes, structural skeletons, or native FIM
+      const intent = FimIntentAnalyzer.analyze(prefix, suffix, languageId);
+
+      // If an immediate high-confidence spelling fix is found at cursor, return it instantly
+      if (intent.immediateSuggestion && intent.correction) {
+        this.lastLatencyMs = Date.now() - startTime;
+        return {
+          text: intent.correction.replacement,
+          replacePrefixChars: intent.correction.replacePrefixChars
+        };
+      }
+
+      // Context sizing
+      const maxPrefixLen = intent.type === 'directive_boilerplate' ? 3000 : 1500;
+      const prefixContext = prefix.length > maxPrefixLen ? prefix.slice(-maxPrefixLen) : prefix;
+      const suffixContext = suffix.length > 500 ? suffix.slice(0, 500) : suffix;
 
       const payload = {
         model: ghostModel,
+        purpose: 'ghost',
         messages: [
           {
-            role: 'system',
-            content: 'You are an ultra-fast code completion engine. Continue the code directly at the cursor. Output ONLY the raw completion code without markdown backticks, explanations, comments, or repeating the prefix.'
-          },
-          {
             role: 'user',
-            content: `Language: ${languageId}\n\nExisting Code Before Cursor:\n${prefixContext}\n\nExisting Code After Cursor:\n${suffixContext}\n\nInline Completion:`
+            content: intent.promptText
           }
         ],
-        max_tokens: 48,
-        temperature: 0.1,
+        max_tokens: intent.maxTokens,
+        temperature: intent.temperature,
         stream: false
       };
 
@@ -104,29 +123,81 @@ export class LlamaEngine {
 
       if (!res.ok) {
         this.ready = false;
-        return '';
+        return null;
       }
 
-      const data = (await res.json()) as any;
+      let accumulated = '';
+      const textResponse = await res.text();
       this.lastLatencyMs = Date.now() - startTime;
       this.ready = true;
 
-      let text = data.choices?.[0]?.message?.content || '';
-      // Strip markdown code fences if output by chat model
+      // Parse SSE lines or raw JSON
+      const lines = textResponse.split('\n');
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (trimmed.startsWith('data: ')) {
+          const dataStr = trimmed.slice(6).trim();
+          if (dataStr === '[DONE]') break;
+          try {
+            const parsed = JSON.parse(dataStr);
+            const delta = parsed.choices?.[0]?.delta?.content || parsed.choices?.[0]?.message?.content || '';
+            if (delta) {
+              accumulated += delta;
+            }
+          } catch {}
+        }
+      }
+
+      if (!accumulated && textResponse.trim().startsWith('{')) {
+        try {
+          const parsed = JSON.parse(textResponse);
+          accumulated = parsed.choices?.[0]?.message?.content || '';
+        } catch {}
+      }
+
+      let text = accumulated;
+
+      // 1. Strip any leaked FIM / Special tokenizer control tags
+      text = text.replace(/<\|?(?:fim_prefix|fim_suffix|fim_middle|endoftext|file_sep|im_start|im_end|start_of_turn|end_of_turn|eot_id|turn_end)\|?>/gi, '');
+      text = text.replace(/\[(?:PREFIX|SUFFIX|MID)\]/g, '');
+
+      // 2. Strip markdown code fences if output by chat model
       text = text.replace(/^```[a-zA-Z0-9_-]*\r?\n?/, '').replace(/\r?\n?```$/, '');
 
-      // Remove accidental duplicate prefix line
+      // 3. Remove accidental duplicate prefix line
       const lastLine = prefixContext.trim().split('\n').pop() || '';
       if (lastLine && text.startsWith(lastLine)) {
         text = text.slice(lastLine.length);
       }
 
-      return text;
+      // 4. Intelligent Suffix De-duplication: Prevent repeating lines that already exist below cursor
+      const suffixLines = suffixContext.split('\n').map(l => l.trim()).filter(l => l.length > 3);
+      if (suffixLines.length > 0 && text.includes('\n')) {
+        const textLines = text.split('\n');
+        const cleanLines: string[] = [];
+        for (const tl of textLines) {
+          if (cleanLines.length > 0 && suffixLines.includes(tl.trim())) {
+            break; // Stop at first duplicated suffix line!
+          }
+          cleanLines.push(tl);
+        }
+        text = cleanLines.join('\n');
+      }
+
+      // 5. If text is empty or purely whitespace after stripping tags, return null
+      if (text.trim().length === 0) {
+        return null;
+      }
+
+      return {
+        text,
+        replacePrefixChars: intent.correction?.replacePrefixChars || 0
+      };
     } catch (e: any) {
       if (e.name !== 'AbortError') {
         this.ready = false;
       }
-      return '';
+      return null;
     }
   }
 

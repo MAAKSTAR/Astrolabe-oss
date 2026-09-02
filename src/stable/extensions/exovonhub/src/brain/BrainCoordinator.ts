@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
-import type Database from 'better-sqlite3';
+import Database from 'better-sqlite3';
+import * as sqliteVec from 'sqlite-vec';
 import { Worker } from 'worker_threads';
 import * as path from 'path';
 import * as fs from 'fs';
@@ -7,22 +8,6 @@ import os from 'os';
 import * as crypto from 'crypto';
 import { GraphIndexer } from './GraphIndexer';
 import { IBrainCoordinator, GovernorStatus } from '../types/shared';
-
-function getBetterSqlite3(): any {
-  try {
-    return require('better-sqlite3');
-  } catch {
-    return null;
-  }
-}
-
-function getSqliteVec(): any {
-  try {
-    return require('sqlite-vec');
-  } catch {
-    return null;
-  }
-}
 
 function fnv1a32(str: string): number {
   let hash = 0x811c9dc5;
@@ -34,7 +19,7 @@ function fnv1a32(str: string): number {
 }
 
 export class BrainCoordinator implements IBrainCoordinator {
-  public db!: Database.Database;
+  public db: Database.Database;
   public dbPath: string;
   public lastError: string | null = null;
   public status: 'idle' | 'indexing' | 'ready' | 'failed' = 'idle';
@@ -58,136 +43,119 @@ export class BrainCoordinator implements IBrainCoordinator {
     const storagePath = context.storageUri?.fsPath || context.globalStorageUri.fsPath;
     this.dbPath = path.join(storagePath, '.exovon_brain.db');
     
-    const SqliteDatabase = getBetterSqlite3();
-    const sqliteVec = getSqliteVec();
-
-    if (SqliteDatabase) {
-      try {
-        if (!fs.existsSync(storagePath)) {
-          fs.mkdirSync(storagePath, { recursive: true });
-        }
-
-        this.db = new SqliteDatabase(this.dbPath);
-        if (sqliteVec?.load) {
-          sqliteVec.load(this.db);
-        }
-
-        this.db.pragma?.('journal_mode = WAL');
-        this.db.pragma?.('busy_timeout = 5000');
-        this.status = 'ready';
-      } catch (err: any) {
-        this.lastError = err?.message || String(err);
-        this.status = 'failed';
-        console.error('Brain initialization failed:', err);
-        try {
-          this.db = new SqliteDatabase(':memory:');
-        } catch {
-          this.db = null as any;
-        }
+    try {
+      // Ensure directory exists
+      if (!fs.existsSync(storagePath)) {
+        fs.mkdirSync(storagePath, { recursive: true });
       }
-    } else {
-      console.warn('Native better-sqlite3 not available; running in lightweight brain mode.');
-      this.status = 'idle';
-      this.db = null as any;
+
+      this.db = new Database(this.dbPath);
+      sqliteVec.load(this.db);
+
+      // Concurrency optimization
+      this.db.pragma('journal_mode = WAL');
+      this.db.pragma('busy_timeout = 5000');
+      this.status = 'ready';
+    } catch (err: any) {
+      this.lastError = err?.message || String(err);
+      this.status = 'failed';
+      console.error('Brain initialization failed:', err);
+      // Fallback in-memory database to prevent crashes
+      this.db = new Database(':memory:');
     }
 
-    if (this.db && typeof this.db.exec === 'function') {
-      try {
-        const CURRENT_ENGINE_VERSION = '1.0.0';
-        this.db.exec(`CREATE TABLE IF NOT EXISTS brain_metadata (key TEXT PRIMARY KEY, value TEXT);`);
-        const dbVersion = this.db.prepare('SELECT value FROM brain_metadata WHERE key = ?').get('engine_version') as { value: string } | undefined;
-        
-        if (!dbVersion || dbVersion.value !== CURRENT_ENGINE_VERSION) {
-           console.log('🔄 Exovon Engine version changed or corrupted. Wiping cache for clean rebuild...');
-           this.db.exec(`
-             DROP TABLE IF EXISTS symbols;
-             DROP TABLE IF EXISTS edges;
-             DROP TABLE IF EXISTS indexed_files;
-             DROP TABLE IF EXISTS vec_symbols;
-           `);
-           this.db.prepare('INSERT OR REPLACE INTO brain_metadata (key, value) VALUES (?, ?)').run('engine_version', CURRENT_ENGINE_VERSION);
-        }
+    // Delta Cache Version Control
+    const CURRENT_ENGINE_VERSION = '1.0.0';
+    this.db.exec(`CREATE TABLE IF NOT EXISTS brain_metadata (key TEXT PRIMARY KEY, value TEXT);`);
+    const dbVersion = this.db.prepare('SELECT value FROM brain_metadata WHERE key = ?').get('engine_version') as { value: string } | undefined;
+    
+    if (!dbVersion || dbVersion.value !== CURRENT_ENGINE_VERSION) {
+       console.log('🔄 Exovon Engine version changed or corrupted. Wiping cache for clean rebuild...');
+       this.db.exec(`
+         DROP TABLE IF EXISTS symbols;
+         DROP TABLE IF EXISTS edges;
+         DROP TABLE IF EXISTS indexed_files;
+         DROP TABLE IF EXISTS vec_symbols;
+       `);
+       this.db.prepare('INSERT OR REPLACE INTO brain_metadata (key, value) VALUES (?, ?)').run('engine_version', CURRENT_ENGINE_VERSION);
+    }
 
-        // Setup Schema
-        this.db.exec(`
-          CREATE TABLE IF NOT EXISTS indexed_files (
-            relative_path TEXT PRIMARY KEY,
-            mtime INTEGER,
-            size INTEGER
-          );
-          CREATE TABLE IF NOT EXISTS symbols (
-            id TEXT PRIMARY KEY,
-            hash_id INTEGER,
-            file_path TEXT,
-            name TEXT,
-            kind TEXT,
-            line_start INTEGER,
-            line_end INTEGER,
-            content TEXT
-          );
-          CREATE TABLE IF NOT EXISTS edges (
-            source_id TEXT,
-            target_id TEXT,
-            relation_type TEXT,
-            file_path TEXT,
-            PRIMARY KEY(source_id, target_id, relation_type)
-          );
-          CREATE TABLE IF NOT EXISTS commits (
-            hash TEXT,
-            branch_name TEXT,
-            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-            symbol_ids JSON
-          );
-          CREATE TABLE IF NOT EXISTS chat_threads (
-            id TEXT PRIMARY KEY,
-            title TEXT,
-            created_at INTEGER,
-            updated_at INTEGER,
-            workspace_path TEXT
-          );
-          CREATE TABLE IF NOT EXISTS chat_messages (
-            id TEXT PRIMARY KEY,
-            thread_id TEXT,
-            sender TEXT,
-            text TEXT,
-            reasoning TEXT,
-            timestamp TEXT,
-            plan_steps JSON,
-            tool_calls JSON,
-            proposed_files JSON,
-            FOREIGN KEY(thread_id) REFERENCES chat_threads(id)
-          );
-        `);
+    // Setup Schema
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS indexed_files (
+        relative_path TEXT PRIMARY KEY,
+        mtime INTEGER,
+        size INTEGER
+      );
+      CREATE TABLE IF NOT EXISTS symbols (
+        id TEXT PRIMARY KEY,
+        hash_id INTEGER,
+        file_path TEXT,
+        name TEXT,
+        kind TEXT,
+        line_start INTEGER,
+        line_end INTEGER,
+        content TEXT
+      );
+      CREATE TABLE IF NOT EXISTS edges (
+        source_id TEXT,
+        target_id TEXT,
+        relation_type TEXT,
+        file_path TEXT,
+        PRIMARY KEY(source_id, target_id, relation_type)
+      );
+      CREATE TABLE IF NOT EXISTS commits (
+        hash TEXT,
+        branch_name TEXT,
+        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+        symbol_ids JSON
+      );
+      CREATE TABLE IF NOT EXISTS chat_threads (
+        id TEXT PRIMARY KEY,
+        title TEXT,
+        created_at INTEGER,
+        updated_at INTEGER,
+        workspace_path TEXT
+      );
+      CREATE TABLE IF NOT EXISTS chat_messages (
+        id TEXT PRIMARY KEY,
+        thread_id TEXT,
+        sender TEXT,
+        text TEXT,
+        reasoning TEXT,
+        timestamp TEXT,
+        plan_steps JSON,
+        tool_calls JSON,
+        proposed_files JSON,
+        FOREIGN KEY(thread_id) REFERENCES chat_threads(id)
+      );
+    `);
 
-        // Migration for missing columns
-        try {
-          this.db.exec('ALTER TABLE symbols ADD COLUMN hash_id INTEGER');
-        } catch (e) {}
-        try {
-          this.db.exec('ALTER TABLE chat_threads ADD COLUMN workspace_path TEXT');
-        } catch (e) {}
-        try {
-          this.db.exec('ALTER TABLE edges ADD COLUMN file_path TEXT');
-        } catch (e) {}
-        try {
-          this.db.exec('ALTER TABLE chat_messages ADD COLUMN meta JSON');
-        } catch (e) {}
+    // Migration for missing columns
+    try {
+      this.db.exec('ALTER TABLE symbols ADD COLUMN hash_id INTEGER');
+    } catch (e) {}
+    try {
+      this.db.exec('ALTER TABLE chat_threads ADD COLUMN workspace_path TEXT');
+    } catch (e) {}
+    try {
+      this.db.exec('ALTER TABLE edges ADD COLUMN file_path TEXT');
+    } catch (e) {}
+    try {
+      this.db.exec('ALTER TABLE chat_messages ADD COLUMN meta JSON');
+    } catch (e) {}
 
-        // Indexes
-        this.db.exec(`
-          CREATE INDEX IF NOT EXISTS idx_symbols_file ON symbols(file_path);
-          CREATE INDEX IF NOT EXISTS idx_edges_file ON edges(file_path);
-          CREATE INDEX IF NOT EXISTS idx_chat_threads_workspace ON chat_threads(workspace_path);
-        `);
+    // Indexes
+    this.db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_symbols_file ON symbols(file_path);
+      CREATE INDEX IF NOT EXISTS idx_edges_file ON edges(file_path);
+      CREATE INDEX IF NOT EXISTS idx_chat_threads_workspace ON chat_threads(workspace_path);
+    `);
 
-        try {
-          this.db.exec(`CREATE VIRTUAL TABLE IF NOT EXISTS vec_symbols USING vec0(embedding float[384])`);
-        } catch (e) {
-          // vec0 might already exist
-        }
-      } catch (schemaErr) {
-        console.warn('Schema setup error:', schemaErr);
-      }
+    try {
+      this.db.exec(`CREATE VIRTUAL TABLE IF NOT EXISTS vec_symbols USING vec0(embedding float[384])`);
+    } catch (e) {
+      // vec0 might already exist
     }
 
     this.initializeWorkers();
@@ -354,25 +322,24 @@ export class BrainCoordinator implements IBrainCoordinator {
   public async getStats(): Promise<{ entities: number, sizeMB: number, status: string, lastError: string | null, dbPath: string }> {
     try {
       let sizeMB = 0;
-      if (this.dbPath && fs.existsSync(this.dbPath)) {
+      if (fs.existsSync(this.dbPath)) {
         const stat = await fs.promises.stat(this.dbPath);
         sizeMB = stat.size / (1024 * 1024);
       }
       
-      let entities = 0;
-      if (this.db && typeof this.db.prepare === 'function') {
-        const row = this.db.prepare('SELECT COUNT(*) as c FROM symbols').get() as { c: number } | undefined;
-        entities = row?.c ?? 0;
-      }
+      const row = this.db.prepare('SELECT COUNT(*) as c FROM symbols').get() as { c: number } | undefined;
+      const entities = row?.c ?? 0;
       return {
         entities,
         sizeMB: Number(sizeMB.toFixed(2)),
-        status: this.status || 'ready',
+        status: this.status,
         lastError: this.lastError,
         dbPath: this.dbPath
       };
     } catch(e: any) {
-      return { entities: 0, sizeMB: 0, status: 'ready', lastError: null, dbPath: this.dbPath };
+      this.lastError = e?.message || String(e);
+      this.status = 'failed';
+      return { entities: 0, sizeMB: 0, status: 'failed', lastError: this.lastError, dbPath: this.dbPath };
     }
   }
 
@@ -941,7 +908,7 @@ export class BrainCoordinator implements IBrainCoordinator {
   public getChatThreads(): { id: string; title: string; updated_at: number; message_count?: number; preview?: string }[] {
     try {
       const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
-      return this.db.prepare(`
+      const threads = this.db.prepare(`
         SELECT 
           ct.id, 
           ct.title, 
@@ -952,6 +919,33 @@ export class BrainCoordinator implements IBrainCoordinator {
         WHERE ct.workspace_path = ? 
         ORDER BY ct.updated_at DESC
       `).all(workspaceRoot) as any[];
+
+      // Auto-repair stale generic titles (e.g. 'HI', 'hi', 'hello', 'New Chat')
+      for (const t of threads) {
+        const lower = (t.title || '').toLowerCase().trim();
+        if (!lower || lower === 'new chat' || ['hi', 'hello', 'hey', 'yo', 'sup', 'test'].includes(lower) || lower.length <= 3) {
+          const firstMeaningful: any = this.db.prepare(`
+            SELECT text FROM chat_messages 
+            WHERE thread_id = ? AND sender = 'user' AND text IS NOT NULL AND LENGTH(TRIM(text)) > 3
+            ORDER BY timestamp ASC LIMIT 1
+          `).get(t.id);
+          if (firstMeaningful?.text) {
+            let clean = firstMeaningful.text
+              .replace(/^\[IDE WORKSPACE ACTIVE CONTEXT\][\s\S]*?\[\/IDE WORKSPACE ACTIVE CONTEXT\]/, '')
+              .replace(/^Developer Action Request:\s*"?/, '')
+              .replace(/^[#*`\s]+/, '')
+              .replace(/^(?:hi|hello|hey|yo|sup|greeting|greetings|please|can you|could you|help me)\s*[,.:;!-]?\s*/i, '')
+              .trim();
+            if (clean.length > 2) {
+              const newTitle = clean.substring(0, 45) + (clean.length > 45 ? '...' : '');
+              t.title = newTitle;
+              this.db.prepare('UPDATE chat_threads SET title = ? WHERE id = ?').run(newTitle, t.id);
+            }
+          }
+        }
+      }
+
+      return threads;
     } catch (e) {
       console.error('getChatThreads error:', e);
       return [];
@@ -1050,20 +1044,41 @@ export class BrainCoordinator implements IBrainCoordinator {
         })
       );
       
-      // Update thread title and timestamp
+      // Update thread title and timestamp intelligently
       let cleanText = (message.text || '')
         .replace(/^\[IDE WORKSPACE ACTIVE CONTEXT\][\s\S]*?\[\/IDE WORKSPACE ACTIVE CONTEXT\]/, '')
         .replace(/^Developer Action Request:\s*"?/, '')
         .replace(/^[#*`\s]+/, '')
         .trim();
-      const title = cleanText ? cleanText.substring(0, 45) + (cleanText.length > 45 ? '...' : '') : 'Exovon Chat';
-      // Only update title if it's a user message and not the first message
-      if (message.sender === 'user') {
-         this.db.prepare('UPDATE chat_threads SET updated_at = ?, title = CASE WHEN title = \'New Chat\' THEN ? ELSE title END WHERE id = ?').run(
-           Date.now(), title, threadId
-         );
+
+      if (message.sender === 'user' && cleanText) {
+        // Strip common greetings to find actual intent
+        let titleCandidate = cleanText
+          .replace(/^(?:hi|hello|hey|yo|sup|greeting|greetings|please|can you|could you|help me)\s*[,.:;!-]?\s*/i, '')
+          .trim();
+        if (!titleCandidate || titleCandidate.length < 3) {
+          titleCandidate = cleanText;
+        }
+        const title = titleCandidate.substring(0, 45) + (titleCandidate.length > 45 ? '...' : '');
+
+        // Fetch current thread title
+        const currentThread: any = this.db.prepare('SELECT title FROM chat_threads WHERE id = ?').get(threadId);
+        const currentTitle = (currentThread?.title || '').toLowerCase().trim();
+        const isGeneric = !currentTitle ||
+                          currentTitle === 'new chat' ||
+                          currentTitle === 'exovon chat' ||
+                          ['hi', 'hello', 'hey', 'yo', 'sup', 'test', 'greeting', 'greetings'].includes(currentTitle) ||
+                          (currentTitle.length <= 4 && titleCandidate.length > 4);
+
+        if (isGeneric) {
+          this.db.prepare('UPDATE chat_threads SET updated_at = ?, title = ? WHERE id = ?').run(
+            Date.now(), title, threadId
+          );
+        } else {
+          this.db.prepare('UPDATE chat_threads SET updated_at = ? WHERE id = ?').run(Date.now(), threadId);
+        }
       } else {
-         this.db.prepare('UPDATE chat_threads SET updated_at = ? WHERE id = ?').run(Date.now(), threadId);
+        this.db.prepare('UPDATE chat_threads SET updated_at = ? WHERE id = ?').run(Date.now(), threadId);
       }
     } catch (e) {
       console.error('saveChatMessage error:', e);

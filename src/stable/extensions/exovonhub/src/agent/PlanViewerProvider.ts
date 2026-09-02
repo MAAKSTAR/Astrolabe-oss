@@ -11,22 +11,25 @@ export class PlanViewerProvider {
   private readonly _context: vscode.ExtensionContext;
   private _disposables: vscode.Disposable[] = [];
   private _currentPlanMarkdown: string = '';
+  private _currentPlanTitle: string = '';
   private _activeOrchestrator?: AgentOrchestrator;
 
-  public static createOrShow(context: vscode.ExtensionContext, planMarkdown: string, orchestrator?: AgentOrchestrator) {
+  public static createOrShow(context: vscode.ExtensionContext, planMarkdown: string, orchestrator?: AgentOrchestrator, title?: string) {
     const column = vscode.window.activeTextEditor
       ? vscode.window.activeTextEditor.viewColumn
-      : vscode.ViewColumn.One;
+      : undefined;
+
+    const resolvedTitle = title || PlanViewerProvider.extractTitle(planMarkdown);
 
     if (PlanViewerProvider.currentPanel) {
-      PlanViewerProvider.currentPanel.updatePlan(planMarkdown, orchestrator);
+      PlanViewerProvider.currentPanel.updatePlan(planMarkdown, orchestrator, resolvedTitle);
       PlanViewerProvider.currentPanel._panel.reveal(column);
       return;
     }
 
     const panel = vscode.window.createWebviewPanel(
       PlanViewerProvider.viewType,
-      'Implementation Plan',
+      resolvedTitle,
       column || vscode.ViewColumn.One,
       {
         enableScripts: true,
@@ -35,13 +38,23 @@ export class PlanViewerProvider {
       }
     );
 
-    PlanViewerProvider.currentPanel = new PlanViewerProvider(panel, context, planMarkdown, orchestrator);
+    PlanViewerProvider.currentPanel = new PlanViewerProvider(panel, context, planMarkdown, orchestrator, resolvedTitle);
   }
 
-  private constructor(panel: vscode.WebviewPanel, context: vscode.ExtensionContext, planMarkdown: string, orchestrator?: AgentOrchestrator) {
+  private static extractTitle(markdown: string): string {
+    if (!markdown) return 'Implementation Plan';
+    const match = markdown.match(/^#\s+(.+)$/m);
+    if (match && match[1]) {
+      return match[1].replace(/[\[\]`*]/g, '').trim() || 'Implementation Plan';
+    }
+    return 'Implementation Plan';
+  }
+
+  private constructor(panel: vscode.WebviewPanel, context: vscode.ExtensionContext, planMarkdown: string, orchestrator?: AgentOrchestrator, title?: string) {
     this._panel = panel;
     this._context = context;
     this._currentPlanMarkdown = planMarkdown;
+    this._currentPlanTitle = title || PlanViewerProvider.extractTitle(planMarkdown);
     this._activeOrchestrator = orchestrator;
 
     this._update();
@@ -54,14 +67,14 @@ export class PlanViewerProvider {
           case 'getPlan': {
             this._panel.webview.postMessage({
               type: 'planData',
-              markdown: this._currentPlanMarkdown
+              markdown: this._currentPlanMarkdown,
+              title: this._currentPlanTitle
             });
             break;
           }
           case 'approvePlan': {
             if (this._activeOrchestrator) {
               this._activeOrchestrator.resolvePlanApproval(true);
-              vscode.window.showInformationMessage('✅ Implementation Plan Approved. Agent proceeding with execution.');
             }
             break;
           }
@@ -69,13 +82,11 @@ export class PlanViewerProvider {
             const feedback = data.feedback || 'User rejected the plan';
             if (this._activeOrchestrator) {
               this._activeOrchestrator.resolvePlanApproval(false, feedback);
-              vscode.window.showInformationMessage('Implementation Plan rejected with feedback. Agent is revising...');
             }
             break;
           }
           case 'copyMarkdown': {
             vscode.env.clipboard.writeText(this._currentPlanMarkdown);
-            vscode.window.showInformationMessage('📋 Plan copied to clipboard');
             break;
           }
         }
@@ -85,14 +96,17 @@ export class PlanViewerProvider {
     );
   }
 
-  public updatePlan(planMarkdown: string, orchestrator?: AgentOrchestrator) {
+  public updatePlan(planMarkdown: string, orchestrator?: AgentOrchestrator, title?: string) {
     this._currentPlanMarkdown = planMarkdown;
+    this._currentPlanTitle = title || PlanViewerProvider.extractTitle(planMarkdown);
     if (orchestrator) {
       this._activeOrchestrator = orchestrator;
     }
+    this._panel.title = this._currentPlanTitle;
     this._panel.webview.postMessage({
       type: 'planData',
-      markdown: this._currentPlanMarkdown
+      markdown: this._currentPlanMarkdown,
+      title: this._currentPlanTitle
     });
   }
 
@@ -108,7 +122,7 @@ export class PlanViewerProvider {
   }
 
   private _update() {
-    this._panel.title = 'Implementation Plan';
+    this._panel.title = this._currentPlanTitle || 'Implementation Plan';
     this._panel.webview.html = this._getHtmlForWebview(this._panel.webview);
   }
 

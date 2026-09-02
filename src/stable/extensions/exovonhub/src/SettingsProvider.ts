@@ -69,10 +69,20 @@ export class SettingsProvider {
           case 'setInlineGhostModel': {
             const config = vscode.workspace.getConfiguration('exovonhub');
             await config.update('inlineGhostModel', data.model, vscode.ConfigurationTarget.Global);
-            vscode.window.showInformationMessage(`Inline Ghost Model set to: ${data.model}`);
+            vscode.window.showInformationMessage(`Inline Ghost Model set to: ${path.basename(data.model)}`);
+            
+            try {
+              const fetch = (await import('node-fetch')).default;
+              await fetch('http://127.0.0.1:47990/v1/models/load', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ model_path: data.model })
+              });
+            } catch {}
+
             try {
               const { EngineStatusBarManager } = require('./agent/EngineStatusBarManager');
-              EngineStatusBarManager.getInstance()?.updateDisplay();
+              EngineStatusBarManager.getInstance()?.checkHealth();
             } catch {}
             this._panel.webview.postMessage({ type: 'inlineGhostModelUpdated', model: data.model });
             break;
@@ -242,6 +252,14 @@ export class SettingsProvider {
               if (data.backendPreference !== undefined) payload.backend_preference = data.backendPreference;
               if (data.useMmap !== undefined) payload.use_mmap = data.useMmap;
               if (data.flashAttn !== undefined) payload.flash_attn = data.flashAttn;
+              if (data.kvQuant !== undefined) payload.kv_quant = data.kvQuant;
+              if (data.target !== undefined) payload.target = data.target;
+              if (data.temperature !== undefined) {
+                payload.temperature = data.temperature;
+                try {
+                  await vscode.workspace.getConfiguration('exovonhub').update('modelTemperature', data.temperature, vscode.ConfigurationTarget.Global);
+                } catch {}
+              }
 
               await vscode.window.withProgress({
                 location: vscode.ProgressLocation.Notification,
@@ -405,29 +423,6 @@ export class SettingsProvider {
               }
             } catch (e) {
               vscode.window.showErrorMessage('Failed to connect to local daemon.');
-            }
-            break;
-          }
-          case 'controlDownload': {
-            try {
-              const fetch = (await import('node-fetch')).default;
-              const res = await fetch('http://127.0.0.1:47990/v1/models/downloads/control', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ filename: data.filename, action: data.action })
-              });
-              if (res.ok) {
-                const act = data.action;
-                if (act === 'pause') {
-                  vscode.window.showInformationMessage(`Paused download for ${data.filename}`);
-                } else if (act === 'retry') {
-                  vscode.window.showInformationMessage(`Resuming download for ${data.filename}`);
-                } else if (act === 'delete') {
-                  vscode.window.showInformationMessage(`Deleted download for ${data.filename}`);
-                }
-              }
-            } catch (e) {
-              vscode.window.showErrorMessage('Failed to control download on local daemon.');
             }
             break;
           }

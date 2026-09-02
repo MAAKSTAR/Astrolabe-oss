@@ -56,7 +56,14 @@ pub struct RepoFile {
 
 pub async fn fetch_repo_tree(repo_id: &str) -> Result<Vec<RepoFile>, String> {
     let url = format!("https://huggingface.co/api/models/{}/tree/main", repo_id);
-    let resp = reqwest::get(&url)
+    let client = reqwest::Client::builder()
+        .user_agent("Astrolabe-IDE/1.0 (Linux; x86_64)")
+        .build()
+        .map_err(|e| format!("Failed to build HTTP client: {}", e))?;
+
+    let resp = client.get(&url)
+        .header("Accept", "application/json")
+        .send()
         .await
         .map_err(|e| format!("Failed to fetch repo tree: {}", e))?;
     
@@ -279,13 +286,24 @@ pub fn list_local_models(models_dir: &str) -> Vec<LocalModel> {
 
 /// Search HuggingFace Hub API for GGUF models matching a query.
 pub async fn search_huggingface(query: &str) -> Result<Vec<HfModelResult>, String> {
-    // We fetch a larger limit to ensure we have enough diverse models to pick from.
-    let url = format!(
-        "https://huggingface.co/api/models?search={}&filter=gguf&sort=downloads&direction=-1&limit=500",
-        urlencoding::encode(query)
-    );
+    let trimmed = query.trim();
+    let url = if trimmed.is_empty() {
+        "https://huggingface.co/api/models?filter=gguf&sort=downloads&direction=-1&limit=100".to_string()
+    } else {
+        format!(
+            "https://huggingface.co/api/models?search={}&filter=gguf&sort=downloads&direction=-1&limit=100",
+            urlencoding::encode(trimmed)
+        )
+    };
 
-    let resp = reqwest::get(&url)
+    let client = reqwest::Client::builder()
+        .user_agent("Astrolabe-IDE/1.0 (Linux; x86_64)")
+        .build()
+        .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
+
+    let resp = client.get(&url)
+        .header("Accept", "application/json")
+        .send()
         .await
         .map_err(|e| format!("HuggingFace API request failed: {}", e))?;
 

@@ -285,6 +285,9 @@ export default function SettingsApp() {
   const [loadModelModalOpen, setLoadModelModalOpen] = useState(false);
   const [selectedModelToLoad, setSelectedModelToLoad] = useState<string>('');
   const [loadBackend, setLoadBackend] = useState<'llama.cpp' | 'sglang'>('llama.cpp');
+  const [loadTarget, setLoadTarget] = useState<'primary' | 'ghost'>('primary');
+  const [kvQuant, setKvQuant] = useState<'f16' | 'q8_0' | 'q4_0' | 'q5_0'>('q8_0');
+  const [modelTemperature, setModelTemperature] = useState<number>(0.2);
   const [ctxSize, setCtxSize] = useState<number>(8192);
   const [nGPULayers, setNGPULayers] = useState<number>(33);
   const [nThreads, setNThreads] = useState<number>(4);
@@ -2180,19 +2183,22 @@ export default function SettingsApp() {
         const offloadLayers = currentGpuLayers;
         const offloadRatio = totalModelLayers > 0 ? currentGpuLayers / totalModelLayers : 1;
 
-        // Real-time Memory Physics & Flash Attention Footprint Savings Calculation
+        // Real-time Memory Physics & KV Quantization Footprint Savings Calculation
         const kvRatio = sizeGb > 12 ? 0.26 : (sizeGb > 6 ? 0.16 : 0.08); // GB per 1024 tokens of full standard KV cache
         const ctxK = ctxSize / 1024;
         
+        // KV Quant multiplier: Q8_0 is ~52% of FP16, Q4_0 is ~28% of FP16
+        const kvQuantMultiplier = kvQuant === 'q4_0' ? 0.28 : (kvQuant === 'q8_0' ? 0.52 : (kvQuant === 'q5_0' ? 0.35 : 1.0));
+
         // 1. Standard Attention (without Flash Attention)
-        const stdKvGb = ctxK * kvRatio;
+        const stdKvGb = ctxK * kvRatio * kvQuantMultiplier;
         // Standard attention quadratic activation scratch matrix: O(S^2)
         const stdScratchGb = Math.min(16, Math.max(0.35, ctxK * 0.12 + 0.000000045 * (ctxSize * ctxSize)));
         const stdTotalContextGb = (stdKvGb + stdScratchGb) * offloadRatio;
         
         // 2. Flash Attention (with Flash Attention enabled)
         // Flash Attention computes attention in tiled on-chip SRAM: O(1) activation memory (~30MB)
-        const faKvGb = ctxK * kvRatio * 0.78; // Compact contiguous KV cache layout
+        const faKvGb = ctxK * kvRatio * 0.78 * kvQuantMultiplier;
         const faScratchGb = 0.03; // ~30 MB on-chip GPU SRAM tile buffer
         const faTotalContextGb = (faKvGb + faScratchGb) * offloadRatio;
 
@@ -2230,6 +2236,37 @@ export default function SettingsApp() {
               </div>
               
               <div className="p-5 space-y-5 overflow-y-auto custom-scrollbar flex-1">
+                {/* Target Engine Slot */}
+                <div>
+                  <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">Target Engine Slot</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setLoadTarget('primary')}
+                      className={`px-3 py-2 rounded-xl text-left border transition-colors ${
+                        loadTarget === 'primary' 
+                          ? 'bg-zinc-800 text-zinc-100 border-zinc-600 shadow-sm' 
+                          : 'bg-zinc-950/40 text-zinc-400 border-white/5 hover:border-white/10 hover:text-zinc-300'
+                      }`}
+                    >
+                      <div className="text-xs font-semibold">Primary Agent</div>
+                      <div className="text-[10px] text-zinc-500 mt-0.5">Chat, Code Gen & Reasoning</div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setLoadTarget('ghost')}
+                      className={`px-3 py-2 rounded-xl text-left border transition-colors ${
+                        loadTarget === 'ghost' 
+                          ? 'bg-zinc-800 text-zinc-100 border-zinc-600 shadow-sm' 
+                          : 'bg-zinc-950/40 text-zinc-400 border-white/5 hover:border-white/10 hover:text-zinc-300'
+                      }`}
+                    >
+                      <div className="text-xs font-semibold">Inline Ghost</div>
+                      <div className="text-[10px] text-zinc-500 mt-0.5">Dedicated Keystroke FIM Autocomplete</div>
+                    </button>
+                  </div>
+                </div>
+
                 {/* Estimated Memory Usage Bar */}
                 <div className="bg-zinc-900/90 border border-white/10 rounded-xl p-4 space-y-3">
                   <div className="flex flex-wrap items-center justify-between gap-3">
@@ -2265,7 +2302,7 @@ export default function SettingsApp() {
                       <div className="text-zinc-300 font-semibold">{weightsGpuGb.toFixed(2)} GB</div>
                     </div>
                     <div className="bg-zinc-950/50 px-2.5 py-1.5 rounded-lg border border-white/5">
-                      <div className="text-zinc-500 text-[10px]">KV Cache ({Math.round(ctxSize / 1024)}k)</div>
+                      <div className="text-zinc-500 text-[10px]">KV Cache ({Math.round(ctxSize / 1024)}k, {kvQuant.toUpperCase()})</div>
                       <div className="text-zinc-300 font-semibold">
                         {(flashAttn ? faKvGb : stdKvGb).toFixed(2)} GB 
                         {flashAttn && <span className="text-emerald-400 text-[9px] ml-1">(-{((stdKvGb - faKvGb) * offloadRatio).toFixed(2)}G)</span>}
@@ -2514,12 +2551,95 @@ export default function SettingsApp() {
                   </div>
                 </div>
 
+                {/* Model Sampling Temperature */}
+                <div className="space-y-1.5 bg-zinc-950/40 p-3.5 rounded-xl border border-white/5">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[11px] font-medium text-zinc-300">Model Temperature</span>
+                      <span className="text-[9px] font-mono text-zinc-500">
+                        {modelTemperature <= 0.2 ? 'Deterministic & Exact Code' : modelTemperature <= 0.7 ? 'Balanced Reasoning' : 'Creative Exploration'}
+                      </span>
+                    </div>
+                    <input 
+                      type="number"
+                      value={modelTemperature}
+                      onChange={(e) => setModelTemperature(Math.max(0, Math.min(1.5, Number(e.target.value))))}
+                      className="w-16 bg-zinc-950 border border-white/10 rounded-lg px-2 py-0.5 text-xs text-right font-mono text-white focus:outline-none focus:border-sky-500/50"
+                      step={0.05}
+                      min={0}
+                      max={1.5}
+                    />
+                  </div>
+                  <input 
+                    type="range"
+                    min={0}
+                    max={1.5}
+                    step={0.05}
+                    value={modelTemperature}
+                    onChange={(e) => setModelTemperature(Number(e.target.value))}
+                    className="w-full accent-sky-500 bg-zinc-800 h-1 rounded-lg appearance-none cursor-pointer"
+                  />
+                </div>
+
+                {/* KV Cache Quantization */}
+                <div className="pt-2 border-t border-white/5 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="text-xs font-semibold text-zinc-200 flex items-center gap-1.5">
+                      <span>KV Cache Quantization</span>
+                      <span className="text-[9px] bg-zinc-800 text-zinc-300 px-1.5 py-0.5 rounded font-mono font-medium border border-zinc-700">
+                        {kvQuant === 'q4_0' ? '-75% VRAM' : kvQuant === 'q8_0' ? '-50% VRAM' : 'Lossless'}
+                      </span>
+                    </div>
+                    <span className="text-[10px] font-mono text-zinc-400">
+                      {kvQuant === 'q4_0' ? 'Q4_0 (Max Context)' : kvQuant === 'q8_0' ? 'Q8_0 (Recommended)' : 'FP16 (Full Precision)'}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setKvQuant('q8_0')}
+                      className={`px-3 py-2 rounded-xl text-left border transition-colors ${
+                        kvQuant === 'q8_0' 
+                          ? 'bg-zinc-800 text-zinc-100 border-zinc-600 shadow-sm' 
+                          : 'bg-zinc-950/40 text-zinc-400 border-white/5 hover:border-white/10 hover:text-zinc-300'
+                      }`}
+                    >
+                      <div className="text-xs font-semibold">Q8_0</div>
+                      <div className="text-[10px] text-zinc-500 mt-0.5">50% VRAM Reduction (Optimal)</div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setKvQuant('q4_0')}
+                      className={`px-3 py-2 rounded-xl text-left border transition-colors ${
+                        kvQuant === 'q4_0' 
+                          ? 'bg-zinc-800 text-zinc-100 border-zinc-600 shadow-sm' 
+                          : 'bg-zinc-950/40 text-zinc-400 border-white/5 hover:border-white/10 hover:text-zinc-300'
+                      }`}
+                    >
+                      <div className="text-xs font-semibold">Q4_0</div>
+                      <div className="text-[10px] text-zinc-500 mt-0.5">75% VRAM Reduction (Large Context)</div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setKvQuant('f16')}
+                      className={`px-3 py-2 rounded-xl text-left border transition-colors ${
+                        kvQuant === 'f16' 
+                          ? 'bg-zinc-800 text-zinc-100 border-zinc-600 shadow-sm' 
+                          : 'bg-zinc-950/40 text-zinc-400 border-white/5 hover:border-white/10 hover:text-zinc-300'
+                      }`}
+                    >
+                      <div className="text-xs font-semibold">FP16</div>
+                      <div className="text-[10px] text-zinc-500 mt-0.5">Standard Unquantized</div>
+                    </button>
+                  </div>
+                </div>
+
                 {/* Flash Attention Toggle */}
                 <div className="pt-2 border-t border-white/5 flex items-center justify-between">
                   <div className="pr-3">
                     <div className="text-xs font-semibold text-zinc-200 flex items-center gap-1.5">
-                      <span>⚡ Flash Attention (VRAM & Speed Optimization)</span>
-                      <span className="text-[9px] bg-sky-500/15 text-sky-400 px-1.5 py-0.5 rounded font-mono font-medium border border-sky-500/20">Vulkan / CUDA</span>
+                      <span>Flash Attention (VRAM & Speed Optimization)</span>
+                      <span className="text-[9px] bg-zinc-800 text-zinc-300 px-1.5 py-0.5 rounded font-mono font-medium border border-zinc-700">Vulkan / CUDA</span>
                     </div>
                     <p className="text-[10px] text-zinc-400 mt-0.5 leading-relaxed">
                       {flashAttn 
@@ -2577,11 +2697,14 @@ export default function SettingsApp() {
                   onClick={() => {
                     setLoadingModelId(selectedModelToLoad);
                     setLoadProgressPercent(10);
-                    setLoadStatusMessage('Allocating GPU memory buffers...');
+                    setLoadStatusMessage(loadTarget === 'ghost' ? 'Allocating dedicated Inline Ghost buffers...' : 'Allocating GPU memory buffers...');
                     vscodeApi?.postMessage({ 
                       command: 'loadLocalModel', 
                       modelId: selectedModelToLoad,
                       backendPreference: loadBackend,
+                      target: loadTarget,
+                      kvQuant: kvQuant,
+                      temperature: modelTemperature,
                       ctxSize: ctxSize,
                       nGPULayers: nGPULayers,
                       nThreads: nThreads,
@@ -2595,7 +2718,7 @@ export default function SettingsApp() {
                   }}
                   className="px-6 py-2.5 rounded-xl text-xs font-bold bg-sky-500 text-white hover:bg-sky-400 transition-colors shadow-[0_0_20px_rgba(14,165,233,0.3)] flex items-center gap-2"
                 >
-                  <span>Load Model into Memory</span>
+                  <span>Load {loadTarget === 'ghost' ? 'Inline Ghost' : 'Model'} ({kvQuant.toUpperCase()})</span>
                   <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" /></svg>
                 </button>
               </div>

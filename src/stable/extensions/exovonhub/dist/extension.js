@@ -48,12 +48,12 @@ const ExovonSidebarProvider_1 = __webpack_require__(4);
 const SettingsProvider_1 = __webpack_require__(283);
 const BrainCoordinator_1 = __webpack_require__(284);
 const LlamaEngine_1 = __webpack_require__(291);
-const CopilotProvider_1 = __webpack_require__(292);
-const AuthService_1 = __webpack_require__(293);
+const CopilotProvider_1 = __webpack_require__(293);
+const AuthService_1 = __webpack_require__(295);
 const PlanReviewProvider_1 = __webpack_require__(279);
-const PlanCommentController_1 = __webpack_require__(294);
-const ProblemCodeActionProvider_1 = __webpack_require__(295);
-const ApiService_1 = __webpack_require__(296);
+const PlanCommentController_1 = __webpack_require__(296);
+const ProblemCodeActionProvider_1 = __webpack_require__(297);
+const ApiService_1 = __webpack_require__(298);
 const EngineStatusBarManager_1 = __webpack_require__(276);
 const DaemonManager_1 = __webpack_require__(277);
 let sidebarProvider;
@@ -409,12 +409,12 @@ async function activate(context) {
         context.subscriptions.push(rejectDiffDisposable);
         const compileMotionDisposable = vscode.commands.registerCommand('exovon.compileMotion', async (uri, rawTheatreJson) => {
             const targetUri = uri || vscode.window.activeTextEditor?.document.uri;
-            const { MotionCompiler } = __webpack_require__(297);
+            const { MotionCompiler } = __webpack_require__(299);
             await MotionCompiler.getInstance().compileAndApply(targetUri, rawTheatreJson || {}, brainCoordinator);
         });
         context.subscriptions.push(compileMotionDisposable);
         const openMotionStudioDisposable = vscode.commands.registerCommand('exovon.openMotionStudio', async () => {
-            const { MotionStudioServer } = __webpack_require__(305);
+            const { MotionStudioServer } = __webpack_require__(307);
             const server = MotionStudioServer.getInstance();
             server.setBrainCoordinator(brainCoordinator);
             await server.startAndOpen();
@@ -663,7 +663,7 @@ class ExovonSidebarProvider {
         if (this._authService) {
             this._authService.onDidChangeAuthState(async (token) => {
                 if (token) {
-                    const { ApiService } = await Promise.resolve(/* import() */).then(__webpack_require__.bind(__webpack_require__, 296));
+                    const { ApiService } = await Promise.resolve(/* import() */).then(__webpack_require__.bind(__webpack_require__, 298));
                     const profile = await ApiService.getUserProfile(token);
                     this.postMessage({
                         type: 'workspaceInfo',
@@ -794,7 +794,7 @@ class ExovonSidebarProvider {
             const token = this._authService.getToken();
             isLoggedIn = !!token;
             if (isLoggedIn) {
-                const { ApiService } = await Promise.resolve(/* import() */).then(__webpack_require__.bind(__webpack_require__, 296));
+                const { ApiService } = await Promise.resolve(/* import() */).then(__webpack_require__.bind(__webpack_require__, 298));
                 const profile = await ApiService.getUserProfile(token);
                 tokenQuota = profile.remaining;
                 profilePic = profile.profilePic || '';
@@ -880,7 +880,7 @@ class ExovonSidebarProvider {
                         const token = this._authService.getToken();
                         isLoggedIn = !!token;
                         if (isLoggedIn) {
-                            const { ApiService } = await Promise.resolve(/* import() */).then(__webpack_require__.bind(__webpack_require__, 296));
+                            const { ApiService } = await Promise.resolve(/* import() */).then(__webpack_require__.bind(__webpack_require__, 298));
                             const profile = await ApiService.getUserProfile(token);
                             tokenQuota = profile.remaining;
                             modelRates = profile.modelRates;
@@ -1036,7 +1036,7 @@ class ExovonSidebarProvider {
                     const config = vscode.workspace.getConfiguration('exovonhub');
                     let activeCtxSize = 8192;
                     try {
-                        const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 307))).default;
+                        const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 309))).default;
                         const res = await fetch('http://127.0.0.1:47990/v1/health');
                         if (res.ok) {
                             const data = await res.json();
@@ -1295,10 +1295,10 @@ Developer Action Request: "${finalPrompt}"
                         }
                         else if (update.type === 'planReview') {
                             // Send plan to webview for user review
-                            webviewView.webview.postMessage({ type: 'agentPlanReview', messageId });
                             const planMarkdown = update.planMarkdown || '';
+                            const planTitle = update.title;
                             // Open the rich rendered implementation plan in a dedicated editor tab!
-                            PlanViewerProvider_1.PlanViewerProvider.createOrShow(this._context, planMarkdown, this._activeOrchestrator);
+                            PlanViewerProvider_1.PlanViewerProvider.createOrShow(this._context, planMarkdown, this._activeOrchestrator, planTitle);
                             // Update the Read-Only Document Provider & Comment Controller if active
                             if (this._planReviewProvider) {
                                 this._planReviewProvider.updatePlan(planMarkdown);
@@ -1360,14 +1360,12 @@ Developer Action Request: "${finalPrompt}"
                     if (resolveApproval) {
                         resolveApproval(approved);
                         this._pendingApprovals.delete(id);
-                        if (!approved) {
-                            vscode.window.showInputBox({
-                                prompt: `Why are you rejecting the file changes to ${path.basename(filePath || 'this file')}? (Optional, press Enter to skip)`,
-                                placeHolder: 'e.g. You missed an import, the variable is named wrong...'
-                            }).then((reason) => {
-                                const feedback = reason?.trim() || 'None provided';
-                                const eventMsg = `[Environment Event: User rejected your last speculative file modification. Reason: ${feedback}. The shadow file has been reverted. Please ask the user for clarification if needed, and try again.]`;
-                                webviewView.webview.postMessage({ type: 'injectRejectionFeedback', text: eventMsg });
+                        if (!approved && filePath) {
+                            this.revertShadowFile(filePath);
+                            webviewView.webview.postMessage({
+                                type: 'agentLog',
+                                text: `Reverted speculative file changes to ${path.basename(filePath)}`,
+                                logType: 'info'
                             });
                         }
                     }
@@ -1476,7 +1474,7 @@ Developer Action Request: "${finalPrompt}"
                 }
                 case 'getDaemonHealth': {
                     try {
-                        const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 307))).default;
+                        const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 309))).default;
                         const controller = new AbortController();
                         const timeout = setTimeout(() => { controller.abort(); }, 3000);
                         const res = await fetch('http://127.0.0.1:47990/v1/health', { signal: controller.signal });
@@ -1497,7 +1495,7 @@ Developer Action Request: "${finalPrompt}"
                 }
                 case 'getLocalModels': {
                     try {
-                        const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 307))).default;
+                        const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 309))).default;
                         const controller = new AbortController();
                         const timeout = setTimeout(() => { controller.abort(); }, 8000);
                         const res = await fetch('http://127.0.0.1:47990/v1/models', { signal: controller.signal });
@@ -1551,7 +1549,7 @@ Developer Action Request: "${finalPrompt}"
                 case 'searchHuggingFace': {
                     if (data.query) {
                         try {
-                            const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 307))).default;
+                            const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 309))).default;
                             const controller = new AbortController();
                             const timeout = setTimeout(() => { controller.abort(); }, 8000);
                             const res = await fetch(`http://127.0.0.1:47990/v1/models/search?q=${encodeURIComponent(data.query)}`, { signal: controller.signal });
@@ -1579,7 +1577,7 @@ Developer Action Request: "${finalPrompt}"
                                 break;
                             }
                             vscode.window.showInformationMessage(`Starting download for ${data.filename}... Check the terminal for progress if attached.`);
-                            const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 307))).default;
+                            const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 309))).default;
                             fetch('http://127.0.0.1:47990/v1/models/download', {
                                 method: 'POST',
                                 headers: { 'Content-Type': 'application/json' },
@@ -1609,7 +1607,7 @@ Developer Action Request: "${finalPrompt}"
                 case 'installSGLang': {
                     vscode.window.showInformationMessage('Starting SGLang installation... This may take a few minutes.');
                     try {
-                        const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 307))).default;
+                        const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 309))).default;
                         const res = await fetch('http://127.0.0.1:47990/v1/system/install_sglang', {
                             method: 'POST'
                         });
@@ -2057,7 +2055,7 @@ class AgentOrchestrator {
                 if (this.apiKey) {
                     try {
                         if (!GoogleGenAIClass) {
-                            const sdk = await __webpack_require__.e(/* import() */ 4).then(__webpack_require__.bind(__webpack_require__, 338));
+                            const sdk = await __webpack_require__.e(/* import() */ 4).then(__webpack_require__.bind(__webpack_require__, 340));
                             GoogleGenAIClass = sdk.GoogleGenAI;
                         }
                         const gatewayUrl = config.get('apiGatewayUrl') || 'https://exovon.in';
@@ -2483,6 +2481,17 @@ MANDATORY RULES:
                 // Gather Exovon builtin tools
                 let functionDeclarations = [
                     {
+                        name: 'listAvailableTools',
+                        description: 'Main Introspection Tool: Lists all available tools in the IDE environment along with their categories, parameter schemas, and descriptions.',
+                        parameters: {
+                            type: 'OBJECT',
+                            properties: {
+                                category: { type: 'STRING', description: 'Optional category filter: "read", "write", "execution", "planning", "all"' }
+                            },
+                            required: []
+                        }
+                    },
+                    {
                         name: 'listDir',
                         description: 'List directories and files in workspace',
                         parameters: {
@@ -2640,10 +2649,11 @@ MANDATORY RULES:
                     },
                     {
                         name: 'submitPlan',
-                        description: 'MANDATORY: Submit an implementation plan for user approval before making any file changes. The plan must be in markdown format listing files to modify and changes to make.',
+                        description: 'MANDATORY: Submit an implementation plan or design document for user approval before making any file changes. The plan must be in markdown format listing files to modify and changes to make.',
                         parameters: {
                             type: 'OBJECT',
                             properties: {
+                                title: { type: 'STRING', description: 'Optional custom title for this plan / design document (e.g. "PostgreSQL Schema Migration", "Auth Refactor Plan").' },
                                 plan: { type: 'STRING', description: 'Markdown-formatted implementation plan describing what files will be changed and why.' }
                             },
                             required: ['plan']
@@ -2873,12 +2883,66 @@ MANDATORY RULES:
                             break;
                         }
                         const call = callPart.functionCall;
-                        if (!call.name || !call.args) {
+                        if (!call || !call.name || !call.args) {
                             continue;
                         }
+                        const rawToolName = call.name;
+                        const toolAliasMap = {
+                            submitplane: 'submitPlan',
+                            submit_plane: 'submitPlan',
+                            submit_plan: 'submitPlan',
+                            submitplan: 'submitPlan',
+                            editplan: 'submitPlan',
+                            edit_plan: 'submitPlan',
+                            editplane: 'submitPlan',
+                            edit_plane: 'submitPlan',
+                            updateplan: 'submitPlan',
+                            update_plan: 'submitPlan',
+                            updateplane: 'submitPlan',
+                            update_plane: 'submitPlan',
+                            modifyplan: 'submitPlan',
+                            modify_plan: 'submitPlan',
+                            list_dir: 'listDir',
+                            listdir: 'listDir',
+                            list_directory: 'listDir',
+                            ls: 'listDir',
+                            view_file: 'viewFile',
+                            viewfile: 'viewFile',
+                            read_file: 'viewFile',
+                            readfile: 'viewFile',
+                            create_file: 'createFile',
+                            createfile: 'createFile',
+                            write_file: 'createFile',
+                            writefile: 'createFile',
+                            delete_file: 'deleteFile',
+                            deletefile: 'deleteFile',
+                            remove_file: 'deleteFile',
+                            apply_patch: 'applyPatch',
+                            applypatch: 'applyPatch',
+                            multi_replace_file_content: 'multiReplaceFileContent',
+                            multireplacefilecontent: 'multiReplaceFileContent',
+                            multireplace: 'multiReplaceFileContent',
+                            run_command: 'runCommand',
+                            runcommand: 'runCommand',
+                            execute_command: 'runCommand',
+                            grep_search: 'grepSearch',
+                            grepsearch: 'grepSearch',
+                            semantic_search: 'semanticSearch',
+                            semanticsearch: 'semanticSearch',
+                            search_web: 'searchWeb',
+                            searchweb: 'searchWeb',
+                            list_available_tools: 'listAvailableTools',
+                            listavailabletools: 'listAvailableTools',
+                            list_tools: 'listAvailableTools',
+                            listtools: 'listAvailableTools',
+                            getavailabletools: 'listAvailableTools',
+                            get_available_tools: 'listAvailableTools',
+                            help: 'listAvailableTools'
+                        };
+                        const lowerNoUnderscore = rawToolName.toLowerCase().replace(/[\-_]/g, '');
+                        const toolName = toolAliasMap[lowerNoUnderscore] || toolAliasMap[rawToolName.toLowerCase()] || rawToolName;
                         // A2: Unified toolId — single variable used for both toolStart and toolComplete
                         const toolId = `call_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-                        const toolName = call.name;
                         const toolArgs = JSON.stringify(call.args);
                         totalToolsExecuted++;
                         this.onUpdate({ type: 'toolStart', toolId, toolName, toolArgs });
@@ -3152,7 +3216,7 @@ MANDATORY RULES:
                                         const outputDir = call.args.outputDir || 'dist';
                                         this.onUpdate({ type: 'log', text: `🚀 Deploying workspace to Exovon Cloud (${projectId})...`, logType: 'info' });
                                         try {
-                                            const { ExovonClient } = await Promise.resolve(/* import() */).then(__webpack_require__.t.bind(__webpack_require__, 438, 23));
+                                            const { ExovonClient } = await Promise.resolve(/* import() */).then(__webpack_require__.t.bind(__webpack_require__, 440, 23));
                                             const client = new ExovonClient({ apiKey: token, baseUrl: 'https://exovon-orchestrator-911388870180.asia-south1.run.app/api' });
                                             const { deployId } = await client.deployments.deploy({
                                                 projectId,
@@ -3185,10 +3249,49 @@ MANDATORY RULES:
                                     }
                                 }
                             }
+                            else if (toolName === 'listAvailableTools') {
+                                this.onUpdate({ type: 'log', text: '🛠️ Introspecting full IDE tool registry...', logType: 'info' });
+                                const category = (call.args.category || 'all').toLowerCase();
+                                const allToolInfo = [
+                                    { name: 'listAvailableTools', category: 'introspection', description: 'Lists all available tools and their usage details.' },
+                                    { name: 'listDir', category: 'read', description: 'Lists directories and files in workspace.' },
+                                    { name: 'viewFile', category: 'read', description: 'Reads content or line ranges of any file.' },
+                                    { name: 'grepSearch', category: 'read', description: 'Fast regex or exact text search across workspace files with ripgrep.' },
+                                    { name: 'semanticSearch', category: 'read', description: 'AST-aware semantic code search across JS/TS/Python files.' },
+                                    { name: 'queryGraph', category: 'read', description: 'Queries codebase symbol graph for callers and dependencies.' },
+                                    { name: 'querySemanticVector', category: 'read', description: 'Vector similarity search across codebase embeddings.' },
+                                    { name: 'getWorkspaceHash', category: 'read', description: 'Returns Merkle tree hash of workspace state.' },
+                                    { name: 'searchWeb', category: 'read', description: 'Searches the internet for documentation and packages.' },
+                                    { name: 'applyPatch', category: 'write', description: 'Speculative fast diff replacement for file modifications.' },
+                                    { name: 'multiReplaceFileContent', category: 'write', description: 'Replaces multiple non-adjacent line blocks in a single file.' },
+                                    { name: 'createFile', category: 'write', description: 'Creates a new file in workspace.' },
+                                    { name: 'deleteFile', category: 'write', description: 'Deletes a file from workspace.' },
+                                    { name: 'runCommand', category: 'execution', description: 'Executes terminal command in workspace root.' },
+                                    { name: 'sendTerminalInput', category: 'execution', description: 'Sends interactive input to hanging terminal processes.' },
+                                    { name: 'checkTerminalStatus', category: 'execution', description: 'Checks background terminal process output.' },
+                                    { name: 'submitPlan', category: 'planning', description: 'Submits markdown implementation plan for user review before file modifications.' },
+                                    { name: 'queryConstitution', category: 'planning', description: 'Queries workspace permanent rules.' },
+                                    { name: 'updateConstitution', category: 'planning', description: 'Saves new permanent rules to workspace Constitution.' },
+                                    { name: 'readCoordination', category: 'planning', description: 'Reads active half-work/placeholders.' },
+                                    { name: 'updateCoordination', category: 'planning', description: 'Logs half-work for future sessions.' },
+                                    { name: 'spawnSubAgent', category: 'agent', description: 'Spawns isolated sub-agent for parallel bounded tasks.' },
+                                    { name: 'deployToExovonCloud', category: 'agent', description: 'Deploys workspace to Exovon Cloud.' },
+                                    { name: 'openBrowserPreview', category: 'browser', description: 'Opens URL in VS Code Simple Browser.' },
+                                    { name: 'highlightBrowserElement', category: 'browser', description: 'Highlights DOM element in live browser preview.' }
+                                ];
+                                const filtered = category === 'all' ? allToolInfo : allToolInfo.filter(t => t.category === category);
+                                result = JSON.stringify({
+                                    status: 'success',
+                                    totalRegisteredTools: filtered.length,
+                                    tools: filtered,
+                                    mcpTools: this.mcpRouter.getTools().map(t => ({ name: t.name, description: t.description }))
+                                }, null, 2);
+                            }
                             else if (toolName === 'submitPlan') {
-                                // C1+C2: Plan-Before-Execute — pause execution and wait for user approval
-                                this.onUpdate({ type: 'log', text: '📋 Implementation plan submitted for your review...', logType: 'info' });
-                                this.onUpdate({ type: 'planReview', planMarkdown: call.args.plan });
+                                const planContent = call.args.plan || call.args.content || call.args.markdown || call.args.planMarkdown || call.args.text || JSON.stringify(call.args);
+                                const planTitle = call.args.title || undefined;
+                                this.onUpdate({ type: 'log', text: `📋 Plan "${planTitle || 'Implementation Plan'}" submitted for your review...`, logType: 'info' });
+                                this.onUpdate({ type: 'planReview', planMarkdown: planContent, title: planTitle });
                                 const approvalResult = await new Promise((resolve) => {
                                     this._planApprovalResolver = resolve;
                                     // 5-minute timeout for plan review
@@ -3201,19 +3304,18 @@ MANDATORY RULES:
                                     }, 300000);
                                 });
                                 if (approvalResult.approved) {
-                                    this.onUpdate({ type: 'log', text: '✅ Plan approved! Executing...', logType: 'success' });
+                                    this.onUpdate({ type: 'log', text: 'Plan approved. Executing changes...', logType: 'success' });
                                     result = 'Plan approved by user. You may now proceed with the file modifications described in your plan.';
                                 }
                                 else {
-                                    this.onUpdate({ type: 'log', text: '❌ Plan rejected by user.', logType: 'warning' });
-                                    completed = true; // Pause execution loop
-                                    if (approvalResult.feedback) {
-                                        this.onUpdate({ type: 'log', text: `⏸️ Agent paused. Feedback:\n"${approvalResult.feedback}"\n\nPlease reply to continue.`, logType: 'warning' });
-                                        result = `Plan rejected by user with the following feedback:\n"${approvalResult.feedback}"\n\nPlease revise your plan according to this feedback and resubmit using the submitPlan tool.`;
+                                    if (approvalResult.feedback && approvalResult.feedback.trim() !== 'User rejected the plan') {
+                                        this.onUpdate({ type: 'log', text: `Plan revisions requested by user:\n"${approvalResult.feedback}"\n\nAgent is updating the plan...`, logType: 'info' });
+                                        result = `The user reviewed your implementation plan and requested the following changes:\n"${approvalResult.feedback}"\n\nPlease update and resubmit your implementation plan using the submitPlan tool.`;
                                     }
                                     else {
-                                        this.onUpdate({ type: 'log', text: '⏸️ Agent paused. Please provide your feedback below to continue.', logType: 'warning' });
-                                        result = 'Plan rejected by user. Please ask for clarification on what changes they would like, or revise your plan and resubmit.';
+                                        this.onUpdate({ type: 'log', text: 'Plan rejected by user.', logType: 'warning' });
+                                        completed = true;
+                                        result = 'Plan rejected by user. Please ask for clarification or wait for further instructions.';
                                     }
                                 }
                             }
@@ -3697,7 +3799,7 @@ ${transcript.slice(-15000)}
             return;
         try {
             const { EngineStatusBarManager } = __webpack_require__(276);
-            const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 307))).default;
+            const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 309))).default;
             const getMetrics = async () => {
                 try {
                     const res = await fetch('http://127.0.0.1:47990/v1/health');
@@ -4178,7 +4280,7 @@ ${transcript.slice(-15000)}
         cleanedText = cleanedText.replace(llamaTagRegex, '').trim();
         // --- PATTERN 5: Plain function call invocation (e.g. listDir(relativePath=".") or semanticSearch("query")) ---
         if (toolCalls.length === 0) {
-            const plainFuncRegex = /\b(listDir|viewFile|readFile|semanticSearch|grepSearch|applyPatch|createFile|deleteFile|submitPlan|runCommand|searchWeb)\s*\(([\s\S]*?)\)/gi;
+            const plainFuncRegex = /\b(listDir|viewFile|readFile|semanticSearch|grepSearch|applyPatch|multiReplaceFileContent|createFile|deleteFile|submitPlan|editPlan|updatePlan|submitPlane|editPlane|updatePlane|runCommand|searchWeb|queryConstitution|updateConstitution|queryGraph|querySemanticVector|readCoordination|updateCoordination|spawnSubAgent|deployToExovonCloud|openBrowserPreview|highlightBrowserElement|getWorkspaceHash|sendTerminalInput|checkTerminalStatus|listAvailableTools)\s*\(([\s\S]*?)\)/gi;
             while ((match = plainFuncRegex.exec(cleanedText)) !== null) {
                 const name = match[1];
                 const argsStr = match[2].trim();
@@ -4193,11 +4295,32 @@ ${transcript.slice(-15000)}
                     else if (name === 'viewFile' || name === 'readFile') {
                         toolCalls.push({ name, args: { relativePath: rawVal } });
                     }
-                    else if (name === 'submitPlan') {
-                        toolCalls.push({ name, args: { plan: rawVal } });
+                    else if (name === 'submitPlan' || name === 'editPlan' || name === 'updatePlan' || name === 'submitPlane' || name === 'editPlane' || name === 'updatePlane') {
+                        toolCalls.push({ name: 'submitPlan', args: { plan: rawVal } });
                     }
                     else if (name === 'runCommand') {
                         toolCalls.push({ name, args: { command: rawVal } });
+                    }
+                    else if (name === 'queryConstitution') {
+                        toolCalls.push({ name, args: { topic: rawVal } });
+                    }
+                    else if (name === 'queryGraph') {
+                        toolCalls.push({ name, args: { symbolName: rawVal } });
+                    }
+                    else if (name === 'querySemanticVector') {
+                        toolCalls.push({ name, args: { concept: rawVal } });
+                    }
+                    else if (name === 'spawnSubAgent') {
+                        toolCalls.push({ name, args: { taskDescription: rawVal } });
+                    }
+                    else if (name === 'openBrowserPreview') {
+                        toolCalls.push({ name, args: { url: rawVal } });
+                    }
+                    else if (name === 'highlightBrowserElement') {
+                        toolCalls.push({ name, args: { selector: rawVal } });
+                    }
+                    else {
+                        toolCalls.push({ name, args: parseArgs(argsStr, name) });
                     }
                 }
                 else {
@@ -47611,28 +47734,74 @@ exports.DEFAULT_LOCAL_SYSTEM_PROMPT = `You are an expert autonomous AI software 
 Your mission is to solve software engineering tasks with high precision, robust architecture, and verified correctness.
 
 ### Core Agent Workflow
-Execute all tasks using a disciplined Plan-Inspect-Execute-Verify loop:
-1. Planning: Formulate a clear step-by-step strategy. Always write your private internal reasoning inside <thought>...</thought> blocks before calling tools or responding.
-2. Codebase Exploration: Inspect existing files using \`viewFile\` and directories using \`listDir\` before asking questions or modifying code. Never guess existing structure when you can inspect it.
-3. Direct Code Modification: Use \`createFile\` to create new files and \`applyPatch\` for modifications. Modify files directly instead of outputting raw code dumps in chat.
-4. Active Verification: Run compiler checks or test commands via \`runCommand\` to verify your changes.
-5. Completion: When ALL actions and file edits are completed, write a clear summary of what was accomplished.
+1. Greetings & Conversational Queries: If the user is saying hello, asking a general question, or seeking guidance, reply directly and helpfully in chat without executing file exploration tools.
+2. Code & Engineering Tasks: When the user asks you to build, fix, edit, or analyze code:
+   - Formulate a clear strategy in your internal <thought>...</thought>.
+   - Explore relevant files using \`viewFile\` and directories using \`listDir\`.
+   - Search the codebase with \`grepSearch\` or \`semanticSearch\`.
+   - Modify code with \`applyPatch\`, \`multiReplaceFileContent\`, or \`createFile\`.
+   - Verify changes with \`runCommand\`.
+   - Summarize the changes clearly.
 
-### Available Tools & Calling Syntax
+### Available Tools (Complete List)
+
+**Core & Introspection:**
+- listAvailableTools(category?): Lists all available tools in the IDE with their parameters and descriptions. Call this if you want to inspect all capabilities.
+
+**Read Tools:**
+- listDir(relativePath): List directories and files in workspace.
+- viewFile(relativePath, startLine?, endLine?): View file content or line ranges.
+- grepSearch(query, includePattern?): Fast exact pattern/regex search across the workspace using ripgrep.
+- semanticSearch(query, includePattern?): AST-aware semantic search across codebase files. Returns full semantic blocks for TS/JS.
+- queryGraph(symbolName): Query the codebase graph to find symbols, callers, and dependencies.
+- querySemanticVector(concept): Semantic vector search across AST embeddings without needing exact keywords.
+- getWorkspaceHash(): Returns the O(1) cryptographic Merkle hash of the workspace state.
+- searchWeb(query): Search the internet for documentation or solutions.
+
+**Write Tools:**
+- applyPatch(relativePath, searchBlock, replaceBlock): Replace a block of code using fuzzy deterministic matching. Tolerates minor whitespace drift.
+- multiReplaceFileContent(relativePath, startLine, endLine, replacementContent): Replace multiple non-adjacent blocks within the same file. Faster than sequential patches for large refactors.
+- createFile(relativePath, content): Create a new file with specified content.
+- deleteFile(relativePath): Delete a file from the workspace.
+
+**Execution Tools:**
+- runCommand(command): Execute a terminal command (requires user approval).
+- sendTerminalInput(processId, input): Send input to a hanging interactive terminal process.
+- checkTerminalStatus(processId): Check latest output logs of a background terminal process.
+
+**Planning & Memory Tools:**
+- submitPlan(title?, plan): Submit or revise a named markdown implementation plan / architecture design for user approval before making file changes (aliases: editPlan, updatePlan). Example: submitPlan(title="PostgreSQL Migration", plan="# Database Architecture...")
+- queryConstitution(topic): Query the workspace Code Constitution for rules on a specific topic.
+- updateConstitution(category, rule_description): Append a new permanent rule to the Constitution.
+- readCoordination(): Read active placeholders or half-work left in the codebase.
+- updateCoordination(task, target_symbol, file): Log half-work to be finished later.
+
+**Agent Tools:**
+- spawnSubAgent(taskDescription): Spawn an isolated sub-agent to handle a bounded task in parallel.
+- deployToExovonCloud(projectId?, buildCommand?, outputDir?): Deploy the workspace to Exovon Cloud Hosting.
+- openBrowserPreview(url): Open a URL in the VS Code Simple Browser for localhost preview.
+- highlightBrowserElement(selector): Highlight a specific element in the active browser preview.
+
+### Tool Calling Syntax
 To execute a tool, emit the exact tool call tag:
-- Inspect folders: <call:listDir(relativePath=".")>
-- Inspect file: <call:viewFile(relativePath="src/game.js")>
-- Modify code: <call:applyPatch(relativePath="src/game.js", searchBlock="exact old code", replaceBlock="new code")>
-- Create new file: <call:createFile(relativePath="src/index.html", content="<!DOCTYPE html>\\n<html>\\n...")>
-- Run command: <call:runCommand(command="npm test")>
+- <call:listDir(relativePath=".")>
+- <call:viewFile(relativePath="src/game.js")>
+- <call:grepSearch(query="TODO", includePattern="**/*.ts")>
+- <call:semanticSearch(query="authentication logic")>
+- <call:applyPatch(relativePath="src/game.js", searchBlock="exact old code", replaceBlock="new code")>
+- <call:multiReplaceFileContent(relativePath="src/game.js", startLine=10, endLine=20, replacementContent="new code here")>
+- <call:createFile(relativePath="src/index.html", content="<!DOCTYPE html>\\n<html>\\n...")>
+- <call:runCommand(command="npm test")>
+- <call:submitPlan(title="Architecture Spec", plan="1. Step one\\n2. Step two...")>
+- <call:searchWeb(query="react hooks best practices")>
 
-### Critical File Writing Rules (Never Violate)
-1. NEVER just write code in markdown blocks (\`\`\`javascript). Markdown code in chat DOES NOT write to disk!
-2. To create a new file or write a script, you MUST emit:
-   <call:createFile(relativePath="src/index.html", content="...")>
-3. To modify existing code, you MUST emit:
-   <call:applyPatch(relativePath="src/game.js", searchBlock="exact old code", replaceBlock="new code")>
-4. Do NOT stop after planning or exploring. If the task requires creating or modifying code, execute the file tools immediately!`;
+### Critical Rules
+1. NEVER output raw markdown code blocks expecting them to save to disk. You MUST use <call:createFile(...)> or <call:applyPatch(...)> to modify files.
+2. Do not get stuck in repetitive file exploration loops. Read only what is directly necessary.
+3. NEVER just say "I will list the files" without writing the corresponding <call:...> tag.
+4. When you need multiple independent pieces of information, request ALL of them in the SAME response as parallel tool calls.
+5. Always wrap internal reasoning in <thought>...</thought> tags. Only text outside those tags is shown to the user.
+6. Terminal commands execute in the REAL workspace root, not the sandbox. Use them to explore existing code or verify changes.`;
 
 
 /***/ }),
@@ -47688,6 +47857,7 @@ class EngineStatusBarManager {
     context;
     pollInterval = null;
     activeModel = null;
+    activeGhostModel = null;
     isEngineRunning = false;
     hardwareInfo = null;
     isAgentPaused = false;
@@ -47744,9 +47914,9 @@ class EngineStatusBarManager {
     }
     async checkHealth() {
         try {
-            const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 307))).default;
+            const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 309))).default;
             const controller = new AbortController();
-            const timeout = setTimeout(() => controller.abort(), 5000);
+            const timeout = setTimeout(() => controller.abort(), 2000);
             const res = await fetch('http://127.0.0.1:47990/v1/health', {
                 signal: controller.signal
             });
@@ -47754,6 +47924,7 @@ class EngineStatusBarManager {
             if (res.ok) {
                 const data = await res.json();
                 const newActiveModel = data.active_model || null;
+                const newActiveGhostModel = data.active_ghost_model || null;
                 if (newActiveModel !== this.activeModel) {
                     try {
                         const { ExovonSidebarProvider } = await Promise.resolve(/* import() */).then(__webpack_require__.t.bind(__webpack_require__, 4, 23));
@@ -47763,6 +47934,7 @@ class EngineStatusBarManager {
                 }
                 this.isEngineRunning = true;
                 this.activeModel = newActiveModel;
+                this.activeGhostModel = newActiveGhostModel;
                 this.hardwareInfo = data.hardware || null;
             }
             else {
@@ -47775,6 +47947,7 @@ class EngineStatusBarManager {
                 }
                 this.isEngineRunning = false;
                 this.activeModel = null;
+                this.activeGhostModel = null;
             }
         }
         catch {
@@ -47787,6 +47960,7 @@ class EngineStatusBarManager {
             }
             this.isEngineRunning = false;
             this.activeModel = null;
+            this.activeGhostModel = null;
         }
         this.updateDisplay();
     }
@@ -47811,12 +47985,12 @@ class EngineStatusBarManager {
             this.updateHealthGuardDisplay();
         }
         else {
-            this.statusBarItem.text = '$(server) Engine: Ready';
+            this.statusBarItem.text = '$(server) Engine: No Model';
             this.statusBarItem.tooltip = new vscode.MarkdownString('**Exovon Inference Engine**\n\n' +
-                '• **Status**: Running (127.0.0.1:47990)\n' +
+                '• **Status**: Daemon Connected (No Model in Memory)\n' +
                 '• **Active Model**: None loaded\n\n' +
-                'Click to load a model or manage agents.');
-            this.statusBarItem.color = undefined;
+                'Click to open Model Hub and load a model.');
+            this.statusBarItem.color = new vscode.ThemeColor('descriptionForeground');
             this.updateHealthGuardDisplay();
         }
         this.statusBarItem.show();
@@ -47825,41 +47999,45 @@ class EngineStatusBarManager {
     updateGhostDisplay() {
         const config = vscode.workspace.getConfiguration('exovonhub');
         const ghostEnabled = config.get('enableGhostText', true);
-        const assignedGhostModel = config.get('inlineGhostModel');
         if (!ghostEnabled) {
             this.ghostStatusItem.text = '$(circle-slash) Ghost: Off';
             this.ghostStatusItem.tooltip = new vscode.MarkdownString('**Inline Ghost Code Completion**\n\n' +
                 'Status: **Disabled**\n\n' +
-                'Click to enable real-time local autocomplete or select a model.');
+                'Click to enable real-time local autocomplete.');
             this.ghostStatusItem.color = new vscode.ThemeColor('descriptionForeground');
         }
         else if (!this.isEngineRunning) {
-            this.ghostStatusItem.text = '$(sparkle) Ghost: Offline';
+            this.ghostStatusItem.text = '$(circle-slash) Ghost: Offline';
             this.ghostStatusItem.tooltip = new vscode.MarkdownString('**Inline Ghost Code Completion**\n\n' +
                 'Status: Daemon is offline (Port 47990)\n\n' +
                 'Click to start local engine.');
-            this.ghostStatusItem.color = new vscode.ThemeColor('charts.orange');
+            this.ghostStatusItem.color = new vscode.ThemeColor('descriptionForeground');
+        }
+        else if (this.activeGhostModel) {
+            const shortGhost = this.formatShortModelName(this.activeGhostModel);
+            this.ghostStatusItem.text = `$(sparkle) Ghost: ${shortGhost}`;
+            this.ghostStatusItem.tooltip = new vscode.MarkdownString('**Inline Ghost Code Completion**\n\n' +
+                `• **Status**: Dedicated Ghost Model Loaded\n` +
+                `• **Model**: \`${this.activeGhostModel}\`\n\n` +
+                'Click to switch ghost model or test latency.');
+            this.ghostStatusItem.color = undefined;
+        }
+        else if (this.activeModel) {
+            const shortMain = this.formatShortModelName(this.activeModel);
+            this.ghostStatusItem.text = `$(sparkle) Ghost: ${shortMain} (Auto)`;
+            this.ghostStatusItem.tooltip = new vscode.MarkdownString('**Inline Ghost Code Completion**\n\n' +
+                `• **Status**: Auto Routing to Active Model\n` +
+                `• **Model**: \`${this.activeModel}\`\n\n` +
+                'Click to select a dedicated ghost model or test latency.');
+            this.ghostStatusItem.color = undefined;
         }
         else {
-            const activeGhost = assignedGhostModel || this.activeModel;
-            if (activeGhost) {
-                const shortGhost = this.formatShortModelName(activeGhost);
-                this.ghostStatusItem.text = `$(sparkle) Ghost: ${shortGhost}`;
-                this.ghostStatusItem.tooltip = new vscode.MarkdownString('**Inline Ghost Code Completion (Healthy ⚡)**\n\n' +
-                    `• **Status**: Active & Ready (Local FIM)\n` +
-                    `• **Ghost Model**: \`${activeGhost}\`\n` +
-                    `• **Runtime**: Exovon Daemon (127.0.0.1:47990)\n\n` +
-                    'Click to switch ghost model, test latency, or disable.');
-                this.ghostStatusItem.color = undefined;
-            }
-            else {
-                this.ghostStatusItem.text = '$(sparkle) Ghost: Ready';
-                this.ghostStatusItem.tooltip = new vscode.MarkdownString('**Inline Ghost Code Completion**\n\n' +
-                    '• **Status**: Engine Connected (Ready)\n' +
-                    '• **Assigned Model**: Default / Active Model\n\n' +
-                    'Click to select a dedicated ghost model.');
-                this.ghostStatusItem.color = undefined;
-            }
+            this.ghostStatusItem.text = '$(circle-slash) Ghost: No Model';
+            this.ghostStatusItem.tooltip = new vscode.MarkdownString('**Inline Ghost Code Completion**\n\n' +
+                '• **Status**: Idle (No Model in Memory)\n' +
+                '• Load a model in the Model Hub to activate inline completions.\n\n' +
+                'Click to open Model Hub.');
+            this.ghostStatusItem.color = new vscode.ThemeColor('descriptionForeground');
         }
         this.ghostStatusItem.show();
     }
@@ -47978,7 +48156,7 @@ class EngineStatusBarManager {
     }
     async promptSelectGhostModel() {
         try {
-            const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 307))).default;
+            const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 309))).default;
             const res = await fetch('http://127.0.0.1:47990/v1/models');
             if (!res.ok) {
                 vscode.window.showWarningMessage('Daemon offline. Start the engine to select local models.');
@@ -48004,13 +48182,48 @@ class EngineStatusBarManager {
             const config = vscode.workspace.getConfiguration('exovonhub');
             if (pick.label.includes('Auto')) {
                 await config.update('inlineGhostModel', undefined, vscode.ConfigurationTarget.Global);
-                vscode.window.showInformationMessage('Inline Ghost set to Auto (Active Engine Model).');
+                vscode.window.showInformationMessage('Inline Ghost set to Auto (Follows Active Loaded Model).');
             }
             else {
                 const chosen = pick.label.replace('$(chip) ', '').trim();
                 await config.update('inlineGhostModel', chosen, vscode.ConfigurationTarget.Global);
-                vscode.window.showInformationMessage(`Inline Ghost model set to: ${chosen}`);
+                // Load the selected model into engine memory if not already active
+                if (this.activeModel !== chosen) {
+                    await vscode.window.withProgress({
+                        location: vscode.ProgressLocation.Notification,
+                        title: `Loading Ghost Model: ${path.basename(chosen)}`,
+                        cancellable: false
+                    }, async (progress) => {
+                        progress.report({ message: 'Initializing Vulkan compute buffers...' });
+                        try {
+                            const res = await fetch('http://127.0.0.1:47990/v1/models/load', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                    model_path: chosen,
+                                    target: 'ghost',
+                                    flash_attn: true,
+                                    kv_quant: 'q8_0',
+                                    ctx_size: 4096
+                                })
+                            });
+                            if (res.ok) {
+                                vscode.window.showInformationMessage(`Loaded ${path.basename(chosen)} as dedicated Inline Ghost model (Q8_0 KV Cache).`);
+                            }
+                            else {
+                                vscode.window.showWarningMessage(`Ghost model set, but engine returned status ${res.status}.`);
+                            }
+                        }
+                        catch (err) {
+                            vscode.window.showErrorMessage(`Failed to load ghost model into engine: ${err.message}`);
+                        }
+                    });
+                }
+                else {
+                    vscode.window.showInformationMessage(`Inline Ghost model set to: ${path.basename(chosen)}`);
+                }
             }
+            await this.checkHealth();
             this.updateDisplay();
         }
         catch (e) {
@@ -48018,6 +48231,10 @@ class EngineStatusBarManager {
         }
     }
     async testGhostLatency() {
+        if (!this.activeGhostModel && !this.activeModel) {
+            vscode.window.showWarningMessage('No model is currently loaded in memory. Please load a model from the Model Hub first.');
+            return;
+        }
         vscode.window.withProgress({
             location: vscode.ProgressLocation.Notification,
             title: 'Testing Inline Ghost Latency...',
@@ -48025,25 +48242,32 @@ class EngineStatusBarManager {
         }, async () => {
             const start = Date.now();
             try {
-                const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 307))).default;
+                const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 309))).default;
                 const res = await fetch('http://127.0.0.1:47990/v1/chat/completions', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        messages: [
-                            { role: 'system', content: 'You are a code completion engine. Return only code.' },
-                            { role: 'user', content: 'function calculateSum(a, b) { return' }
-                        ],
-                        max_tokens: 12,
-                        temperature: 0.1,
-                        stream: false
+                        purpose: 'ghost',
+                        messages: [{ role: 'user', content: '<fim_prefix>function add(a, b) {\n<fim_suffix>\n}<fim_middle> return' }],
+                        max_tokens: 16,
+                        stream: true
                     })
                 });
                 const elapsed = Date.now() - start;
                 if (res.ok) {
-                    const data = await res.json();
-                    const completion = data.choices?.[0]?.message?.content || '';
-                    vscode.window.showInformationMessage(`⚡ Ghost Healthy! Latency: ${elapsed}ms | Sample: "${completion.trim()}"`);
+                    const textRes = await res.text();
+                    let completion = '';
+                    const lines = textRes.split('\n');
+                    for (const l of lines) {
+                        if (l.startsWith('data: ') && !l.includes('[DONE]')) {
+                            try {
+                                const p = JSON.parse(l.slice(6));
+                                completion += p.choices?.[0]?.delta?.content || '';
+                            }
+                            catch { }
+                        }
+                    }
+                    vscode.window.showInformationMessage(`Ghost Online: ${elapsed}ms latency | Output: "${completion.trim() || 'OK'}"`);
                 }
                 else {
                     vscode.window.showErrorMessage(`Ghost Health Check Failed: HTTP ${res.status}`);
@@ -48199,7 +48423,7 @@ class EngineStatusBarManager {
     }
     async showModelSelector() {
         try {
-            const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 307))).default;
+            const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 309))).default;
             const res = await fetch('http://127.0.0.1:47990/v1/models');
             if (!res.ok) {
                 vscode.window.showWarningMessage('Failed to fetch local model list from daemon.');
@@ -48278,7 +48502,7 @@ class EngineStatusBarManager {
     }
     async unloadModel() {
         try {
-            const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 307))).default;
+            const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 309))).default;
             const res = await fetch('http://127.0.0.1:47990/v1/models/unload', { method: 'POST' });
             if (res.ok) {
                 vscode.window.showInformationMessage('Model unloaded from memory. VRAM freed.');
@@ -48381,26 +48605,20 @@ class DaemonManager {
         }
         this.isStarting = true;
         try {
-            const isWin = process.platform === 'win32';
-            const binName = isWin ? 'exovon-daemon.exe' : 'exovon-daemon';
             const candidatePaths = [
                 process.env.ASTROLABE_DAEMON_PATH || '',
-                path.join(vscode.env.appRoot, 'daemon', binName),
-                path.join(vscode.env.appRoot, '..', binName),
-                path.join(vscode.env.appRoot, '..', '..', binName),
-                path.join(context.extensionPath, '..', '..', 'daemon', binName),
-                path.join(context.extensionPath, '..', '..', '..', binName),
-                path.join(context.extensionPath, 'bin', binName),
-                path.resolve(__dirname, '../../../daemon/target/release', binName),
-                path.resolve(__dirname, '../../../../daemon/target/release', binName)
+                path.join(vscode.env.appRoot, 'bin', 'exovon-daemon'),
+                path.join(vscode.env.appRoot, 'resources', 'app', 'bin', 'exovon-daemon'),
+                path.join(context.extensionPath, 'bin', 'exovon-daemon'),
+                path.resolve(__dirname, '../../../daemon/target/release/exovon-daemon'),
+                path.resolve(__dirname, '../../../../daemon/target/release/exovon-daemon'),
+                '/run/media/maakstar/c/vscodium/daemon/target/release/exovon-daemon',
+                path.join(context.extensionPath, '..', 'exovon-daemon', 'target', 'release', 'exovon-daemon'),
+                '/home/maakstar/EXOVON_ECOSYSTEM/exovon-daemon/target/release/exovon-daemon',
+                path.join(context.extensionPath, '..', 'exovon-daemon', 'target', 'debug', 'exovon-daemon'),
+                '/home/maakstar/EXOVON_ECOSYSTEM/exovon-daemon/target/debug/exovon-daemon'
             ].filter(Boolean);
-            let daemonPath = candidatePaths.find(p => fs.existsSync(p));
-            if (!daemonPath) {
-                console.warn('Exovon daemon binary not found in standard paths:', candidatePaths);
-                vscode.window.showWarningMessage('Astrolabe Local Daemon binary not found. Running in cloud/remote inference mode.');
-                this.isStarting = false;
-                return false;
-            }
+            let daemonPath = candidatePaths.find(p => fs.existsSync(p)) || candidatePaths[candidatePaths.length - 1];
             const config = vscode.workspace.getConfiguration('exovonhub');
             const customModelsDir = config.get('localModelsDirectory');
             const args = customModelsDir && customModelsDir.trim() !== '' ? ['--models-dir', customModelsDir.trim()] : [];
@@ -48531,7 +48749,7 @@ class DaemonManager {
         if (this.daemonProcess !== null)
             return true;
         try {
-            const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 307))).default;
+            const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 309))).default;
             const controller = new AbortController();
             const timeout = setTimeout(() => controller.abort(), 1500);
             const res = await fetch('http://127.0.0.1:47990/v1/health', { signal: controller.signal });
@@ -48784,27 +49002,39 @@ class PlanViewerProvider {
     _context;
     _disposables = [];
     _currentPlanMarkdown = '';
+    _currentPlanTitle = '';
     _activeOrchestrator;
-    static createOrShow(context, planMarkdown, orchestrator) {
+    static createOrShow(context, planMarkdown, orchestrator, title) {
         const column = vscode.window.activeTextEditor
             ? vscode.window.activeTextEditor.viewColumn
-            : vscode.ViewColumn.One;
+            : undefined;
+        const resolvedTitle = title || PlanViewerProvider.extractTitle(planMarkdown);
         if (PlanViewerProvider.currentPanel) {
-            PlanViewerProvider.currentPanel.updatePlan(planMarkdown, orchestrator);
+            PlanViewerProvider.currentPanel.updatePlan(planMarkdown, orchestrator, resolvedTitle);
             PlanViewerProvider.currentPanel._panel.reveal(column);
             return;
         }
-        const panel = vscode.window.createWebviewPanel(PlanViewerProvider.viewType, 'Implementation Plan', column || vscode.ViewColumn.One, {
+        const panel = vscode.window.createWebviewPanel(PlanViewerProvider.viewType, resolvedTitle, column || vscode.ViewColumn.One, {
             enableScripts: true,
             localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'webview-ui', 'dist')],
             retainContextWhenHidden: true
         });
-        PlanViewerProvider.currentPanel = new PlanViewerProvider(panel, context, planMarkdown, orchestrator);
+        PlanViewerProvider.currentPanel = new PlanViewerProvider(panel, context, planMarkdown, orchestrator, resolvedTitle);
     }
-    constructor(panel, context, planMarkdown, orchestrator) {
+    static extractTitle(markdown) {
+        if (!markdown)
+            return 'Implementation Plan';
+        const match = markdown.match(/^#\s+(.+)$/m);
+        if (match && match[1]) {
+            return match[1].replace(/[\[\]`*]/g, '').trim() || 'Implementation Plan';
+        }
+        return 'Implementation Plan';
+    }
+    constructor(panel, context, planMarkdown, orchestrator, title) {
         this._panel = panel;
         this._context = context;
         this._currentPlanMarkdown = planMarkdown;
+        this._currentPlanTitle = title || PlanViewerProvider.extractTitle(planMarkdown);
         this._activeOrchestrator = orchestrator;
         this._update();
         this._panel.onDidDispose(() => this.dispose(), null, this._disposables);
@@ -48813,14 +49043,14 @@ class PlanViewerProvider {
                 case 'getPlan': {
                     this._panel.webview.postMessage({
                         type: 'planData',
-                        markdown: this._currentPlanMarkdown
+                        markdown: this._currentPlanMarkdown,
+                        title: this._currentPlanTitle
                     });
                     break;
                 }
                 case 'approvePlan': {
                     if (this._activeOrchestrator) {
                         this._activeOrchestrator.resolvePlanApproval(true);
-                        vscode.window.showInformationMessage('✅ Implementation Plan Approved. Agent proceeding with execution.');
                     }
                     break;
                 }
@@ -48828,26 +49058,27 @@ class PlanViewerProvider {
                     const feedback = data.feedback || 'User rejected the plan';
                     if (this._activeOrchestrator) {
                         this._activeOrchestrator.resolvePlanApproval(false, feedback);
-                        vscode.window.showInformationMessage('Implementation Plan rejected with feedback. Agent is revising...');
                     }
                     break;
                 }
                 case 'copyMarkdown': {
                     vscode.env.clipboard.writeText(this._currentPlanMarkdown);
-                    vscode.window.showInformationMessage('📋 Plan copied to clipboard');
                     break;
                 }
             }
         }, null, this._disposables);
     }
-    updatePlan(planMarkdown, orchestrator) {
+    updatePlan(planMarkdown, orchestrator, title) {
         this._currentPlanMarkdown = planMarkdown;
+        this._currentPlanTitle = title || PlanViewerProvider.extractTitle(planMarkdown);
         if (orchestrator) {
             this._activeOrchestrator = orchestrator;
         }
+        this._panel.title = this._currentPlanTitle;
         this._panel.webview.postMessage({
             type: 'planData',
-            markdown: this._currentPlanMarkdown
+            markdown: this._currentPlanMarkdown,
+            title: this._currentPlanTitle
         });
     }
     dispose() {
@@ -48861,7 +49092,7 @@ class PlanViewerProvider {
         }
     }
     _update() {
-        this._panel.title = 'Implementation Plan';
+        this._panel.title = this._currentPlanTitle || 'Implementation Plan';
         this._panel.webview.html = this._getHtmlForWebview(this._panel.webview);
     }
     _getHtmlForWebview(webview) {
@@ -49326,10 +49557,19 @@ class SettingsProvider {
                 case 'setInlineGhostModel': {
                     const config = vscode.workspace.getConfiguration('exovonhub');
                     await config.update('inlineGhostModel', data.model, vscode.ConfigurationTarget.Global);
-                    vscode.window.showInformationMessage(`Inline Ghost Model set to: ${data.model}`);
+                    vscode.window.showInformationMessage(`Inline Ghost Model set to: ${path.basename(data.model)}`);
+                    try {
+                        const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 309))).default;
+                        await fetch('http://127.0.0.1:47990/v1/models/load', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ model_path: data.model })
+                        });
+                    }
+                    catch { }
                     try {
                         const { EngineStatusBarManager } = __webpack_require__(276);
-                        EngineStatusBarManager.getInstance()?.updateDisplay();
+                        EngineStatusBarManager.getInstance()?.checkHealth();
                     }
                     catch { }
                     this._panel.webview.postMessage({ type: 'inlineGhostModelUpdated', model: data.model });
@@ -49377,7 +49617,7 @@ class SettingsProvider {
                 }
                 case 'getDaemonHealth': {
                     try {
-                        const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 307))).default;
+                        const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 309))).default;
                         const controller = new AbortController();
                         const timeout = setTimeout(() => { controller.abort(); }, 3000);
                         const res = await fetch('http://127.0.0.1:47990/v1/health', { signal: controller.signal });
@@ -49398,7 +49638,7 @@ class SettingsProvider {
                 }
                 case 'getLocalModels': {
                     try {
-                        const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 307))).default;
+                        const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 309))).default;
                         const controller = new AbortController();
                         const timeout = setTimeout(() => { controller.abort(); }, 8000);
                         const res = await fetch('http://127.0.0.1:47990/v1/models', { signal: controller.signal });
@@ -49419,7 +49659,7 @@ class SettingsProvider {
                 }
                 case 'getActiveDownloads': {
                     try {
-                        const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 307))).default;
+                        const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 309))).default;
                         const res = await fetch('http://127.0.0.1:47990/v1/models/downloads');
                         if (res.ok) {
                             const body = await res.json();
@@ -49496,7 +49736,7 @@ class SettingsProvider {
                 }
                 case 'loadLocalModel': {
                     try {
-                        const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 307))).default;
+                        const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 309))).default;
                         const payload = { model_path: data.modelId };
                         if (data.ctxSize !== undefined)
                             payload.ctx_size = data.ctxSize;
@@ -49514,6 +49754,17 @@ class SettingsProvider {
                             payload.use_mmap = data.useMmap;
                         if (data.flashAttn !== undefined)
                             payload.flash_attn = data.flashAttn;
+                        if (data.kvQuant !== undefined)
+                            payload.kv_quant = data.kvQuant;
+                        if (data.target !== undefined)
+                            payload.target = data.target;
+                        if (data.temperature !== undefined) {
+                            payload.temperature = data.temperature;
+                            try {
+                                await vscode.workspace.getConfiguration('exovonhub').update('modelTemperature', data.temperature, vscode.ConfigurationTarget.Global);
+                            }
+                            catch { }
+                        }
                         await vscode.window.withProgress({
                             location: vscode.ProgressLocation.Notification,
                             title: `Loading Model: ${path.basename(data.modelId)}`,
@@ -49608,7 +49859,7 @@ class SettingsProvider {
                 }
                 case 'unloadLocalModel': {
                     try {
-                        const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 307))).default;
+                        const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 309))).default;
                         const res = await fetch('http://127.0.0.1:47990/v1/models/unload', { method: 'POST' });
                         if (res.ok) {
                             vscode.window.showInformationMessage(`Model unloaded from memory.`);
@@ -49627,7 +49878,7 @@ class SettingsProvider {
                 }
                 case 'searchHuggingFace': {
                     try {
-                        const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 307))).default;
+                        const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 309))).default;
                         const page = data.page || 0;
                         const res = await fetch(`http://127.0.0.1:47990/v1/models/search?q=${encodeURIComponent(data.query)}&page=${page}`);
                         if (res.ok) {
@@ -49647,7 +49898,7 @@ class SettingsProvider {
                 case 'getHfRepoTree': {
                     try {
                         if (data.repo) {
-                            const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 307))).default;
+                            const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 309))).default;
                             const res = await fetch(`http://127.0.0.1:47990/v1/models/tree?repo=${encodeURIComponent(data.repo)}`);
                             if (res.ok) {
                                 const body = await res.json();
@@ -49665,7 +49916,7 @@ class SettingsProvider {
                 }
                 case 'downloadLocalModel': {
                     try {
-                        const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 307))).default;
+                        const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 309))).default;
                         vscode.window.showInformationMessage(`Starting download for ${data.filename}... Check daemon logs for progress.`);
                         const res = await fetch('http://127.0.0.1:47990/v1/models/download', {
                             method: 'POST',
@@ -49678,32 +49929,6 @@ class SettingsProvider {
                     }
                     catch (e) {
                         vscode.window.showErrorMessage('Failed to connect to local daemon.');
-                    }
-                    break;
-                }
-                case 'controlDownload': {
-                    try {
-                        const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 307))).default;
-                        const res = await fetch('http://127.0.0.1:47990/v1/models/downloads/control', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ filename: data.filename, action: data.action })
-                        });
-                        if (res.ok) {
-                            const act = data.action;
-                            if (act === 'pause') {
-                                vscode.window.showInformationMessage(`Paused download for ${data.filename}`);
-                            }
-                            else if (act === 'retry') {
-                                vscode.window.showInformationMessage(`Resuming download for ${data.filename}`);
-                            }
-                            else if (act === 'delete') {
-                                vscode.window.showInformationMessage(`Deleted download for ${data.filename}`);
-                            }
-                        }
-                    }
-                    catch (e) {
-                        vscode.window.showErrorMessage('Failed to control download on local daemon.');
                     }
                     break;
                 }
@@ -49860,28 +50085,14 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.BrainCoordinator = void 0;
 const vscode = __importStar(__webpack_require__(1));
-const worker_threads_1 = __webpack_require__(285);
+const better_sqlite3_1 = __importDefault(__webpack_require__(285));
+const sqliteVec = __importStar(__webpack_require__(286));
+const worker_threads_1 = __webpack_require__(287);
 const path = __importStar(__webpack_require__(3));
 const fs = __importStar(__webpack_require__(2));
-const os_1 = __importDefault(__webpack_require__(286));
+const os_1 = __importDefault(__webpack_require__(288));
 const crypto = __importStar(__webpack_require__(27));
-const GraphIndexer_1 = __webpack_require__(287);
-function getBetterSqlite3() {
-    try {
-        return __webpack_require__(288);
-    }
-    catch {
-        return null;
-    }
-}
-function getSqliteVec() {
-    try {
-        return __webpack_require__(289);
-    }
-    catch {
-        return null;
-    }
-}
+const GraphIndexer_1 = __webpack_require__(289);
 function fnv1a32(str) {
     let hash = 0x811c9dc5;
     for (let i = 0; i < str.length; i++) {
@@ -49914,136 +50125,117 @@ class BrainCoordinator {
         this.onSyncStateChange = onSyncStateChange;
         const storagePath = context.storageUri?.fsPath || context.globalStorageUri.fsPath;
         this.dbPath = path.join(storagePath, '.exovon_brain.db');
-        const SqliteDatabase = getBetterSqlite3();
-        const sqliteVec = getSqliteVec();
-        if (SqliteDatabase) {
-            try {
-                if (!fs.existsSync(storagePath)) {
-                    fs.mkdirSync(storagePath, { recursive: true });
-                }
-                this.db = new SqliteDatabase(this.dbPath);
-                if (sqliteVec?.load) {
-                    sqliteVec.load(this.db);
-                }
-                this.db.pragma?.('journal_mode = WAL');
-                this.db.pragma?.('busy_timeout = 5000');
-                this.status = 'ready';
+        try {
+            // Ensure directory exists
+            if (!fs.existsSync(storagePath)) {
+                fs.mkdirSync(storagePath, { recursive: true });
             }
-            catch (err) {
-                this.lastError = err?.message || String(err);
-                this.status = 'failed';
-                console.error('Brain initialization failed:', err);
-                try {
-                    this.db = new SqliteDatabase(':memory:');
-                }
-                catch {
-                    this.db = null;
-                }
-            }
+            this.db = new better_sqlite3_1.default(this.dbPath);
+            sqliteVec.load(this.db);
+            // Concurrency optimization
+            this.db.pragma('journal_mode = WAL');
+            this.db.pragma('busy_timeout = 5000');
+            this.status = 'ready';
         }
-        else {
-            console.warn('Native better-sqlite3 not available; running in lightweight brain mode.');
-            this.status = 'idle';
-            this.db = null;
+        catch (err) {
+            this.lastError = err?.message || String(err);
+            this.status = 'failed';
+            console.error('Brain initialization failed:', err);
+            // Fallback in-memory database to prevent crashes
+            this.db = new better_sqlite3_1.default(':memory:');
         }
-        if (this.db && typeof this.db.exec === 'function') {
-            try {
-                const CURRENT_ENGINE_VERSION = '1.0.0';
-                this.db.exec(`CREATE TABLE IF NOT EXISTS brain_metadata (key TEXT PRIMARY KEY, value TEXT);`);
-                const dbVersion = this.db.prepare('SELECT value FROM brain_metadata WHERE key = ?').get('engine_version');
-                if (!dbVersion || dbVersion.value !== CURRENT_ENGINE_VERSION) {
-                    console.log('🔄 Exovon Engine version changed or corrupted. Wiping cache for clean rebuild...');
-                    this.db.exec(`
-             DROP TABLE IF EXISTS symbols;
-             DROP TABLE IF EXISTS edges;
-             DROP TABLE IF EXISTS indexed_files;
-             DROP TABLE IF EXISTS vec_symbols;
-           `);
-                    this.db.prepare('INSERT OR REPLACE INTO brain_metadata (key, value) VALUES (?, ?)').run('engine_version', CURRENT_ENGINE_VERSION);
-                }
-                // Setup Schema
-                this.db.exec(`
-          CREATE TABLE IF NOT EXISTS indexed_files (
-            relative_path TEXT PRIMARY KEY,
-            mtime INTEGER,
-            size INTEGER
-          );
-          CREATE TABLE IF NOT EXISTS symbols (
-            id TEXT PRIMARY KEY,
-            hash_id INTEGER,
-            file_path TEXT,
-            name TEXT,
-            kind TEXT,
-            line_start INTEGER,
-            line_end INTEGER,
-            content TEXT
-          );
-          CREATE TABLE IF NOT EXISTS edges (
-            source_id TEXT,
-            target_id TEXT,
-            relation_type TEXT,
-            file_path TEXT,
-            PRIMARY KEY(source_id, target_id, relation_type)
-          );
-          CREATE TABLE IF NOT EXISTS commits (
-            hash TEXT,
-            branch_name TEXT,
-            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-            symbol_ids JSON
-          );
-          CREATE TABLE IF NOT EXISTS chat_threads (
-            id TEXT PRIMARY KEY,
-            title TEXT,
-            created_at INTEGER,
-            updated_at INTEGER,
-            workspace_path TEXT
-          );
-          CREATE TABLE IF NOT EXISTS chat_messages (
-            id TEXT PRIMARY KEY,
-            thread_id TEXT,
-            sender TEXT,
-            text TEXT,
-            reasoning TEXT,
-            timestamp TEXT,
-            plan_steps JSON,
-            tool_calls JSON,
-            proposed_files JSON,
-            FOREIGN KEY(thread_id) REFERENCES chat_threads(id)
-          );
-        `);
-                // Migration for missing columns
-                try {
-                    this.db.exec('ALTER TABLE symbols ADD COLUMN hash_id INTEGER');
-                }
-                catch (e) { }
-                try {
-                    this.db.exec('ALTER TABLE chat_threads ADD COLUMN workspace_path TEXT');
-                }
-                catch (e) { }
-                try {
-                    this.db.exec('ALTER TABLE edges ADD COLUMN file_path TEXT');
-                }
-                catch (e) { }
-                try {
-                    this.db.exec('ALTER TABLE chat_messages ADD COLUMN meta JSON');
-                }
-                catch (e) { }
-                // Indexes
-                this.db.exec(`
-          CREATE INDEX IF NOT EXISTS idx_symbols_file ON symbols(file_path);
-          CREATE INDEX IF NOT EXISTS idx_edges_file ON edges(file_path);
-          CREATE INDEX IF NOT EXISTS idx_chat_threads_workspace ON chat_threads(workspace_path);
-        `);
-                try {
-                    this.db.exec(`CREATE VIRTUAL TABLE IF NOT EXISTS vec_symbols USING vec0(embedding float[384])`);
-                }
-                catch (e) {
-                    // vec0 might already exist
-                }
-            }
-            catch (schemaErr) {
-                console.warn('Schema setup error:', schemaErr);
-            }
+        // Delta Cache Version Control
+        const CURRENT_ENGINE_VERSION = '1.0.0';
+        this.db.exec(`CREATE TABLE IF NOT EXISTS brain_metadata (key TEXT PRIMARY KEY, value TEXT);`);
+        const dbVersion = this.db.prepare('SELECT value FROM brain_metadata WHERE key = ?').get('engine_version');
+        if (!dbVersion || dbVersion.value !== CURRENT_ENGINE_VERSION) {
+            console.log('🔄 Exovon Engine version changed or corrupted. Wiping cache for clean rebuild...');
+            this.db.exec(`
+         DROP TABLE IF EXISTS symbols;
+         DROP TABLE IF EXISTS edges;
+         DROP TABLE IF EXISTS indexed_files;
+         DROP TABLE IF EXISTS vec_symbols;
+       `);
+            this.db.prepare('INSERT OR REPLACE INTO brain_metadata (key, value) VALUES (?, ?)').run('engine_version', CURRENT_ENGINE_VERSION);
+        }
+        // Setup Schema
+        this.db.exec(`
+      CREATE TABLE IF NOT EXISTS indexed_files (
+        relative_path TEXT PRIMARY KEY,
+        mtime INTEGER,
+        size INTEGER
+      );
+      CREATE TABLE IF NOT EXISTS symbols (
+        id TEXT PRIMARY KEY,
+        hash_id INTEGER,
+        file_path TEXT,
+        name TEXT,
+        kind TEXT,
+        line_start INTEGER,
+        line_end INTEGER,
+        content TEXT
+      );
+      CREATE TABLE IF NOT EXISTS edges (
+        source_id TEXT,
+        target_id TEXT,
+        relation_type TEXT,
+        file_path TEXT,
+        PRIMARY KEY(source_id, target_id, relation_type)
+      );
+      CREATE TABLE IF NOT EXISTS commits (
+        hash TEXT,
+        branch_name TEXT,
+        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+        symbol_ids JSON
+      );
+      CREATE TABLE IF NOT EXISTS chat_threads (
+        id TEXT PRIMARY KEY,
+        title TEXT,
+        created_at INTEGER,
+        updated_at INTEGER,
+        workspace_path TEXT
+      );
+      CREATE TABLE IF NOT EXISTS chat_messages (
+        id TEXT PRIMARY KEY,
+        thread_id TEXT,
+        sender TEXT,
+        text TEXT,
+        reasoning TEXT,
+        timestamp TEXT,
+        plan_steps JSON,
+        tool_calls JSON,
+        proposed_files JSON,
+        FOREIGN KEY(thread_id) REFERENCES chat_threads(id)
+      );
+    `);
+        // Migration for missing columns
+        try {
+            this.db.exec('ALTER TABLE symbols ADD COLUMN hash_id INTEGER');
+        }
+        catch (e) { }
+        try {
+            this.db.exec('ALTER TABLE chat_threads ADD COLUMN workspace_path TEXT');
+        }
+        catch (e) { }
+        try {
+            this.db.exec('ALTER TABLE edges ADD COLUMN file_path TEXT');
+        }
+        catch (e) { }
+        try {
+            this.db.exec('ALTER TABLE chat_messages ADD COLUMN meta JSON');
+        }
+        catch (e) { }
+        // Indexes
+        this.db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_symbols_file ON symbols(file_path);
+      CREATE INDEX IF NOT EXISTS idx_edges_file ON edges(file_path);
+      CREATE INDEX IF NOT EXISTS idx_chat_threads_workspace ON chat_threads(workspace_path);
+    `);
+        try {
+            this.db.exec(`CREATE VIRTUAL TABLE IF NOT EXISTS vec_symbols USING vec0(embedding float[384])`);
+        }
+        catch (e) {
+            // vec0 might already exist
         }
         this.initializeWorkers();
     }
@@ -50197,25 +50389,24 @@ class BrainCoordinator {
     async getStats() {
         try {
             let sizeMB = 0;
-            if (this.dbPath && fs.existsSync(this.dbPath)) {
+            if (fs.existsSync(this.dbPath)) {
                 const stat = await fs.promises.stat(this.dbPath);
                 sizeMB = stat.size / (1024 * 1024);
             }
-            let entities = 0;
-            if (this.db && typeof this.db.prepare === 'function') {
-                const row = this.db.prepare('SELECT COUNT(*) as c FROM symbols').get();
-                entities = row?.c ?? 0;
-            }
+            const row = this.db.prepare('SELECT COUNT(*) as c FROM symbols').get();
+            const entities = row?.c ?? 0;
             return {
                 entities,
                 sizeMB: Number(sizeMB.toFixed(2)),
-                status: this.status || 'ready',
+                status: this.status,
                 lastError: this.lastError,
                 dbPath: this.dbPath
             };
         }
         catch (e) {
-            return { entities: 0, sizeMB: 0, status: 'ready', lastError: null, dbPath: this.dbPath };
+            this.lastError = e?.message || String(e);
+            this.status = 'failed';
+            return { entities: 0, sizeMB: 0, status: 'failed', lastError: this.lastError, dbPath: this.dbPath };
         }
     }
     // Wipe and completely rebuild the Brain database
@@ -50749,7 +50940,7 @@ class BrainCoordinator {
     getChatThreads() {
         try {
             const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
-            return this.db.prepare(`
+            const threads = this.db.prepare(`
         SELECT 
           ct.id, 
           ct.title, 
@@ -50760,6 +50951,31 @@ class BrainCoordinator {
         WHERE ct.workspace_path = ? 
         ORDER BY ct.updated_at DESC
       `).all(workspaceRoot);
+            // Auto-repair stale generic titles (e.g. 'HI', 'hi', 'hello', 'New Chat')
+            for (const t of threads) {
+                const lower = (t.title || '').toLowerCase().trim();
+                if (!lower || lower === 'new chat' || ['hi', 'hello', 'hey', 'yo', 'sup', 'test'].includes(lower) || lower.length <= 3) {
+                    const firstMeaningful = this.db.prepare(`
+            SELECT text FROM chat_messages 
+            WHERE thread_id = ? AND sender = 'user' AND text IS NOT NULL AND LENGTH(TRIM(text)) > 3
+            ORDER BY timestamp ASC LIMIT 1
+          `).get(t.id);
+                    if (firstMeaningful?.text) {
+                        let clean = firstMeaningful.text
+                            .replace(/^\[IDE WORKSPACE ACTIVE CONTEXT\][\s\S]*?\[\/IDE WORKSPACE ACTIVE CONTEXT\]/, '')
+                            .replace(/^Developer Action Request:\s*"?/, '')
+                            .replace(/^[#*`\s]+/, '')
+                            .replace(/^(?:hi|hello|hey|yo|sup|greeting|greetings|please|can you|could you|help me)\s*[,.:;!-]?\s*/i, '')
+                            .trim();
+                        if (clean.length > 2) {
+                            const newTitle = clean.substring(0, 45) + (clean.length > 45 ? '...' : '');
+                            t.title = newTitle;
+                            this.db.prepare('UPDATE chat_threads SET title = ? WHERE id = ?').run(newTitle, t.id);
+                        }
+                    }
+                }
+            }
+            return threads;
         }
         catch (e) {
             console.error('getChatThreads error:', e);
@@ -50844,16 +51060,35 @@ class BrainCoordinator {
                 promptTokens: message.promptTokens,
                 promptProcessed: message.promptProcessed
             }));
-            // Update thread title and timestamp
+            // Update thread title and timestamp intelligently
             let cleanText = (message.text || '')
                 .replace(/^\[IDE WORKSPACE ACTIVE CONTEXT\][\s\S]*?\[\/IDE WORKSPACE ACTIVE CONTEXT\]/, '')
                 .replace(/^Developer Action Request:\s*"?/, '')
                 .replace(/^[#*`\s]+/, '')
                 .trim();
-            const title = cleanText ? cleanText.substring(0, 45) + (cleanText.length > 45 ? '...' : '') : 'Exovon Chat';
-            // Only update title if it's a user message and not the first message
-            if (message.sender === 'user') {
-                this.db.prepare('UPDATE chat_threads SET updated_at = ?, title = CASE WHEN title = \'New Chat\' THEN ? ELSE title END WHERE id = ?').run(Date.now(), title, threadId);
+            if (message.sender === 'user' && cleanText) {
+                // Strip common greetings to find actual intent
+                let titleCandidate = cleanText
+                    .replace(/^(?:hi|hello|hey|yo|sup|greeting|greetings|please|can you|could you|help me)\s*[,.:;!-]?\s*/i, '')
+                    .trim();
+                if (!titleCandidate || titleCandidate.length < 3) {
+                    titleCandidate = cleanText;
+                }
+                const title = titleCandidate.substring(0, 45) + (titleCandidate.length > 45 ? '...' : '');
+                // Fetch current thread title
+                const currentThread = this.db.prepare('SELECT title FROM chat_threads WHERE id = ?').get(threadId);
+                const currentTitle = (currentThread?.title || '').toLowerCase().trim();
+                const isGeneric = !currentTitle ||
+                    currentTitle === 'new chat' ||
+                    currentTitle === 'exovon chat' ||
+                    ['hi', 'hello', 'hey', 'yo', 'sup', 'test', 'greeting', 'greetings'].includes(currentTitle) ||
+                    (currentTitle.length <= 4 && titleCandidate.length > 4);
+                if (isGeneric) {
+                    this.db.prepare('UPDATE chat_threads SET updated_at = ?, title = ? WHERE id = ?').run(Date.now(), title, threadId);
+                }
+                else {
+                    this.db.prepare('UPDATE chat_threads SET updated_at = ? WHERE id = ?').run(Date.now(), threadId);
+                }
             }
             else {
                 this.db.prepare('UPDATE chat_threads SET updated_at = ? WHERE id = ?').run(Date.now(), threadId);
@@ -51034,17 +51269,31 @@ exports.BrainCoordinator = BrainCoordinator;
 /***/ ((module) => {
 
 "use strict";
-module.exports = require("worker_threads");
+module.exports = require("better-sqlite3");
 
 /***/ }),
 /* 286 */
 /***/ ((module) => {
 
 "use strict";
-module.exports = require("os");
+module.exports = require("sqlite-vec");
 
 /***/ }),
 /* 287 */
+/***/ ((module) => {
+
+"use strict";
+module.exports = require("worker_threads");
+
+/***/ }),
+/* 288 */
+/***/ ((module) => {
+
+"use strict";
+module.exports = require("os");
+
+/***/ }),
+/* 289 */
 /***/ ((__unused_webpack_module, exports) => {
 
 "use strict";
@@ -51095,20 +51344,6 @@ exports.GraphIndexer = GraphIndexer;
 
 
 /***/ }),
-/* 288 */
-/***/ ((module) => {
-
-"use strict";
-module.exports = require("better-sqlite3");
-
-/***/ }),
-/* 289 */
-/***/ ((module) => {
-
-"use strict";
-module.exports = require("sqlite-vec");
-
-/***/ }),
 /* 290 */
 /***/ ((module) => {
 
@@ -51157,6 +51392,7 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.LlamaEngine = void 0;
 const vscode = __importStar(__webpack_require__(1));
+const FimIntentAnalyzer_1 = __webpack_require__(292);
 class LlamaEngine {
     storageUri;
     ready = false;
@@ -51182,7 +51418,7 @@ class LlamaEngine {
         const enabled = config.get('enableGhostText', true);
         const assignedGhostModel = config.get('inlineGhostModel') || null;
         try {
-            const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 307))).default;
+            const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 309))).default;
             const start = Date.now();
             const controller = new AbortController();
             const timeout = setTimeout(() => controller.abort(), 2000);
@@ -51192,16 +51428,19 @@ class LlamaEngine {
             clearTimeout(timeout);
             if (res.ok) {
                 const data = (await res.json());
-                this.ready = true;
+                const active = assignedGhostModel || data.active_ghost_model || data.active_model || null;
+                this.activeGhostModel = active;
+                this.ready = Boolean(active);
                 this.lastLatencyMs = Date.now() - start;
-                this.activeGhostModel = assignedGhostModel || data.active_model || null;
             }
             else {
                 this.ready = false;
+                this.activeGhostModel = null;
             }
         }
         catch {
             this.ready = false;
+            this.activeGhostModel = null;
         }
         return {
             healthy: this.ready,
@@ -51213,31 +51452,39 @@ class LlamaEngine {
     async getFimCompletion(prefix, suffix, token, languageId = 'plaintext') {
         const config = vscode.workspace.getConfiguration('exovonhub');
         const enabled = config.get('enableGhostText', true);
-        if (!enabled)
-            return '';
+        if (!enabled || !this.ready || !this.activeGhostModel)
+            return null;
         const ghostModel = config.get('inlineGhostModel') || undefined;
         const startTime = Date.now();
         try {
-            const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 307))).default;
+            const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 309))).default;
             const controller = new AbortController();
             token.onCancellationRequested(() => controller.abort());
-            // Trim context for ultra-low latency completion
-            const prefixContext = prefix.length > 1500 ? prefix.slice(-1500) : prefix;
-            const suffixContext = suffix.length > 400 ? suffix.slice(0, 400) : suffix;
+            // Analyze intent: directive comments, fuzzy spelling fixes, structural skeletons, or native FIM
+            const intent = FimIntentAnalyzer_1.FimIntentAnalyzer.analyze(prefix, suffix, languageId);
+            // If an immediate high-confidence spelling fix is found at cursor, return it instantly
+            if (intent.immediateSuggestion && intent.correction) {
+                this.lastLatencyMs = Date.now() - startTime;
+                return {
+                    text: intent.correction.replacement,
+                    replacePrefixChars: intent.correction.replacePrefixChars
+                };
+            }
+            // Context sizing
+            const maxPrefixLen = intent.type === 'directive_boilerplate' ? 3000 : 1500;
+            const prefixContext = prefix.length > maxPrefixLen ? prefix.slice(-maxPrefixLen) : prefix;
+            const suffixContext = suffix.length > 500 ? suffix.slice(0, 500) : suffix;
             const payload = {
                 model: ghostModel,
+                purpose: 'ghost',
                 messages: [
                     {
-                        role: 'system',
-                        content: 'You are an ultra-fast code completion engine. Continue the code directly at the cursor. Output ONLY the raw completion code without markdown backticks, explanations, comments, or repeating the prefix.'
-                    },
-                    {
                         role: 'user',
-                        content: `Language: ${languageId}\n\nExisting Code Before Cursor:\n${prefixContext}\n\nExisting Code After Cursor:\n${suffixContext}\n\nInline Completion:`
+                        content: intent.promptText
                     }
                 ],
-                max_tokens: 48,
-                temperature: 0.1,
+                max_tokens: intent.maxTokens,
+                temperature: intent.temperature,
                 stream: false
             };
             const res = await fetch('http://127.0.0.1:47990/v1/chat/completions', {
@@ -51248,26 +51495,75 @@ class LlamaEngine {
             });
             if (!res.ok) {
                 this.ready = false;
-                return '';
+                return null;
             }
-            const data = (await res.json());
+            let accumulated = '';
+            const textResponse = await res.text();
             this.lastLatencyMs = Date.now() - startTime;
             this.ready = true;
-            let text = data.choices?.[0]?.message?.content || '';
-            // Strip markdown code fences if output by chat model
+            // Parse SSE lines or raw JSON
+            const lines = textResponse.split('\n');
+            for (const line of lines) {
+                const trimmed = line.trim();
+                if (trimmed.startsWith('data: ')) {
+                    const dataStr = trimmed.slice(6).trim();
+                    if (dataStr === '[DONE]')
+                        break;
+                    try {
+                        const parsed = JSON.parse(dataStr);
+                        const delta = parsed.choices?.[0]?.delta?.content || parsed.choices?.[0]?.message?.content || '';
+                        if (delta) {
+                            accumulated += delta;
+                        }
+                    }
+                    catch { }
+                }
+            }
+            if (!accumulated && textResponse.trim().startsWith('{')) {
+                try {
+                    const parsed = JSON.parse(textResponse);
+                    accumulated = parsed.choices?.[0]?.message?.content || '';
+                }
+                catch { }
+            }
+            let text = accumulated;
+            // 1. Strip any leaked FIM / Special tokenizer control tags
+            text = text.replace(/<\|?(?:fim_prefix|fim_suffix|fim_middle|endoftext|file_sep|im_start|im_end|start_of_turn|end_of_turn|eot_id|turn_end)\|?>/gi, '');
+            text = text.replace(/\[(?:PREFIX|SUFFIX|MID)\]/g, '');
+            // 2. Strip markdown code fences if output by chat model
             text = text.replace(/^```[a-zA-Z0-9_-]*\r?\n?/, '').replace(/\r?\n?```$/, '');
-            // Remove accidental duplicate prefix line
+            // 3. Remove accidental duplicate prefix line
             const lastLine = prefixContext.trim().split('\n').pop() || '';
             if (lastLine && text.startsWith(lastLine)) {
                 text = text.slice(lastLine.length);
             }
-            return text;
+            // 4. Intelligent Suffix De-duplication: Prevent repeating lines that already exist below cursor
+            const suffixLines = suffixContext.split('\n').map(l => l.trim()).filter(l => l.length > 3);
+            if (suffixLines.length > 0 && text.includes('\n')) {
+                const textLines = text.split('\n');
+                const cleanLines = [];
+                for (const tl of textLines) {
+                    if (cleanLines.length > 0 && suffixLines.includes(tl.trim())) {
+                        break; // Stop at first duplicated suffix line!
+                    }
+                    cleanLines.push(tl);
+                }
+                text = cleanLines.join('\n');
+            }
+            // 5. If text is empty or purely whitespace after stripping tags, return null
+            if (text.trim().length === 0) {
+                return null;
+            }
+            return {
+                text,
+                replacePrefixChars: intent.correction?.replacePrefixChars || 0
+            };
         }
         catch (e) {
             if (e.name !== 'AbortError') {
                 this.ready = false;
             }
-            return '';
+            return null;
         }
     }
     getLatency() {
@@ -51282,6 +51578,186 @@ exports.LlamaEngine = LlamaEngine;
 
 /***/ }),
 /* 292 */
+/***/ ((__unused_webpack_module, exports) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.FimIntentAnalyzer = void 0;
+class FimIntentAnalyzer {
+    // Directive comments: // gen: ..., # scaffold: ..., /* boilerplate: ... */
+    static DIRECTIVE_REGEX = /(?:\/\/|#|\/\*)\s*(gen|generate|scaffold|boilerplate|component|hook|type|schema|impl|implement|todo|fix|spell|correct):\s*(.+?)(?:\*\/|$)/i;
+    // Common JS/TS/Web and Game development vocabulary for fuzzy typo resolution
+    static COMMON_VOCABULARY = [
+        // Common Enum / Constant States
+        'NORMAL', 'DEFAULT', 'MENU', 'PLAYING', 'PAUSED', 'GAMEOVER', 'RESTART', 'VICTORY', 'DEFEAT',
+        'ACTIVE', 'INACTIVE', 'PENDING', 'SUCCESS', 'ERROR', 'WARNING', 'INFO', 'DISABLED', 'ENABLED',
+        'PRIMARY', 'SECONDARY', 'DANGER', 'SUCCESS', 'LIGHT', 'DARK', 'GHOST',
+        // DOM & Canvas APIs
+        'document', 'window', 'canvas', 'context', 'getContext', 'getElementById', 'querySelector',
+        'querySelectorAll', 'addEventListener', 'removeEventListener', 'requestAnimationFrame',
+        'cancelAnimationFrame', 'localStorage', 'sessionStorage', 'textContent', 'innerHTML',
+        'classList', 'style', 'width', 'height', 'top', 'left', 'bottom', 'right', 'position',
+        'clientX', 'clientY', 'offsetX', 'offsetY', 'pageX', 'pageY',
+        // Math & Arrays
+        'Math', 'floor', 'ceil', 'round', 'random', 'min', 'max', 'abs', 'sqrt', 'sin', 'cos',
+        'length', 'push', 'pop', 'shift', 'unshift', 'splice', 'slice', 'filter', 'map', 'forEach',
+        'reduce', 'includes', 'indexOf', 'find', 'findIndex', 'concat', 'join', 'split', 'trim',
+        // Keywords & Types
+        'function', 'return', 'async', 'await', 'import', 'export', 'interface', 'boolean', 'string',
+        'number', 'undefined', 'null', 'Promise', 'Array', 'Object', 'JSON', 'clearInterval', 'setInterval',
+        'setTimeout', 'clearTimeout'
+    ];
+    /**
+     * Calculate Levenshtein edit distance between two strings
+     */
+    static levenshtein(a, b) {
+        const matrix = [];
+        for (let i = 0; i <= b.length; i++) {
+            matrix[i] = [i];
+        }
+        for (let j = 0; j <= a.length; j++) {
+            matrix[0][j] = j;
+        }
+        for (let i = 1; i <= b.length; i++) {
+            for (let j = 1; j <= a.length; j++) {
+                if (b.charAt(i - 1) === a.charAt(j - 1)) {
+                    matrix[i][j] = matrix[i - 1][j - 1];
+                }
+                else {
+                    matrix[i][j] = Math.min(matrix[i - 1][j - 1] + 1, // substitution
+                    matrix[i][j - 1] + 1, // insertion
+                    matrix[i - 1][j] + 1 // deletion
+                    );
+                }
+            }
+        }
+        return matrix[b.length][a.length];
+    }
+    /**
+     * Extract all declared identifier and constant tokens from the document context
+     */
+    static extractContextVocabulary(fullText) {
+        const set = new Set(this.COMMON_VOCABULARY);
+        // Find all ALL_CAPS constants, CamelCase and camelCase identifiers, and string literal words
+        const matches = fullText.match(/\b[A-Za-z_][A-Za-z0-9_]{2,}\b/g) || [];
+        for (const m of matches) {
+            if (m.length >= 3 && m.length <= 30) {
+                set.add(m);
+            }
+        }
+        // Extract single/double quoted enum strings (e.g. 'NORMAL', 'PLAYING')
+        const stringMatches = fullText.match(/['"`]([A-Za-z0-9_-]+)['"`]/g) || [];
+        for (const sm of stringMatches) {
+            const clean = sm.slice(1, -1).trim();
+            if (clean.length >= 3) {
+                set.add(clean);
+            }
+        }
+        return Array.from(set);
+    }
+    /**
+     * Analyze the cursor prefix and suffix context to detect special intent triggers.
+     */
+    static analyze(prefix, suffix, languageId = 'typescript') {
+        const lines = prefix.split('\n');
+        const currentLine = lines[lines.length - 1] || '';
+        const lastNonEmptyLine = [...lines].reverse().find(l => l.trim().length > 0) || '';
+        // 1. Check for Special Directive Comments (e.g. // gen: ..., // scaffold: ..., // fix: ...)
+        const directiveMatch = lastNonEmptyLine.match(this.DIRECTIVE_REGEX);
+        if (directiveMatch) {
+            const tag = directiveMatch[1].toLowerCase();
+            const instruction = directiveMatch[2].trim();
+            if (tag === 'fix' || tag === 'spell' || tag === 'correct') {
+                return {
+                    type: 'spelling_correction',
+                    directiveTag: tag,
+                    instruction,
+                    maxTokens: 128,
+                    temperature: 0.1,
+                    promptText: `<fim_prefix>// Fix spelling & syntax: ${instruction}\n${prefix}<fim_suffix>${suffix}<fim_middle>`
+                };
+            }
+            // Boilerplate / Component / Scaffold Directives
+            return {
+                type: 'directive_boilerplate',
+                directiveTag: tag,
+                instruction,
+                maxTokens: 384,
+                temperature: 0.2,
+                promptText: `<fim_prefix>// Scaffold ${languageId}: ${instruction}\n${prefix}<fim_suffix>${suffix}<fim_middle>`
+            };
+        }
+        // 2. Fuzzy Typo & Spelling Detection at Cursor Token
+        // Look at the token right at the cursor (e.g. 'NORMel', 'fucntion', 'documnet')
+        const tokenMatch = currentLine.match(/(?:['"`]?)([A-Za-z_][A-Za-z0-9_]*)(?:['"`]?)\s*$/);
+        if (tokenMatch) {
+            const candidate = tokenMatch[1];
+            if (candidate.length >= 4) {
+                const vocab = this.extractContextVocabulary(prefix + suffix);
+                let bestMatch = '';
+                let minDistance = 999;
+                for (const word of vocab) {
+                    if (word.toLowerCase() === candidate.toLowerCase() && word !== candidate) {
+                        // Case mismatch (e.g. 'NORMel' vs 'NORMAL')
+                        bestMatch = word;
+                        minDistance = 1;
+                        break;
+                    }
+                    const dist = this.levenshtein(candidate.toLowerCase(), word.toLowerCase());
+                    const maxAllowedDist = candidate.length <= 5 ? 1 : 2;
+                    if (dist > 0 && dist <= maxAllowedDist && dist < minDistance) {
+                        minDistance = dist;
+                        bestMatch = word;
+                    }
+                }
+                if (bestMatch && minDistance <= 2) {
+                    // Found a high-confidence typo correction!
+                    return {
+                        type: 'spelling_correction',
+                        instruction: `Correct '${candidate}' to '${bestMatch}'`,
+                        maxTokens: 32,
+                        temperature: 0.05,
+                        promptText: `<fim_prefix>${prefix.slice(0, -candidate.length)}${bestMatch}<fim_suffix>${suffix}<fim_middle>`,
+                        immediateSuggestion: bestMatch,
+                        correction: {
+                            original: candidate,
+                            replacement: bestMatch,
+                            replacePrefixChars: candidate.length
+                        }
+                    };
+                }
+            }
+        }
+        // Build FIM prompt string with appropriate tags
+        const fimPrompt = suffix.trim().length > 0
+            ? `<fim_prefix>${prefix}<fim_suffix>${suffix}<fim_middle>`
+            : `<fim_prefix>${prefix}<fim_middle>`;
+        // 3. Structural Skeleton Triggers (Component declaration, Interface declaration, Test suites)
+        if (/^(?:export\s+default\s+|export\s+)?(?:const|function|class)\s+([A-Z][a-zA-Z0-9]+)\s*(?:=|:\s*React\.FC|\()/.test(currentLine.trim()) ||
+            /^(?:export\s+)?(?:interface|type)\s+([A-Z][a-zA-Z0-9]+)/.test(currentLine.trim()) ||
+            /^(?:describe|test|it)\s*\(\s*['"]/.test(currentLine.trim())) {
+            return {
+                type: 'structural_skeleton',
+                maxTokens: 256,
+                temperature: 0.15,
+                promptText: fimPrompt
+            };
+        }
+        // 4. Native Standard FIM (Fill-In-the-Middle) with exact token tags
+        return {
+            type: 'standard_fim',
+            maxTokens: 48,
+            temperature: 0.1,
+            promptText: fimPrompt
+        };
+    }
+}
+exports.FimIntentAnalyzer = FimIntentAnalyzer;
+
+
+/***/ }),
+/* 293 */
 /***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 "use strict";
@@ -51322,6 +51798,7 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.CopilotProvider = void 0;
 const vscode = __importStar(__webpack_require__(1));
+const NeighborContextRetriever_1 = __webpack_require__(294);
 class CopilotProvider {
     engine;
     debounceTimer = null;
@@ -51357,21 +51834,29 @@ class CopilotProvider {
         if (!this.engine.isReady()) {
             return [];
         }
-        // Context Window: Grab top 1000 chars before, 200 chars after
-        const prefixRange = new vscode.Range(new vscode.Position(Math.max(0, position.line - 50), 0), position);
-        const suffixRange = new vscode.Range(position, new vscode.Position(Math.min(document.lineCount - 1, position.line + 10), 1000));
+        // Context Window: Grab up to 100 lines before, 20 lines after
+        const prefixRange = new vscode.Range(new vscode.Position(Math.max(0, position.line - 100), 0), position);
+        const suffixRange = new vscode.Range(position, new vscode.Position(Math.min(document.lineCount - 1, position.line + 20), 1000));
         const prefix = document.getText(prefixRange);
         const suffix = document.getText(suffixRange);
         if (prefix.trim() === '') {
             return [];
         }
+        // Enrich prefix with Relative File Path header & Neighboring open tabs context (Jaccard similarity)
+        const relPath = vscode.workspace.asRelativePath(document.uri);
+        const neighborContext = NeighborContextRetriever_1.NeighborContextRetriever.getNeighborContext(document, prefix);
+        const enrichedPrefix = `${neighborContext}// Path: ${relPath}\n${prefix}`;
         // Ask the engine for FIM completion
-        const completionText = await this.engine.getFimCompletion(prefix, suffix, token, document.languageId);
-        if (!completionText || completionText.trim() === '') {
+        const fimResult = await this.engine.getFimCompletion(enrichedPrefix, suffix, token, document.languageId);
+        if (!fimResult || !fimResult.text || fimResult.text.trim() === '') {
             return [];
         }
+        // Determine replacement range (if a typo was detected, replace the preceding mistyped word)
+        const startPos = fimResult.replacePrefixChars > 0
+            ? new vscode.Position(position.line, Math.max(0, position.character - fimResult.replacePrefixChars))
+            : position;
         // Return the completion item
-        const item = new vscode.InlineCompletionItem(completionText, new vscode.Range(position, position));
+        const item = new vscode.InlineCompletionItem(fimResult.text, new vscode.Range(startPos, position));
         return [item];
     }
 }
@@ -51379,7 +51864,136 @@ exports.CopilotProvider = CopilotProvider;
 
 
 /***/ }),
-/* 293 */
+/* 294 */
+/***/ (function(__unused_webpack_module, exports, __webpack_require__) {
+
+"use strict";
+
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.NeighborContextRetriever = void 0;
+const vscode = __importStar(__webpack_require__(1));
+class NeighborContextRetriever {
+    /**
+     * Extract words/identifiers from code to compute similarity
+     */
+    static extractTokens(text) {
+        const tokens = new Set();
+        const matches = text.match(/\b[A-Za-z_][A-Za-z0-9_]{2,}\b/g) || [];
+        for (const m of matches) {
+            tokens.add(m);
+        }
+        return tokens;
+    }
+    /**
+     * Calculate Jaccard similarity between two sets of tokens
+     */
+    static jaccardSimilarity(setA, setB) {
+        let intersection = 0;
+        for (const item of setA) {
+            if (setB.has(item)) {
+                intersection++;
+            }
+        }
+        const union = setA.size + setB.size - intersection;
+        return union === 0 ? 0 : intersection / union;
+    }
+    /**
+     * Retrieve relevant type definitions, exported interfaces, and utility snippets
+     * from neighboring open tabs matching the current file's vocabulary.
+     */
+    static getNeighborContext(currentDoc, prefix) {
+        const currentTokens = this.extractTokens(prefix);
+        if (currentTokens.size === 0)
+            return '';
+        const openDocs = vscode.workspace.textDocuments.filter(doc => doc.uri.toString() !== currentDoc.uri.toString() &&
+            !doc.isUntitled &&
+            !doc.fileName.includes('node_modules') &&
+            !doc.fileName.includes('.git') &&
+            doc.getText().length < 50000 // avoid massive files
+        );
+        const relevantSnippets = [];
+        for (const doc of openDocs) {
+            const text = doc.getText();
+            const docTokens = this.extractTokens(text);
+            const score = this.jaccardSimilarity(currentTokens, docTokens);
+            if (score > 0.05) {
+                // Extract structural definitions (interfaces, types, exported functions, constants)
+                const lines = text.split('\n');
+                const candidateLines = [];
+                let capturing = false;
+                let braceCount = 0;
+                for (const line of lines) {
+                    const trimmed = line.trim();
+                    if (/^(?:export\s+)?(?:interface|type|enum|const\s+[A-Z_]+)\b/.test(trimmed)) {
+                        capturing = true;
+                        braceCount = 0;
+                    }
+                    if (capturing) {
+                        candidateLines.push(line);
+                        braceCount += (line.match(/{/g) || []).length;
+                        braceCount -= (line.match(/}/g) || []).length;
+                        if (braceCount <= 0 && trimmed.endsWith('}') || trimmed.endsWith(';')) {
+                            capturing = false;
+                        }
+                    }
+                }
+                const snippet = candidateLines.slice(0, 30).join('\n').trim();
+                if (snippet.length > 20) {
+                    const relPath = vscode.workspace.asRelativePath(doc.uri);
+                    relevantSnippets.push({ relPath, score, snippet });
+                }
+            }
+        }
+        // Sort by relevance score descending and pick top 2
+        relevantSnippets.sort((a, b) => b.score - a.score);
+        const topSnippets = relevantSnippets.slice(0, 2);
+        if (topSnippets.length === 0)
+            return '';
+        let result = '';
+        for (const s of topSnippets) {
+            result += `/* Context from ${s.relPath} */\n${s.snippet}\n\n`;
+        }
+        return result;
+    }
+}
+exports.NeighborContextRetriever = NeighborContextRetriever;
+
+
+/***/ }),
+/* 295 */
 /***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 "use strict";
@@ -51514,7 +52128,7 @@ exports.AuthService = AuthService;
 
 
 /***/ }),
-/* 294 */
+/* 296 */
 /***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 "use strict";
@@ -51606,7 +52220,6 @@ class PlanCommentController {
         const feedbackText = `Regarding Line ${lineNumber}: ${reply.text}`;
         // Let the orchestrator know that the plan is rejected with feedback
         if (this.activeOrchestrator) {
-            vscode.window.showInformationMessage('Sent feedback to Exovon. Rewriting plan...');
             this.activeOrchestrator.resolvePlanApproval(false, feedbackText);
             // Clean up the thread since the plan will be refreshed anyway
             thread.dispose();
@@ -51623,7 +52236,7 @@ exports.PlanCommentController = PlanCommentController;
 
 
 /***/ }),
-/* 295 */
+/* 297 */
 /***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 "use strict";
@@ -51687,7 +52300,7 @@ exports.ProblemCodeActionProvider = ProblemCodeActionProvider;
 
 
 /***/ }),
-/* 296 */
+/* 298 */
 /***/ ((__unused_webpack_module, exports) => {
 
 "use strict";
@@ -51811,7 +52424,7 @@ exports.ApiService = ApiService;
 
 
 /***/ }),
-/* 297 */
+/* 299 */
 /***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 "use strict";
@@ -51857,8 +52470,8 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.MotionCompiler = void 0;
 const vscode = __importStar(__webpack_require__(1));
-const MotionWorker_1 = __webpack_require__(298);
-const MotionOnboarding_1 = __webpack_require__(304);
+const MotionWorker_1 = __webpack_require__(300);
+const MotionOnboarding_1 = __webpack_require__(306);
 class MotionCompiler {
     static instance;
     static getInstance() {
@@ -51932,7 +52545,7 @@ class MotionCompiler {
             const targetUri = vscode.Uri.file(targetFilePath);
             const document = await vscode.workspace.openTextDocument(targetUri);
             const fileContent = document.getText();
-            const { Project, SyntaxKind } = __webpack_require__(302);
+            const { Project, SyntaxKind } = __webpack_require__(304);
             const project = new Project({ useInMemoryFileSystem: true });
             const sourceFile = project.createSourceFile(targetFilePath, fileContent);
             const validStyles = Object.entries(styles).filter(([_, v]) => v !== undefined && v !== null && v !== '');
@@ -51999,7 +52612,7 @@ exports.MotionCompiler = MotionCompiler;
 
 
 /***/ }),
-/* 298 */
+/* 300 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -52011,15 +52624,15 @@ exports.MotionCompiler = MotionCompiler;
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.processMotionCompile = processMotionCompile;
-const worker_threads_1 = __webpack_require__(285);
-const MotionIR_1 = __webpack_require__(299);
-const InsertionResolver_1 = __webpack_require__(300);
-const MotionEmitter_1 = __webpack_require__(301);
-const RecompilePolicy_1 = __webpack_require__(303);
+const worker_threads_1 = __webpack_require__(287);
+const MotionIR_1 = __webpack_require__(301);
+const InsertionResolver_1 = __webpack_require__(302);
+const MotionEmitter_1 = __webpack_require__(303);
+const RecompilePolicy_1 = __webpack_require__(305);
 function processMotionCompile(request) {
     try {
         const ir = (0, MotionIR_1.parseTheatreJsonToMotionIR)(request.rawTheatreJson);
-        const { Project } = __webpack_require__(302);
+        const { Project } = __webpack_require__(304);
         const project = new Project({ useInMemoryFileSystem: true });
         const sourceFile = project.createSourceFile(request.targetFilePath, request.fileContent);
         const strategy = (0, InsertionResolver_1.analyzeInsertionStrategy)(sourceFile, ir);
@@ -52054,7 +52667,7 @@ if (!worker_threads_1.isMainThread && worker_threads_1.parentPort) {
 
 
 /***/ }),
-/* 299 */
+/* 301 */
 /***/ ((__unused_webpack_module, exports) => {
 
 "use strict";
@@ -52169,7 +52782,7 @@ function mapTheatreEasingToGSAP(handles) {
 
 
 /***/ }),
-/* 300 */
+/* 302 */
 /***/ ((__unused_webpack_module, exports) => {
 
 "use strict";
@@ -52245,7 +52858,7 @@ function analyzeInsertionStrategy(sourceFile, ir) {
 
 
 /***/ }),
-/* 301 */
+/* 303 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -52260,7 +52873,7 @@ Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.emitMotionCode = emitMotionCode;
 function emitMotionCode(targetFilePath, fileContent, ir, strategy) {
     // Load target file into a single isolated in-memory ts-morph SourceFile
-    const { Project } = __webpack_require__(302);
+    const { Project } = __webpack_require__(304);
     const project = new Project({ useInMemoryFileSystem: true });
     const sourceFile = project.createSourceFile(targetFilePath, fileContent);
     // 1. Ensure required imports
@@ -52400,14 +53013,14 @@ function buildGsapBlock(ir) {
 
 
 /***/ }),
-/* 302 */
+/* 304 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("ts-morph");
 
 /***/ }),
-/* 303 */
+/* 305 */
 /***/ ((__unused_webpack_module, exports) => {
 
 "use strict";
@@ -52454,7 +53067,7 @@ function normalizeCode(code) {
 
 
 /***/ }),
-/* 304 */
+/* 306 */
 /***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 "use strict";
@@ -52644,7 +53257,7 @@ exports.MotionOnboarding = MotionOnboarding;
 
 
 /***/ }),
-/* 305 */
+/* 307 */
 /***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 "use strict";
@@ -52693,8 +53306,8 @@ Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.MotionStudioServer = void 0;
 const http = __importStar(__webpack_require__(35));
 const vscode = __importStar(__webpack_require__(1));
-const MotionCompiler_1 = __webpack_require__(297);
-const MotionOnboarding_1 = __webpack_require__(304);
+const MotionCompiler_1 = __webpack_require__(299);
+const MotionOnboarding_1 = __webpack_require__(306);
 class MotionStudioServer {
     static instance;
     server = null;
@@ -53140,64 +53753,62 @@ exports.MotionStudioServer = MotionStudioServer;
 
 
 /***/ }),
-/* 306 */,
-/* 307 */,
-/* 308 */
+/* 308 */,
+/* 309 */,
+/* 310 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("node:http");
 
 /***/ }),
-/* 309 */
+/* 311 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("node:https");
 
 /***/ }),
-/* 310 */
+/* 312 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("node:zlib");
 
 /***/ }),
-/* 311 */
+/* 313 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("node:buffer");
 
 /***/ }),
-/* 312 */,
-/* 313 */,
-/* 314 */
+/* 314 */,
+/* 315 */,
+/* 316 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("node:util");
 
 /***/ }),
-/* 315 */,
-/* 316 */,
-/* 317 */
+/* 317 */,
+/* 318 */,
+/* 319 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("node:stream/web");
 
 /***/ }),
-/* 318 */,
-/* 319 */
+/* 320 */,
+/* 321 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("buffer");
 
 /***/ }),
-/* 320 */,
-/* 321 */,
 /* 322 */,
 /* 323 */,
 /* 324 */,
@@ -53205,40 +53816,40 @@ module.exports = require("buffer");
 /* 326 */,
 /* 327 */,
 /* 328 */,
-/* 329 */
+/* 329 */,
+/* 330 */,
+/* 331 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("node:url");
 
 /***/ }),
-/* 330 */,
-/* 331 */,
-/* 332 */
+/* 332 */,
+/* 333 */,
+/* 334 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("node:net");
 
 /***/ }),
-/* 333 */,
-/* 334 */,
-/* 335 */
+/* 335 */,
+/* 336 */,
+/* 337 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("node:fs");
 
 /***/ }),
-/* 336 */
+/* 338 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("node:path");
 
 /***/ }),
-/* 337 */,
-/* 338 */,
 /* 339 */,
 /* 340 */,
 /* 341 */,
@@ -53252,15 +53863,15 @@ module.exports = require("node:path");
 /* 349 */,
 /* 350 */,
 /* 351 */,
-/* 352 */
+/* 352 */,
+/* 353 */,
+/* 354 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("stream");
 
 /***/ }),
-/* 353 */,
-/* 354 */,
 /* 355 */,
 /* 356 */,
 /* 357 */,
@@ -53268,37 +53879,37 @@ module.exports = require("stream");
 /* 359 */,
 /* 360 */,
 /* 361 */,
-/* 362 */
+/* 362 */,
+/* 363 */,
+/* 364 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("events");
 
 /***/ }),
-/* 363 */
+/* 365 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("process");
 
 /***/ }),
-/* 364 */,
-/* 365 */,
 /* 366 */,
 /* 367 */,
 /* 368 */,
 /* 369 */,
 /* 370 */,
 /* 371 */,
-/* 372 */
+/* 372 */,
+/* 373 */,
+/* 374 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("querystring");
 
 /***/ }),
-/* 373 */,
-/* 374 */,
 /* 375 */,
 /* 376 */,
 /* 377 */,
@@ -53343,46 +53954,46 @@ module.exports = require("querystring");
 /* 416 */,
 /* 417 */,
 /* 418 */,
-/* 419 */
+/* 419 */,
+/* 420 */,
+/* 421 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("fs/promises");
 
 /***/ }),
-/* 420 */
+/* 422 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("node:stream/promises");
 
 /***/ }),
-/* 421 */,
-/* 422 */,
 /* 423 */,
-/* 424 */
+/* 424 */,
+/* 425 */,
+/* 426 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("net");
 
 /***/ }),
-/* 425 */
+/* 427 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("tls");
 
 /***/ }),
-/* 426 */
+/* 428 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("url");
 
 /***/ }),
-/* 427 */,
-/* 428 */,
 /* 429 */,
 /* 430 */,
 /* 431 */,
@@ -53392,44 +54003,46 @@ module.exports = require("url");
 /* 435 */,
 /* 436 */,
 /* 437 */,
-/* 438 */
+/* 438 */,
+/* 439 */,
+/* 440 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("@exovon/sdk");
 
 /***/ }),
-/* 439 */,
-/* 440 */,
 /* 441 */,
-/* 442 */
+/* 442 */,
+/* 443 */,
+/* 444 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("assert");
 
 /***/ }),
-/* 443 */,
-/* 444 */,
 /* 445 */,
 /* 446 */,
 /* 447 */,
-/* 448 */
+/* 448 */,
+/* 449 */,
+/* 450 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("tty");
 
 /***/ }),
-/* 449 */,
-/* 450 */
+/* 451 */,
+/* 452 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("node:os");
 
 /***/ }),
-/* 451 */
+/* 453 */
 /***/ ((module) => {
 
 "use strict";

@@ -24,7 +24,8 @@ if [ -f "$PACKAGE_ARCHIVE" ]; then
     tar -xzf "$PACKAGE_ARCHIVE" -C "$ISOLATED_ROOT/app"
 elif [ -d "$PACKAGE_ARCHIVE" ]; then
     echo "==> Copying app directory into isolated container..."
-    cp -r "$PACKAGE_ARCHIVE"/* "$ISOLATED_ROOT/app/"
+    mkdir -p "$ISOLATED_ROOT/app/astrolabe"
+    cp -r "$PACKAGE_ARCHIVE"/* "$ISOLATED_ROOT/app/astrolabe/"
 fi
 
 # Locate binary
@@ -61,6 +62,7 @@ bwrap \
   $WAYLAND_BIND \
   --dev /dev \
   --proc /proc \
+  --ro-bind-try /sys /sys \
   --setenv HOME /home/user \
   --setenv USER cleanuser \
   --setenv DISPLAY "${DISPLAY:-:0}" \
@@ -71,6 +73,6 @@ bwrap \
   --setenv XDG_CACHE_HOME /home/user/.cache \
   --unshare-all \
   --share-net \
-  /bin/bash -c "$APP_BIN --no-sandbox"
+  /bin/bash -c "exec $APP_BIN --no-sandbox"
 
 echo "==> Isolated VM session closed cleanly."

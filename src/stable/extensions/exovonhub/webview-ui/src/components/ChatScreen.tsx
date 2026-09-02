@@ -1547,40 +1547,48 @@ export function ChatScreen({
                 onClick={() => setPlanDropdownOpen(prev => !prev)}
                 className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-[11px] font-medium transition-all cursor-pointer border ${
                   planLevel === 'strict'
-                    ? 'bg-purple-950/70 text-purple-300 border-purple-800/60 shadow-sm'
+                    ? 'bg-zinc-800/80 text-zinc-200 border-zinc-700 shadow-sm'
                     : planLevel === 'none'
-                    ? 'bg-amber-950/70 text-amber-300 border-amber-800/60 shadow-sm'
-                    : 'bg-blue-950/70 text-blue-300 border-blue-800/60 shadow-sm'
+                    ? 'bg-zinc-800/80 text-zinc-200 border-zinc-700 shadow-sm'
+                    : 'bg-zinc-800/80 text-zinc-200 border-zinc-700 shadow-sm'
                 }`}
-                title="Select Planning Mode (Direct, Auto, Strict Plan Lock)"
+                title="Select Planning Mode"
               >
-                <span>{planLevel === 'strict' ? '🔒 Plan Lock' : planLevel === 'none' ? '⚡ Direct' : '⚖️ Auto'}</span>
-                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={`transition-transform duration-150 ${planDropdownOpen ? 'rotate-180' : ''}`}><path d="m6 9 6 6 6-6"/></svg>
+                {planLevel === 'strict' ? (
+                  <svg className="w-3 h-3 shrink-0 text-zinc-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/></svg>
+                ) : planLevel === 'none' ? (
+                  <svg className="w-3 h-3 shrink-0 text-zinc-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                ) : (
+                  <svg className="w-3 h-3 shrink-0 text-zinc-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"/></svg>
+                )}
+                <span>{planLevel === 'strict' ? 'Plan' : planLevel === 'none' ? 'Direct' : 'Auto'}</span>
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={`transition-transform duration-150 text-zinc-400 ${planDropdownOpen ? 'rotate-180' : ''}`}><path d="m6 9 6 6 6-6"/></svg>
               </button>
 
               {planDropdownOpen && (
                 <>
                   <div className="fixed inset-0 z-40" onClick={() => setPlanDropdownOpen(false)} />
-                  <div className="absolute right-0 bottom-full mb-2 w-64 bg-zinc-950/95 backdrop-blur-xl border border-white/15 rounded-xl shadow-2xl p-1.5 z-50 animate-in zoom-in-95 duration-150 font-sans">
-                    <div className="text-[10px] font-mono text-zinc-400 px-2 py-1 uppercase tracking-wider font-semibold border-b border-white/5 mb-1">
-                      Planning Mode (3 Levels)
-                    </div>
-
+                  <div className="absolute right-0 bottom-full mb-2 w-56 bg-[#121217]/95 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl p-1 z-50 animate-in zoom-in-95 duration-150 font-sans">
                     <button
                       type="button"
                       onClick={() => {
                         setPlanLevel('none');
                         setPlanDropdownOpen(false);
                       }}
-                      className={`w-full text-left p-2 rounded-lg transition-colors flex flex-col gap-0.5 cursor-pointer ${
-                        planLevel === 'none' ? 'bg-white/10 text-white font-medium' : 'hover:bg-white/5 text-zinc-300'
+                      className={`w-full text-left p-2 rounded-lg transition-colors flex items-center justify-between cursor-pointer ${
+                        planLevel === 'none' ? 'bg-white/10 text-white' : 'hover:bg-white/5 text-zinc-400 hover:text-zinc-200'
                       }`}
                     >
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="flex items-center gap-1.5 font-semibold text-amber-300">⚡ 1. Direct (No Plan)</span>
-                        {planLevel === 'none' && <span className="text-[10px] text-amber-400 font-mono">✓ Active</span>}
+                      <div className="flex items-center gap-2.5">
+                        <svg className="w-3.5 h-3.5 shrink-0 text-zinc-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                        <div>
+                          <div className="text-xs font-medium">Direct</div>
+                          <div className="text-[10px] text-zinc-500">Execute immediately</div>
+                        </div>
                       </div>
-                      <span className="text-[10px] text-zinc-400 font-normal">All write tools unlocked immediately. No plan required.</span>
+                      {planLevel === 'none' && (
+                        <svg className="w-3.5 h-3.5 text-zinc-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7"/></svg>
+                      )}
                     </button>
 
                     <button
@@ -1589,15 +1597,20 @@ export function ChatScreen({
                         setPlanLevel('auto');
                         setPlanDropdownOpen(false);
                       }}
-                      className={`w-full text-left p-2 rounded-lg transition-colors flex flex-col gap-0.5 cursor-pointer ${
-                        planLevel === 'auto' ? 'bg-white/10 text-white font-medium' : 'hover:bg-white/5 text-zinc-300'
+                      className={`w-full text-left p-2 rounded-lg transition-colors flex items-center justify-between cursor-pointer ${
+                        planLevel === 'auto' ? 'bg-white/10 text-white' : 'hover:bg-white/5 text-zinc-400 hover:text-zinc-200'
                       }`}
                     >
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="flex items-center gap-1.5 font-semibold text-blue-300">⚖️ 2. Auto (Recommended)</span>
-                        {planLevel === 'auto' && <span className="text-[10px] text-blue-400 font-mono">✓ Active</span>}
+                      <div className="flex items-center gap-2.5">
+                        <svg className="w-3.5 h-3.5 shrink-0 text-zinc-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"/></svg>
+                        <div>
+                          <div className="text-xs font-medium">Auto</div>
+                          <div className="text-[10px] text-zinc-500">Plan when needed</div>
+                        </div>
                       </div>
-                      <span className="text-[10px] text-zinc-400 font-normal">Plans for complex tasks, executes directly for simple ones.</span>
+                      {planLevel === 'auto' && (
+                        <svg className="w-3.5 h-3.5 text-zinc-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7"/></svg>
+                      )}
                     </button>
 
                     <button
@@ -1606,15 +1619,20 @@ export function ChatScreen({
                         setPlanLevel('strict');
                         setPlanDropdownOpen(false);
                       }}
-                      className={`w-full text-left p-2 rounded-lg transition-colors flex flex-col gap-0.5 cursor-pointer ${
-                        planLevel === 'strict' ? 'bg-white/10 text-white font-medium' : 'hover:bg-white/5 text-zinc-300'
+                      className={`w-full text-left p-2 rounded-lg transition-colors flex items-center justify-between cursor-pointer ${
+                        planLevel === 'strict' ? 'bg-white/10 text-white' : 'hover:bg-white/5 text-zinc-400 hover:text-zinc-200'
                       }`}
                     >
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="flex items-center gap-1.5 font-semibold text-purple-300">🔒 3. Strict Plan Lock</span>
-                        {planLevel === 'strict' && <span className="text-[10px] text-purple-400 font-mono">✓ Active</span>}
+                      <div className="flex items-center gap-2.5">
+                        <svg className="w-3.5 h-3.5 shrink-0 text-zinc-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/></svg>
+                        <div>
+                          <div className="text-xs font-medium">Plan</div>
+                          <div className="text-[10px] text-zinc-500">Require plan approval</div>
+                        </div>
                       </div>
-                      <span className="text-[10px] text-zinc-400 font-normal">All write tools locked until submitPlan is approved by you.</span>
+                      {planLevel === 'strict' && (
+                        <svg className="w-3.5 h-3.5 text-zinc-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7"/></svg>
+                      )}
                     </button>
                   </div>
                 </>

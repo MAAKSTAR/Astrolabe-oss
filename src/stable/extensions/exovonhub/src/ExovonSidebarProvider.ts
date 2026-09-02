@@ -772,11 +772,10 @@ Developer Action Request: "${finalPrompt}"
                 webviewView.webview.postMessage({ type: 'agentPlanUpdate', planSteps: update.planSteps, messageId });
               } else if (update.type === 'planReview') {
                 // Send plan to webview for user review
-                webviewView.webview.postMessage({ type: 'agentPlanReview', messageId });
                 const planMarkdown = (update as any).planMarkdown || '';
-
+                const planTitle = (update as any).title;
                 // Open the rich rendered implementation plan in a dedicated editor tab!
-                PlanViewerProvider.createOrShow(this._context, planMarkdown, this._activeOrchestrator);
+                PlanViewerProvider.createOrShow(this._context, planMarkdown, this._activeOrchestrator, planTitle);
 
                 // Update the Read-Only Document Provider & Comment Controller if active
                 if (this._planReviewProvider) {
@@ -842,14 +841,12 @@ Developer Action Request: "${finalPrompt}"
             resolveApproval(approved);
             this._pendingApprovals.delete(id);
             
-            if (!approved) {
-              vscode.window.showInputBox({
-                prompt: `Why are you rejecting the file changes to ${path.basename(filePath || 'this file')}? (Optional, press Enter to skip)`,
-                placeHolder: 'e.g. You missed an import, the variable is named wrong...'
-              }).then((reason) => {
-                const feedback = reason?.trim() || 'None provided';
-                const eventMsg = `[Environment Event: User rejected your last speculative file modification. Reason: ${feedback}. The shadow file has been reverted. Please ask the user for clarification if needed, and try again.]`;
-                webviewView.webview.postMessage({ type: 'injectRejectionFeedback', text: eventMsg });
+            if (!approved && filePath) {
+              this.revertShadowFile(filePath);
+              webviewView.webview.postMessage({
+                type: 'agentLog',
+                text: `Reverted speculative file changes to ${path.basename(filePath)}`,
+                logType: 'info'
               });
             }
           }

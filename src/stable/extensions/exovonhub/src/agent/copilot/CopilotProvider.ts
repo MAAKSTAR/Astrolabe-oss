@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { LlamaEngine } from './LlamaEngine';
+import { NeighborContextRetriever } from './NeighborContextRetriever';
 
 export class CopilotProvider implements vscode.InlineCompletionItemProvider {
   private engine: LlamaEngine;
@@ -49,14 +50,14 @@ export class CopilotProvider implements vscode.InlineCompletionItemProvider {
       return [];
     }
 
-    // Context Window: Grab top 1000 chars before, 200 chars after
+    // Context Window: Grab up to 100 lines before, 20 lines after
     const prefixRange = new vscode.Range(
-      new vscode.Position(Math.max(0, position.line - 50), 0),
+      new vscode.Position(Math.max(0, position.line - 100), 0),
       position
     );
     const suffixRange = new vscode.Range(
       position,
-      new vscode.Position(Math.min(document.lineCount - 1, position.line + 10), 1000)
+      new vscode.Position(Math.min(document.lineCount - 1, position.line + 20), 1000)
     );
 
     const prefix = document.getText(prefixRange);
@@ -66,15 +67,25 @@ export class CopilotProvider implements vscode.InlineCompletionItemProvider {
       return [];
     }
 
-    // Ask the engine for FIM completion
-    const completionText = await this.engine.getFimCompletion(prefix, suffix, token, document.languageId);
+    // Enrich prefix with Relative File Path header & Neighboring open tabs context (Jaccard similarity)
+    const relPath = vscode.workspace.asRelativePath(document.uri);
+    const neighborContext = NeighborContextRetriever.getNeighborContext(document, prefix);
+    const enrichedPrefix = `${neighborContext}// Path: ${relPath}\n${prefix}`;
 
-    if (!completionText || completionText.trim() === '') {
+    // Ask the engine for FIM completion
+    const fimResult = await this.engine.getFimCompletion(enrichedPrefix, suffix, token, document.languageId);
+
+    if (!fimResult || !fimResult.text || fimResult.text.trim() === '') {
       return [];
     }
 
+    // Determine replacement range (if a typo was detected, replace the preceding mistyped word)
+    const startPos = fimResult.replacePrefixChars > 0
+      ? new vscode.Position(position.line, Math.max(0, position.character - fimResult.replacePrefixChars))
+      : position;
+
     // Return the completion item
-    const item = new vscode.InlineCompletionItem(completionText, new vscode.Range(position, position));
+    const item = new vscode.InlineCompletionItem(fimResult.text, new vscode.Range(startPos, position));
     return [item];
   }
 }

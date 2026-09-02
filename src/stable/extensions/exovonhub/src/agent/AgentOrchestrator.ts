@@ -680,6 +680,17 @@ MANDATORY RULES:
         // Gather Exovon builtin tools
         let functionDeclarations: any[] = [
           {
+            name: 'listAvailableTools',
+            description: 'Main Introspection Tool: Lists all available tools in the IDE environment along with their categories, parameter schemas, and descriptions.',
+            parameters: {
+              type: 'OBJECT' as any,
+              properties: {
+                category: { type: 'STRING' as any, description: 'Optional category filter: "read", "write", "execution", "planning", "all"' }
+              },
+              required: []
+            }
+          },
+          {
                   name: 'listDir',
                   description: 'List directories and files in workspace',
                   parameters: {
@@ -837,10 +848,11 @@ MANDATORY RULES:
                 },
                 {
                   name: 'submitPlan',
-                  description: 'MANDATORY: Submit an implementation plan for user approval before making any file changes. The plan must be in markdown format listing files to modify and changes to make.',
+                  description: 'MANDATORY: Submit an implementation plan or design document for user approval before making any file changes. The plan must be in markdown format listing files to modify and changes to make.',
                   parameters: {
                     type: 'OBJECT' as any,
                     properties: {
+                      title: { type: 'STRING' as any, description: 'Optional custom title for this plan / design document (e.g. "PostgreSQL Schema Migration", "Auth Refactor Plan").' },
                       plan: { type: 'STRING' as any, description: 'Markdown-formatted implementation plan describing what files will be changed and why.' }
                     },
                     required: ['plan']
@@ -1078,11 +1090,66 @@ MANDATORY RULES:
             }
             
             const call = (callPart as any).functionCall;
-            if (!call.name || !call.args) { continue; }
+            if (!call || !call.name || !call.args) { continue; }
 
+            const rawToolName = call.name;
+            const toolAliasMap: Record<string, string> = {
+              submitplane: 'submitPlan',
+              submit_plane: 'submitPlan',
+              submit_plan: 'submitPlan',
+              submitplan: 'submitPlan',
+              editplan: 'submitPlan',
+              edit_plan: 'submitPlan',
+              editplane: 'submitPlan',
+              edit_plane: 'submitPlan',
+              updateplan: 'submitPlan',
+              update_plan: 'submitPlan',
+              updateplane: 'submitPlan',
+              update_plane: 'submitPlan',
+              modifyplan: 'submitPlan',
+              modify_plan: 'submitPlan',
+              list_dir: 'listDir',
+              listdir: 'listDir',
+              list_directory: 'listDir',
+              ls: 'listDir',
+              view_file: 'viewFile',
+              viewfile: 'viewFile',
+              read_file: 'viewFile',
+              readfile: 'viewFile',
+              create_file: 'createFile',
+              createfile: 'createFile',
+              write_file: 'createFile',
+              writefile: 'createFile',
+              delete_file: 'deleteFile',
+              deletefile: 'deleteFile',
+              remove_file: 'deleteFile',
+              apply_patch: 'applyPatch',
+              applypatch: 'applyPatch',
+              multi_replace_file_content: 'multiReplaceFileContent',
+              multireplacefilecontent: 'multiReplaceFileContent',
+              multireplace: 'multiReplaceFileContent',
+              run_command: 'runCommand',
+              runcommand: 'runCommand',
+              execute_command: 'runCommand',
+              grep_search: 'grepSearch',
+              grepsearch: 'grepSearch',
+              semantic_search: 'semanticSearch',
+              semanticsearch: 'semanticSearch',
+              search_web: 'searchWeb',
+              searchweb: 'searchWeb',
+              list_available_tools: 'listAvailableTools',
+              listavailabletools: 'listAvailableTools',
+              list_tools: 'listAvailableTools',
+              listtools: 'listAvailableTools',
+              getavailabletools: 'listAvailableTools',
+              get_available_tools: 'listAvailableTools',
+              help: 'listAvailableTools'
+            };
+            const lowerNoUnderscore = rawToolName.toLowerCase().replace(/[\-_]/g, '');
+            const toolName = toolAliasMap[lowerNoUnderscore] || toolAliasMap[rawToolName.toLowerCase()] || rawToolName;
+            
             // A2: Unified toolId — single variable used for both toolStart and toolComplete
             const toolId = `call_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-            const toolName = call.name;
             const toolArgs = JSON.stringify(call.args);
             totalToolsExecuted++;
             this.onUpdate({ type: 'toolStart', toolId, toolName, toolArgs });
@@ -1360,10 +1427,48 @@ MANDATORY RULES:
                     }
                   }
                 }
+              } else if (toolName === 'listAvailableTools') {
+                this.onUpdate({ type: 'log', text: '🛠️ Introspecting full IDE tool registry...', logType: 'info' });
+                const category = (call.args.category || 'all').toLowerCase();
+                const allToolInfo = [
+                  { name: 'listAvailableTools', category: 'introspection', description: 'Lists all available tools and their usage details.' },
+                  { name: 'listDir', category: 'read', description: 'Lists directories and files in workspace.' },
+                  { name: 'viewFile', category: 'read', description: 'Reads content or line ranges of any file.' },
+                  { name: 'grepSearch', category: 'read', description: 'Fast regex or exact text search across workspace files with ripgrep.' },
+                  { name: 'semanticSearch', category: 'read', description: 'AST-aware semantic code search across JS/TS/Python files.' },
+                  { name: 'queryGraph', category: 'read', description: 'Queries codebase symbol graph for callers and dependencies.' },
+                  { name: 'querySemanticVector', category: 'read', description: 'Vector similarity search across codebase embeddings.' },
+                  { name: 'getWorkspaceHash', category: 'read', description: 'Returns Merkle tree hash of workspace state.' },
+                  { name: 'searchWeb', category: 'read', description: 'Searches the internet for documentation and packages.' },
+                  { name: 'applyPatch', category: 'write', description: 'Speculative fast diff replacement for file modifications.' },
+                  { name: 'multiReplaceFileContent', category: 'write', description: 'Replaces multiple non-adjacent line blocks in a single file.' },
+                  { name: 'createFile', category: 'write', description: 'Creates a new file in workspace.' },
+                  { name: 'deleteFile', category: 'write', description: 'Deletes a file from workspace.' },
+                  { name: 'runCommand', category: 'execution', description: 'Executes terminal command in workspace root.' },
+                  { name: 'sendTerminalInput', category: 'execution', description: 'Sends interactive input to hanging terminal processes.' },
+                  { name: 'checkTerminalStatus', category: 'execution', description: 'Checks background terminal process output.' },
+                  { name: 'submitPlan', category: 'planning', description: 'Submits markdown implementation plan for user review before file modifications.' },
+                  { name: 'queryConstitution', category: 'planning', description: 'Queries workspace permanent rules.' },
+                  { name: 'updateConstitution', category: 'planning', description: 'Saves new permanent rules to workspace Constitution.' },
+                  { name: 'readCoordination', category: 'planning', description: 'Reads active half-work/placeholders.' },
+                  { name: 'updateCoordination', category: 'planning', description: 'Logs half-work for future sessions.' },
+                  { name: 'spawnSubAgent', category: 'agent', description: 'Spawns isolated sub-agent for parallel bounded tasks.' },
+                  { name: 'deployToExovonCloud', category: 'agent', description: 'Deploys workspace to Exovon Cloud.' },
+                  { name: 'openBrowserPreview', category: 'browser', description: 'Opens URL in VS Code Simple Browser.' },
+                  { name: 'highlightBrowserElement', category: 'browser', description: 'Highlights DOM element in live browser preview.' }
+                ];
+                const filtered = category === 'all' ? allToolInfo : allToolInfo.filter(t => t.category === category);
+                result = JSON.stringify({
+                  status: 'success',
+                  totalRegisteredTools: filtered.length,
+                  tools: filtered,
+                  mcpTools: this.mcpRouter.getTools().map(t => ({ name: t.name, description: t.description }))
+                }, null, 2);
               } else if (toolName === 'submitPlan') {
-                // C1+C2: Plan-Before-Execute — pause execution and wait for user approval
-                this.onUpdate({ type: 'log', text: '📋 Implementation plan submitted for your review...', logType: 'info' });
-                this.onUpdate({ type: 'planReview', planMarkdown: call.args.plan } as any);
+                const planContent = call.args.plan || call.args.content || call.args.markdown || call.args.planMarkdown || call.args.text || JSON.stringify(call.args);
+                const planTitle = call.args.title || undefined;
+                this.onUpdate({ type: 'log', text: `📋 Plan "${planTitle || 'Implementation Plan'}" submitted for your review...`, logType: 'info' });
+                this.onUpdate({ type: 'planReview', planMarkdown: planContent, title: planTitle } as any);
                 
                 const approvalResult = await new Promise<{ approved: boolean, feedback?: string }>((resolve) => {
                   this._planApprovalResolver = resolve;
@@ -1378,17 +1483,16 @@ MANDATORY RULES:
                 });
                 
                 if (approvalResult.approved) {
-                  this.onUpdate({ type: 'log', text: '✅ Plan approved! Executing...', logType: 'success' });
+                  this.onUpdate({ type: 'log', text: 'Plan approved. Executing changes...', logType: 'success' });
                   result = 'Plan approved by user. You may now proceed with the file modifications described in your plan.';
                 } else {
-                  this.onUpdate({ type: 'log', text: '❌ Plan rejected by user.', logType: 'warning' });
-                  completed = true; // Pause execution loop
-                  if (approvalResult.feedback) {
-                      this.onUpdate({ type: 'log', text: `⏸️ Agent paused. Feedback:\n"${approvalResult.feedback}"\n\nPlease reply to continue.`, logType: 'warning' });
-                      result = `Plan rejected by user with the following feedback:\n"${approvalResult.feedback}"\n\nPlease revise your plan according to this feedback and resubmit using the submitPlan tool.`;
+                  if (approvalResult.feedback && approvalResult.feedback.trim() !== 'User rejected the plan') {
+                    this.onUpdate({ type: 'log', text: `Plan revisions requested by user:\n"${approvalResult.feedback}"\n\nAgent is updating the plan...`, logType: 'info' });
+                    result = `The user reviewed your implementation plan and requested the following changes:\n"${approvalResult.feedback}"\n\nPlease update and resubmit your implementation plan using the submitPlan tool.`;
                   } else {
-                      this.onUpdate({ type: 'log', text: '⏸️ Agent paused. Please provide your feedback below to continue.', logType: 'warning' });
-                      result = 'Plan rejected by user. Please ask for clarification on what changes they would like, or revise your plan and resubmit.';
+                    this.onUpdate({ type: 'log', text: 'Plan rejected by user.', logType: 'warning' });
+                    completed = true;
+                    result = 'Plan rejected by user. Please ask for clarification or wait for further instructions.';
                   }
                 }
               } else if (toolName === 'spawnSubAgent') {
@@ -2382,7 +2486,7 @@ ${transcript.slice(-15000)}
 
     // --- PATTERN 5: Plain function call invocation (e.g. listDir(relativePath=".") or semanticSearch("query")) ---
     if (toolCalls.length === 0) {
-      const plainFuncRegex = /\b(listDir|viewFile|readFile|semanticSearch|grepSearch|applyPatch|createFile|deleteFile|submitPlan|runCommand|searchWeb)\s*\(([\s\S]*?)\)/gi;
+      const plainFuncRegex = /\b(listDir|viewFile|readFile|semanticSearch|grepSearch|applyPatch|multiReplaceFileContent|createFile|deleteFile|submitPlan|editPlan|updatePlan|submitPlane|editPlane|updatePlane|runCommand|searchWeb|queryConstitution|updateConstitution|queryGraph|querySemanticVector|readCoordination|updateCoordination|spawnSubAgent|deployToExovonCloud|openBrowserPreview|highlightBrowserElement|getWorkspaceHash|sendTerminalInput|checkTerminalStatus|listAvailableTools)\s*\(([\s\S]*?)\)/gi;
       while ((match = plainFuncRegex.exec(cleanedText)) !== null) {
         const name = match[1];
         const argsStr = match[2].trim();
@@ -2394,10 +2498,24 @@ ${transcript.slice(-15000)}
             toolCalls.push({ name, args: { relativePath: rawVal || '.' } });
           } else if (name === 'viewFile' || name === 'readFile') {
             toolCalls.push({ name, args: { relativePath: rawVal } });
-          } else if (name === 'submitPlan') {
-            toolCalls.push({ name, args: { plan: rawVal } });
+          } else if (name === 'submitPlan' || name === 'editPlan' || name === 'updatePlan' || name === 'submitPlane' || name === 'editPlane' || name === 'updatePlane') {
+            toolCalls.push({ name: 'submitPlan', args: { plan: rawVal } });
           } else if (name === 'runCommand') {
             toolCalls.push({ name, args: { command: rawVal } });
+          } else if (name === 'queryConstitution') {
+            toolCalls.push({ name, args: { topic: rawVal } });
+          } else if (name === 'queryGraph') {
+            toolCalls.push({ name, args: { symbolName: rawVal } });
+          } else if (name === 'querySemanticVector') {
+            toolCalls.push({ name, args: { concept: rawVal } });
+          } else if (name === 'spawnSubAgent') {
+            toolCalls.push({ name, args: { taskDescription: rawVal } });
+          } else if (name === 'openBrowserPreview') {
+            toolCalls.push({ name, args: { url: rawVal } });
+          } else if (name === 'highlightBrowserElement') {
+            toolCalls.push({ name, args: { selector: rawVal } });
+          } else {
+            toolCalls.push({ name, args: parseArgs(argsStr, name) });
           }
         } else {
           toolCalls.push({ name, args: parseArgs(argsStr, name) });

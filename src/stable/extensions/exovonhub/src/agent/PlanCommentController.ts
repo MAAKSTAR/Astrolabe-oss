@@ -61,7 +61,6 @@ export class PlanCommentController {
         
         // Let the orchestrator know that the plan is rejected with feedback
         if (this.activeOrchestrator) {
-            vscode.window.showInformationMessage('Sent feedback to Exovon. Rewriting plan...');
             this.activeOrchestrator.resolvePlanApproval(false, feedbackText);
             
             // Clean up the thread since the plan will be refreshed anyway

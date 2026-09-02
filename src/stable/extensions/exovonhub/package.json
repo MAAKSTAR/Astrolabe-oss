@@ -18,7 +18,12 @@
     "Other"
   ],
   "activationEvents": [
-    "onStartupFinished"
+    "*",
+    "onStartupFinished",
+    "onCommand:exovonhub.openSidebar",
+    "onCommand:exovon.openSettings",
+    "onCommand:exovon.openHistory",
+    "onView:exovonhub.sidebar"
   ],
   "main": "./dist/extension.js",
   "contributes": {

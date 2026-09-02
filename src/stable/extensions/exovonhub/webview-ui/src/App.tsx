@@ -535,7 +535,7 @@ export default function App() {
                 ? { 
                     ...msg, 
                     isPlanReview: false, 
-                    text: message.approved ? '✔️ Plan was approved and executed.' : '❌ Implementation Plan was rejected.'
+                    text: message.approved ? 'Plan approved and executed.' : 'Implementation Plan was rejected.'
                   } 
                 : msg
             )
@@ -674,7 +674,7 @@ export default function App() {
             {
               id: message.id,
               sender: 'agent',
-              text: `⚠️ Host terminal command requires your review and explicit approval:`,
+              text: `Host terminal command requires your review and explicit approval:`,
               timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
               isCommandApproval: true,
               approvalId: message.id,
@@ -689,7 +689,7 @@ export default function App() {
             {
               id: message.id,
               sender: 'agent',
-              text: `⚠️ Workspace file action requires your review and explicit approval:`,
+              text: `Workspace file action requires your review and explicit approval:`,
               timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
               isFileApproval: true,
               approvalId: message.id,
@@ -811,57 +811,6 @@ export default function App() {
             vscodeApi.postMessage({ command: 'toggleAutonomousModeNative' });
           }
           break;
-        case 'injectRejectionFeedback': {
-          const userMsgId = Date.now().toString() + '-rej';
-          
-          setMessages(prev => {
-            const userMsg = {
-              id: userMsgId,
-              sender: 'user' as 'user' | 'agent',
-              text: message.text,
-              timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-            };
-            return [...prev, userMsg];
-          });
-          
-          // Trigger a silent send immediately
-          setTimeout(() => {
-            if (vscodeApi) {
-              setMessages(prev => {
-                 const agentId = Date.now().toString() + '-agent';
-                 const agentPlaceholderMsg = {
-                   id: agentId,
-                   sender: 'agent' as 'user' | 'agent',
-                   text: '',
-                   timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                   startTime: Date.now()
-                 };
-                 
-                 // Collect history to send
-                 const msgHistory = [...prev, agentPlaceholderMsg];
-                 
-                 // Filter out timeline fields for history
-                 const cleanHistory = msgHistory.filter(m => m.id !== agentId).map(m => ({
-                    role: m.sender,
-                    parts: [{ text: m.text }]
-                 }));
-
-                 setIsAgentThinking(true);
-                 
-                 vscodeApi.postMessage({
-                   command: 'initiateAgent',
-                   mode: 'architect',
-                   prompt: message.text,
-                   previousMessages: cleanHistory,
-                   messageId: agentId
-                 });
-                 
-                 return msgHistory;
-              });
-            }
-          }, 100);
-          break;
-        }
       }
     };
 
