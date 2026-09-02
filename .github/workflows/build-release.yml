@@ -108,11 +108,15 @@ jobs:
           # Inject Astrolabe product branding & identity
           cp product.json dist-linux/astrolabe/resources/app/product.json
           
-          # Inject compiled ExovonHub extension (code + webview-ui + themes + media)
+          # Brand resources/app/package.json name as astrolabe
+          sed -i '0,/"name": "VSCodium"/{s/"name": "VSCodium"/"name": "astrolabe"/}' dist-linux/astrolabe/resources/app/package.json
+          
+          # Inject compiled ExovonHub extension (code + webview-ui + themes + media + node_modules)
           mkdir -p dist-linux/astrolabe/resources/app/extensions/exovonhub/webview-ui
           cp -r src/stable/extensions/exovonhub/package.json dist-linux/astrolabe/resources/app/extensions/exovonhub/
           cp -r src/stable/extensions/exovonhub/dist dist-linux/astrolabe/resources/app/extensions/exovonhub/
           cp -r src/stable/extensions/exovonhub/webview-ui/dist dist-linux/astrolabe/resources/app/extensions/exovonhub/webview-ui/
+          cp -r src/stable/extensions/exovonhub/node_modules dist-linux/astrolabe/resources/app/extensions/exovonhub/
           if [ -d "src/stable/extensions/exovonhub/themes" ]; then
             cp -r src/stable/extensions/exovonhub/themes dist-linux/astrolabe/resources/app/extensions/exovonhub/
           fi
@@ -125,8 +129,8 @@ jobs:
           cp -r icons dist-linux/astrolabe/
           cp icons/stable/astrolabe.png dist-linux/astrolabe/astrolabe.png
           mkdir -p dist-linux/astrolabe/resources/linux dist-linux/astrolabe/resources/app/resources/linux
-          cp icons/stable/astrolabe.png dist-linux/astrolabe/resources/linux/code.png 2>/dev/null || true
-          cp icons/stable/astrolabe.png dist-linux/astrolabe/resources/app/resources/linux/code.png 2>/dev/null || true
+          cp -f icons/stable/astrolabe.png dist-linux/astrolabe/resources/linux/code.png 2>/dev/null || true
+          cp -f icons/stable/astrolabe.png dist-linux/astrolabe/resources/app/resources/linux/code.png 2>/dev/null || true
           
           # Inject Astrolabe SVG icons & empty-screen watermarks into workbench
           python3 -c "
@@ -156,7 +160,7 @@ jobs:
           fi
           
           # Generate astrolabe.desktop file for Linux dock/taskbar integration
-          printf "[Desktop Entry]\nName=Astrolabe IDE\nComment=The Sovereign AI-Native IDE\nGenericName=Text Editor\nExec=/usr/share/astrolabe/astrolabe %%F\nIcon=astrolabe\nType=Application\nStartupNotify=false\nStartupWMClass=Astrolabe\nCategories=TextEditor;Development;IDE;\nMimeType=text/plain;inode/directory;\nActions=new-empty-window;\nKeywords=astrolabe;codium;vscode;ide;ai;\n\n[Desktop Action new-empty-window]\nName=New Empty Window\nExec=/usr/share/astrolabe/astrolabe --new-window %%F\nIcon=astrolabe\n" > dist-linux/astrolabe/astrolabe.desktop
+          printf "[Desktop Entry]\nName=Astrolabe IDE\nComment=The Sovereign AI-Native IDE\nGenericName=Text Editor\nExec=/usr/share/astrolabe/astrolabe %%F\nIcon=astrolabe\nType=Application\nStartupNotify=false\nStartupWMClass=astrolabe\nCategories=TextEditor;Development;IDE;\nMimeType=text/plain;inode/directory;\nActions=new-empty-window;\nKeywords=astrolabe;codium;vscode;ide;ai;\n\n[Desktop Action new-empty-window]\nName=New Empty Window\nExec=/usr/share/astrolabe/astrolabe --new-window %%F\nIcon=astrolabe\n" > dist-linux/astrolabe/astrolabe.desktop
           cp dist-linux/astrolabe/astrolabe.desktop dist-linux/astrolabe/resources/linux/code.desktop 2>/dev/null || true
           cp dist-linux/astrolabe/astrolabe.desktop dist-linux/astrolabe/resources/app/resources/linux/code.desktop 2>/dev/null || true
 
@@ -260,11 +264,15 @@ jobs:
           # Inject Astrolabe product branding
           Copy-Item "product.json" "dist-win\astrolabe\resources\app\product.json" -Force
 
-          # Inject compiled ExovonHub extension (code + webview-ui + themes + media)
+          # Brand resources/app/package.json name as astrolabe
+          (Get-Content "dist-win\astrolabe\resources\app\package.json") -replace '"name":\s*"VSCodium"', '"name": "astrolabe"' | Set-Content "dist-win\astrolabe\resources\app\package.json"
+
+          # Inject compiled ExovonHub extension (code + webview-ui + themes + media + node_modules)
           New-Item -ItemType Directory -Path "dist-win\astrolabe\resources\app\extensions\exovonhub\webview-ui" -Force | Out-Null
           Copy-Item "src\stable\extensions\exovonhub\package.json" "dist-win\astrolabe\resources\app\extensions\exovonhub\" -Force
           Copy-Item -Recurse "src\stable\extensions\exovonhub\dist" "dist-win\astrolabe\resources\app\extensions\exovonhub\" -Force
           Copy-Item -Recurse "src\stable\extensions\exovonhub\webview-ui\dist" "dist-win\astrolabe\resources\app\extensions\exovonhub\webview-ui\" -Force
+          Copy-Item -Recurse "src\stable\extensions\exovonhub\node_modules" "dist-win\astrolabe\resources\app\extensions\exovonhub\" -Force
           if (Test-Path "src\stable\extensions\exovonhub\themes") {
             Copy-Item -Recurse "src\stable\extensions\exovonhub\themes" "dist-win\astrolabe\resources\app\extensions\exovonhub\" -Force
           }

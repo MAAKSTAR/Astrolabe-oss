@@ -1362,22 +1362,21 @@ Developer Action Request: "${finalPrompt}"
     const baseUri = vscode.Uri.joinPath(this._context.extensionUri, 'webview-ui', 'dist');
 
     // Rewrite all attributes starting with absolute or relative paths like src="/assets/index.js" or href="./assets/index.css"
-    // to their corresponding webview-safe URIs and append a cache-buster
-    const cacheBuster = `?v=${Date.now()}`;
+    // to their corresponding webview-safe URIs
     let webviewHtml = htmlContent.replace(
       /(href|src)="(?:\.\/|\/)?(assets\/[^"]+|favicon\.svg[^"]*)"/g,
       (match, attr, assetPath) => {
         const assetUri = vscode.Uri.joinPath(baseUri, assetPath);
         const webviewUri = webview.asWebviewUri(assetUri);
-        return `${attr}="${webviewUri}${cacheBuster}"`;
+        return `${attr}="${webviewUri}"`;
       }
     );
 
     // Strip crossorigin attributes which can cause load blocks in Webviews due to protocol restrictions
     webviewHtml = webviewHtml.replace(/\scrossorigin(="")?/g, '');
 
-    // Inject compatible CSP meta tag
-    const cspMeta = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src ${webview.cspSource} 'unsafe-inline'; img-src ${webview.cspSource} https: data:; connect-src ${webview.cspSource} https:;">`;
+    // Inject compatible CSP meta tag supporting fonts and scripts
+    const cspMeta = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline' https:; font-src ${webview.cspSource} https: data:; script-src ${webview.cspSource} 'unsafe-inline' 'unsafe-eval'; img-src ${webview.cspSource} https: data:; connect-src ${webview.cspSource} https: ws:;">`;
     webviewHtml = webviewHtml.replace('<head>', `<head>\n    ${cspMeta}`);
 
     return webviewHtml;

@@ -13,16 +13,27 @@ echo "================================================================="
 echo " 🚀 Launching Astrolabe in 100% Isolated Virtual Machine / Sandbox"
 echo "================================================================="
 
-rm -rf "$ISOLATED_ROOT"
-mkdir -p "$ISOLATED_ROOT/home/user"
+REAL_SOURCE="$(realpath "$PACKAGE_ARCHIVE")"
+if [[ "$REAL_SOURCE" != "$ISOLATED_ROOT"* ]]; then
+    rm -rf "$ISOLATED_ROOT"
+fi
+
+mkdir -p "$ISOLATED_ROOT/home/user/.local/share/applications"
+mkdir -p "$ISOLATED_ROOT/home/user/.local/share/icons/hicolor/512x512/apps"
 mkdir -p "$ISOLATED_ROOT/tmp/runtime"
 chmod 700 "$ISOLATED_ROOT/tmp/runtime"
 mkdir -p "$ISOLATED_ROOT/app"
 
+if [[ "$PACKAGE_ARCHIVE" =~ ^https?:// ]]; then
+    echo "==> Downloading $PACKAGE_ARCHIVE into isolated container..."
+    curl -L --progress-bar "$PACKAGE_ARCHIVE" -o "$ISOLATED_ROOT/package.tar.gz"
+    PACKAGE_ARCHIVE="$ISOLATED_ROOT/package.tar.gz"
+fi
+
 if [ -f "$PACKAGE_ARCHIVE" ]; then
     echo "==> Extracting $PACKAGE_ARCHIVE into isolated container..."
     tar -xzf "$PACKAGE_ARCHIVE" -C "$ISOLATED_ROOT/app"
-elif [ -d "$PACKAGE_ARCHIVE" ]; then
+elif [ -d "$PACKAGE_ARCHIVE" ] && [[ "$REAL_SOURCE" != "$ISOLATED_ROOT"* ]]; then
     echo "==> Copying app directory into isolated container..."
     mkdir -p "$ISOLATED_ROOT/app/astrolabe"
     cp -r "$PACKAGE_ARCHIVE"/* "$ISOLATED_ROOT/app/astrolabe/"

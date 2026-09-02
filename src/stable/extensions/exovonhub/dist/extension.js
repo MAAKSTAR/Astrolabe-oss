@@ -69,12 +69,13 @@ async function activate(context) {
         DaemonManager_1.DaemonManager.getInstance().startDaemon(context).catch(e => {
             console.warn('Initial daemon startup:', e);
         });
-        // Auto-set default theme on first run
+        // Auto-set default theme on first run (non-blocking)
         const isFirstRun = context.globalState.get('astrolabe.isFirstThemeRun', true);
         if (isFirstRun) {
             const config = vscode.workspace.getConfiguration('workbench');
-            await config.update('colorTheme', 'Astrolabe Deep Space', vscode.ConfigurationTarget.Global);
-            await context.globalState.update('astrolabe.isFirstThemeRun', false);
+            config.update('colorTheme', 'Astrolabe Deep Space', vscode.ConfigurationTarget.Global)
+                .then(() => context.globalState.update('astrolabe.isFirstThemeRun', false))
+                .then(undefined, () => { });
         }
         // Initialize Auth Service
         authService = new AuthService_1.AuthService(context);
@@ -1846,17 +1847,16 @@ Developer Action Request: "${finalPrompt}"
         }
         const baseUri = vscode.Uri.joinPath(this._context.extensionUri, 'webview-ui', 'dist');
         // Rewrite all attributes starting with absolute or relative paths like src="/assets/index.js" or href="./assets/index.css"
-        // to their corresponding webview-safe URIs and append a cache-buster
-        const cacheBuster = `?v=${Date.now()}`;
+        // to their corresponding webview-safe URIs
         let webviewHtml = htmlContent.replace(/(href|src)="(?:\.\/|\/)?(assets\/[^"]+|favicon\.svg[^"]*)"/g, (match, attr, assetPath) => {
             const assetUri = vscode.Uri.joinPath(baseUri, assetPath);
             const webviewUri = webview.asWebviewUri(assetUri);
-            return `${attr}="${webviewUri}${cacheBuster}"`;
+            return `${attr}="${webviewUri}"`;
         });
         // Strip crossorigin attributes which can cause load blocks in Webviews due to protocol restrictions
         webviewHtml = webviewHtml.replace(/\scrossorigin(="")?/g, '');
-        // Inject compatible CSP meta tag
-        const cspMeta = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src ${webview.cspSource} 'unsafe-inline'; img-src ${webview.cspSource} https: data:; connect-src ${webview.cspSource} https:;">`;
+        // Inject compatible CSP meta tag supporting fonts and scripts
+        const cspMeta = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline' https:; font-src ${webview.cspSource} https: data:; script-src ${webview.cspSource} 'unsafe-inline' 'unsafe-eval'; img-src ${webview.cspSource} https: data:; connect-src ${webview.cspSource} https: ws:;">`;
         webviewHtml = webviewHtml.replace('<head>', `<head>\n    ${cspMeta}`);
         return webviewHtml;
     }
@@ -48605,20 +48605,29 @@ class DaemonManager {
         }
         this.isStarting = true;
         try {
+            const isWin = process.platform === 'win32';
+            const binName = isWin ? 'exovon-daemon.exe' : 'exovon-daemon';
             const candidatePaths = [
                 process.env.ASTROLABE_DAEMON_PATH || '',
-                path.join(vscode.env.appRoot, 'bin', 'exovon-daemon'),
-                path.join(vscode.env.appRoot, 'resources', 'app', 'bin', 'exovon-daemon'),
-                path.join(context.extensionPath, 'bin', 'exovon-daemon'),
-                path.resolve(__dirname, '../../../daemon/target/release/exovon-daemon'),
-                path.resolve(__dirname, '../../../../daemon/target/release/exovon-daemon'),
-                '/run/media/maakstar/c/vscodium/daemon/target/release/exovon-daemon',
-                path.join(context.extensionPath, '..', 'exovon-daemon', 'target', 'release', 'exovon-daemon'),
-                '/home/maakstar/EXOVON_ECOSYSTEM/exovon-daemon/target/release/exovon-daemon',
-                path.join(context.extensionPath, '..', 'exovon-daemon', 'target', 'debug', 'exovon-daemon'),
-                '/home/maakstar/EXOVON_ECOSYSTEM/exovon-daemon/target/debug/exovon-daemon'
+                path.join(vscode.env.appRoot, 'daemon', binName),
+                path.join(vscode.env.appRoot, '..', 'daemon', binName),
+                path.join(vscode.env.appRoot, 'resources', 'app', 'daemon', binName),
+                path.join(vscode.env.appRoot, 'bin', binName),
+                path.join(context.extensionPath, '..', '..', 'daemon', binName),
+                path.join(context.extensionPath, '..', '..', '..', 'daemon', binName),
+                path.join(context.extensionPath, 'daemon', binName),
+                path.join(context.extensionPath, 'bin', binName),
+                path.resolve(__dirname, '../../../daemon/target/release', binName),
+                path.resolve(__dirname, '../../../../daemon/target/release', binName),
+                '/run/media/maakstar/c/vscodium/daemon/target/release/' + binName,
+                '/home/maakstar/EXOVON_ECOSYSTEM/exovon-daemon/target/release/' + binName
             ].filter(Boolean);
-            let daemonPath = candidatePaths.find(p => fs.existsSync(p)) || candidatePaths[candidatePaths.length - 1];
+            let daemonPath = candidatePaths.find(p => fs.existsSync(p));
+            if (!daemonPath) {
+                console.warn('[DaemonManager] Daemon binary not found in candidate paths. Operating in remote/offline mode.');
+                this.isStarting = false;
+                return false;
+            }
             const config = vscode.workspace.getConfiguration('exovonhub');
             const customModelsDir = config.get('localModelsDirectory');
             const args = customModelsDir && customModelsDir.trim() !== '' ? ['--models-dir', customModelsDir.trim()] : [];
@@ -50085,14 +50094,26 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.BrainCoordinator = void 0;
 const vscode = __importStar(__webpack_require__(1));
-const better_sqlite3_1 = __importDefault(__webpack_require__(285));
-const sqliteVec = __importStar(__webpack_require__(286));
-const worker_threads_1 = __webpack_require__(287);
+const worker_threads_1 = __webpack_require__(285);
 const path = __importStar(__webpack_require__(3));
 const fs = __importStar(__webpack_require__(2));
-const os_1 = __importDefault(__webpack_require__(288));
+const os_1 = __importDefault(__webpack_require__(286));
 const crypto = __importStar(__webpack_require__(27));
-const GraphIndexer_1 = __webpack_require__(289);
+const GraphIndexer_1 = __webpack_require__(287);
+let DatabaseConstructor = null;
+let sqliteVecModule = null;
+try {
+    DatabaseConstructor = __webpack_require__(288);
+}
+catch (e) {
+    console.warn('[Astrolabe Brain] better-sqlite3 native driver not loaded:', e?.message || e);
+}
+try {
+    sqliteVecModule = __webpack_require__(289);
+}
+catch (e) {
+    console.warn('[Astrolabe Brain] sqlite-vec not loaded:', e?.message || e);
+}
 function fnv1a32(str) {
     let hash = 0x811c9dc5;
     for (let i = 0; i < str.length; i++) {
@@ -50125,13 +50146,26 @@ class BrainCoordinator {
         this.onSyncStateChange = onSyncStateChange;
         const storagePath = context.storageUri?.fsPath || context.globalStorageUri.fsPath;
         this.dbPath = path.join(storagePath, '.exovon_brain.db');
+        if (!DatabaseConstructor) {
+            this.lastError = 'better-sqlite3 native driver not available in current Node/Electron ABI';
+            this.status = 'failed';
+            this.db = {
+                prepare: () => ({ get: () => null, all: () => [], run: () => { } }),
+                exec: () => { },
+                transaction: (fn) => fn,
+                pragma: () => { }
+            };
+            return;
+        }
         try {
             // Ensure directory exists
             if (!fs.existsSync(storagePath)) {
                 fs.mkdirSync(storagePath, { recursive: true });
             }
-            this.db = new better_sqlite3_1.default(this.dbPath);
-            sqliteVec.load(this.db);
+            this.db = new DatabaseConstructor(this.dbPath);
+            if (sqliteVecModule && typeof sqliteVecModule.load === 'function') {
+                sqliteVecModule.load(this.db);
+            }
             // Concurrency optimization
             this.db.pragma('journal_mode = WAL');
             this.db.pragma('busy_timeout = 5000');
@@ -50142,7 +50176,17 @@ class BrainCoordinator {
             this.status = 'failed';
             console.error('Brain initialization failed:', err);
             // Fallback in-memory database to prevent crashes
-            this.db = new better_sqlite3_1.default(':memory:');
+            try {
+                this.db = new DatabaseConstructor(':memory:');
+            }
+            catch {
+                this.db = {
+                    prepare: () => ({ get: () => null, all: () => [], run: () => { } }),
+                    exec: () => { },
+                    transaction: (fn) => fn,
+                    pragma: () => { }
+                };
+            }
         }
         // Delta Cache Version Control
         const CURRENT_ENGINE_VERSION = '1.0.0';
@@ -51269,31 +51313,17 @@ exports.BrainCoordinator = BrainCoordinator;
 /***/ ((module) => {
 
 "use strict";
-module.exports = require("better-sqlite3");
+module.exports = require("worker_threads");
 
 /***/ }),
 /* 286 */
 /***/ ((module) => {
 
 "use strict";
-module.exports = require("sqlite-vec");
-
-/***/ }),
-/* 287 */
-/***/ ((module) => {
-
-"use strict";
-module.exports = require("worker_threads");
-
-/***/ }),
-/* 288 */
-/***/ ((module) => {
-
-"use strict";
 module.exports = require("os");
 
 /***/ }),
-/* 289 */
+/* 287 */
 /***/ ((__unused_webpack_module, exports) => {
 
 "use strict";
@@ -51342,6 +51372,20 @@ class GraphIndexer {
 }
 exports.GraphIndexer = GraphIndexer;
 
+
+/***/ }),
+/* 288 */
+/***/ ((module) => {
+
+"use strict";
+module.exports = require("better-sqlite3");
+
+/***/ }),
+/* 289 */
+/***/ ((module) => {
+
+"use strict";
+module.exports = require("sqlite-vec");
 
 /***/ }),
 /* 290 */
@@ -52624,7 +52668,7 @@ exports.MotionCompiler = MotionCompiler;
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.processMotionCompile = processMotionCompile;
-const worker_threads_1 = __webpack_require__(287);
+const worker_threads_1 = __webpack_require__(285);
 const MotionIR_1 = __webpack_require__(301);
 const InsertionResolver_1 = __webpack_require__(302);
 const MotionEmitter_1 = __webpack_require__(303);

@@ -1,6 +1,4 @@
 import * as vscode from 'vscode';
-import Database from 'better-sqlite3';
-import * as sqliteVec from 'sqlite-vec';
 import { Worker } from 'worker_threads';
 import * as path from 'path';
 import * as fs from 'fs';
@@ -8,6 +6,21 @@ import os from 'os';
 import * as crypto from 'crypto';
 import { GraphIndexer } from './GraphIndexer';
 import { IBrainCoordinator, GovernorStatus } from '../types/shared';
+
+let DatabaseConstructor: any = null;
+let sqliteVecModule: any = null;
+
+try {
+  DatabaseConstructor = require('better-sqlite3');
+} catch (e: any) {
+  console.warn('[Astrolabe Brain] better-sqlite3 native driver not loaded:', e?.message || e);
+}
+
+try {
+  sqliteVecModule = require('sqlite-vec');
+} catch (e: any) {
+  console.warn('[Astrolabe Brain] sqlite-vec not loaded:', e?.message || e);
+}
 
 function fnv1a32(str: string): number {
   let hash = 0x811c9dc5;
@@ -19,7 +32,7 @@ function fnv1a32(str: string): number {
 }
 
 export class BrainCoordinator implements IBrainCoordinator {
-  public db: Database.Database;
+  public db: any;
   public dbPath: string;
   public lastError: string | null = null;
   public status: 'idle' | 'indexing' | 'ready' | 'failed' = 'idle';
@@ -43,14 +56,28 @@ export class BrainCoordinator implements IBrainCoordinator {
     const storagePath = context.storageUri?.fsPath || context.globalStorageUri.fsPath;
     this.dbPath = path.join(storagePath, '.exovon_brain.db');
     
+    if (!DatabaseConstructor) {
+      this.lastError = 'better-sqlite3 native driver not available in current Node/Electron ABI';
+      this.status = 'failed';
+      this.db = {
+        prepare: () => ({ get: () => null, all: () => [], run: () => {} }),
+        exec: () => {},
+        transaction: (fn: any) => fn,
+        pragma: () => {}
+      };
+      return;
+    }
+
     try {
       // Ensure directory exists
       if (!fs.existsSync(storagePath)) {
         fs.mkdirSync(storagePath, { recursive: true });
       }
 
-      this.db = new Database(this.dbPath);
-      sqliteVec.load(this.db);
+      this.db = new DatabaseConstructor(this.dbPath);
+      if (sqliteVecModule && typeof sqliteVecModule.load === 'function') {
+        sqliteVecModule.load(this.db);
+      }
 
       // Concurrency optimization
       this.db.pragma('journal_mode = WAL');
@@ -61,7 +88,16 @@ export class BrainCoordinator implements IBrainCoordinator {
       this.status = 'failed';
       console.error('Brain initialization failed:', err);
       // Fallback in-memory database to prevent crashes
-      this.db = new Database(':memory:');
+      try {
+        this.db = new DatabaseConstructor(':memory:');
+      } catch {
+        this.db = {
+          prepare: () => ({ get: () => null, all: () => [], run: () => {} }),
+          exec: () => {},
+          transaction: (fn: any) => fn,
+          pragma: () => {}
+        };
+      }
     }
 
     // Delta Cache Version Control

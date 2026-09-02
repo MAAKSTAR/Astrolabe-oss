@@ -32,12 +32,13 @@ export async function activate(context: vscode.ExtensionContext) {
 		console.warn('Initial daemon startup:', e);
 	});
 
-	// Auto-set default theme on first run
+	// Auto-set default theme on first run (non-blocking)
 	const isFirstRun = context.globalState.get<boolean>('astrolabe.isFirstThemeRun', true);
 	if (isFirstRun) {
 		const config = vscode.workspace.getConfiguration('workbench');
-		await config.update('colorTheme', 'Astrolabe Deep Space', vscode.ConfigurationTarget.Global);
-		await context.globalState.update('astrolabe.isFirstThemeRun', false);
+		config.update('colorTheme', 'Astrolabe Deep Space', vscode.ConfigurationTarget.Global)
+			.then(() => context.globalState.update('astrolabe.isFirstThemeRun', false))
+			.then(undefined, () => {});
 	}
 
 	// Initialize Auth Service
