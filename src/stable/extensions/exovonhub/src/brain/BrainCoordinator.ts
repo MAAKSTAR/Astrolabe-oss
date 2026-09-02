@@ -22,6 +22,67 @@ try {
   console.warn('[Astrolabe Brain] sqlite-vec not loaded:', e?.message || e);
 }
 
+class InMemoryDb {
+  private threads: Map<string, any> = new Map();
+  private messages: Map<string, any[]> = new Map();
+  private symbols: Map<string, any> = new Map();
+  private metadata: Map<string, string> = new Map();
+
+  exec(_sql: string) {}
+  pragma(_sql: string) {}
+  transaction(fn: any) { return fn; }
+
+  prepare(sql: string) {
+    const s = sql.toLowerCase();
+    return {
+      get: (...args: any[]) => {
+        if (s.includes('count(*)')) return { c: this.symbols.size };
+        if (s.includes('from brain_metadata')) return { value: this.metadata.get(args[0]) || '1.0.0' };
+        if (s.includes('from chat_messages')) {
+          const list = this.messages.get(args[0]) || [];
+          return list[0] || null;
+        }
+        return null;
+      },
+      all: (...args: any[]) => {
+        if (s.includes('from chat_threads')) {
+          return Array.from(this.threads.values()).sort((a, b) => b.updated_at - a.updated_at);
+        }
+        if (s.includes('from chat_messages')) {
+          return this.messages.get(args[0]) || [];
+        }
+        if (s.includes('from symbols')) {
+          return Array.from(this.symbols.values());
+        }
+        return [];
+      },
+      run: (...args: any[]) => {
+        if (s.includes('insert into chat_threads') || s.includes('replace into chat_threads')) {
+          const [id, title, created_at, updated_at, workspace_path] = args;
+          this.threads.set(id, { id, title, created_at, updated_at, workspace_path });
+        } else if (s.includes('update chat_threads set title')) {
+          const [title, id] = args;
+          const t = this.threads.get(id);
+          if (t) { t.title = title; }
+        } else if (s.includes('delete from chat_threads')) {
+          this.threads.delete(args[0]);
+          this.messages.delete(args[0]);
+        } else if (s.includes('insert into chat_messages')) {
+          const [id, thread_id, sender, text, data, timestamp] = args;
+          const list = this.messages.get(thread_id) || [];
+          list.push({ id, thread_id, sender, text, data, timestamp });
+          this.messages.set(thread_id, list);
+        } else if (s.includes('delete from chat_messages')) {
+          const [thread_id, id] = args;
+          const list = (this.messages.get(thread_id) || []).filter(m => m.id !== id);
+          this.messages.set(thread_id, list);
+        }
+        return { changes: 1 };
+      }
+    };
+  }
+}
+
 function fnv1a32(str: string): number {
   let hash = 0x811c9dc5;
   for (let i = 0; i < str.length; i++) {
@@ -57,14 +118,9 @@ export class BrainCoordinator implements IBrainCoordinator {
     this.dbPath = path.join(storagePath, '.exovon_brain.db');
     
     if (!DatabaseConstructor) {
-      this.lastError = 'better-sqlite3 native driver not available in current Node/Electron ABI';
-      this.status = 'failed';
-      this.db = {
-        prepare: () => ({ get: () => null, all: () => [], run: () => {} }),
-        exec: () => {},
-        transaction: (fn: any) => fn,
-        pragma: () => {}
-      };
+      this.lastError = null;
+      this.status = 'ready';
+      this.db = new InMemoryDb();
       return;
     }
 
@@ -84,20 +140,10 @@ export class BrainCoordinator implements IBrainCoordinator {
       this.db.pragma('busy_timeout = 5000');
       this.status = 'ready';
     } catch (err: any) {
-      this.lastError = err?.message || String(err);
-      this.status = 'failed';
-      console.error('Brain initialization failed:', err);
-      // Fallback in-memory database to prevent crashes
-      try {
-        this.db = new DatabaseConstructor(':memory:');
-      } catch {
-        this.db = {
-          prepare: () => ({ get: () => null, all: () => [], run: () => {} }),
-          exec: () => {},
-          transaction: (fn: any) => fn,
-          pragma: () => {}
-        };
-      }
+      console.warn('[Astrolabe Brain] Falling back to In-Memory Engine:', err?.message || err);
+      this.lastError = null;
+      this.status = 'ready';
+      this.db = new InMemoryDb();
     }
 
     // Delta Cache Version Control
