@@ -111,6 +111,14 @@ jobs:
           # Brand resources/app/package.json name as astrolabe
           sed -i '0,/"name": "VSCodium"/{s/"name": "VSCodium"/"name": "astrolabe"/}' dist-linux/astrolabe/resources/app/package.json
           
+          # Clean node_modules symlinks
+          rm -rf src/stable/extensions/exovonhub/node_modules/.bin
+          rm -rf src/stable/extensions/exovonhub/node_modules/@exovon
+          mkdir -p src/stable/extensions/exovonhub/node_modules/@exovon
+          cp -r packages/exovon-sdk src/stable/extensions/exovonhub/node_modules/@exovon/sdk
+          cp -r packages/exovon-core src/stable/extensions/exovonhub/node_modules/@exovon/core 2>/dev/null || true
+          rm -rf src/stable/extensions/exovonhub/node_modules/@exovon/sdk/node_modules/.bin 2>/dev/null || true
+          
           # Inject compiled ExovonHub extension (code + webview-ui + themes + media + node_modules)
           mkdir -p dist-linux/astrolabe/resources/app/extensions/exovonhub/webview-ui
           cp -r src/stable/extensions/exovonhub/package.json dist-linux/astrolabe/resources/app/extensions/exovonhub/
@@ -276,6 +284,14 @@ jobs:
           
           # Brand resources/app/package.json name as astrolabe
           sed -i '0,/"name": "VSCodium"/{s/"name": "VSCodium"/"name": "astrolabe"/}' dist-win/astrolabe/resources/app/package.json
+          
+          # Clean node_modules symlinks that Windows cannot copy without Developer Mode
+          rm -rf src/stable/extensions/exovonhub/node_modules/.bin
+          rm -rf src/stable/extensions/exovonhub/node_modules/@exovon
+          mkdir -p src/stable/extensions/exovonhub/node_modules/@exovon
+          cp -r packages/exovon-sdk src/stable/extensions/exovonhub/node_modules/@exovon/sdk
+          cp -r packages/exovon-core src/stable/extensions/exovonhub/node_modules/@exovon/core 2>/dev/null || true
+          rm -rf src/stable/extensions/exovonhub/node_modules/@exovon/sdk/node_modules/.bin 2>/dev/null || true
           
           # Inject compiled ExovonHub extension (code + webview-ui + themes + media + node_modules)
           mkdir -p dist-win/astrolabe/resources/app/extensions/exovonhub/webview-ui
