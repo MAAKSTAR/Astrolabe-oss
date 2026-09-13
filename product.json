@@ -29,6 +29,7 @@
   "darwinProfileUUID": "47827DD9-4734-49A0-AF80-7E19B11495CC",
   "darwinProfilePayloadUUID": "CF808BE7-53F3-46C6-A7E2-7EDB98A5E959",
   "linuxIconName": "astrolabe",
+  "desktopName": "astrolabe.desktop",
   "licenseFileName": "LICENSE.txt",
   "reportIssueUrl": "https://github.com/MAAKSTAR/Astrolabe-oss/issues",
   "nodejsRepository": "https://nodejs.org",
@@ -908,6 +909,11 @@
     "gruntfuggly.todo-tree": {
       "default": false
     }
+  },
+  "configurationDefaults": {
+    "security.workspace.trust.enabled": false,
+    "security.workspace.trust.startupPrompt": "never",
+    "security.workspace.trust.banner": "never"
   },
   "commit": "4c0b0c6cc561d2d3636d1ec250935431876ce4dc",
   "date": "2026-06-23T01:46:13Z",

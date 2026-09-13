@@ -87,6 +87,11 @@ jobs:
           if [ -f "dist-linux/astrolabe/bin/codium" ]; then
             mv dist-linux/astrolabe/bin/codium dist-linux/astrolabe/bin/astrolabe
           fi
+          if [ -f "dist-linux/astrolabe/bin/astrolabe" ]; then
+            sed -i 's|ELECTRON="$VSCODE_PATH/codium"|ELECTRON="$VSCODE_PATH/astrolabe"|g' dist-linux/astrolabe/bin/astrolabe
+            sed -i 's|/usr/share/codium|/usr/share/astrolabe|g' dist-linux/astrolabe/bin/astrolabe
+            sed -i "s|which -a 'codium'|which -a 'astrolabe'|g" dist-linux/astrolabe/bin/astrolabe
+          fi
           
           # Inject native AI daemon (Rust + Vulkan) & all shared libraries
           mkdir -p dist-linux/astrolabe/daemon dist-linux/astrolabe/resources/app/daemon
@@ -160,6 +165,10 @@ jobs:
           
           # Brand desktopName and Walkthrough/Announcements text
           sed -i 's/"desktopName":"codium.desktop"/"desktopName":"astrolabe.desktop"/g' dist-linux/astrolabe/resources/app/out/main.js 2>/dev/null || true
+          sed -i 's/"desktopName":"codium.desktop"/"desktopName":"astrolabe.desktop"/g' dist-linux/astrolabe/resources/app/out/cli.js 2>/dev/null || true
+          sed -i 's/"desktopName":"codium.desktop"/"desktopName":"astrolabe.desktop"/g' dist-linux/astrolabe/resources/app/out/bootstrap-fork.js 2>/dev/null || true
+          sed -i 's/"desktopName": "codium.desktop"/"desktopName": "astrolabe.desktop"/g' dist-linux/astrolabe/resources/app/package.json 2>/dev/null || true
+          sed -i 's/"desktopName":"codium.desktop"/"desktopName":"astrolabe.desktop"/g' dist-linux/astrolabe/resources/app/package.json 2>/dev/null || true
           if [ -f "dist-linux/astrolabe/resources/app/out/nls.messages.json" ]; then
             sed -i 's/Get started with VSCodium/Get started with Astrolabe/g' dist-linux/astrolabe/resources/app/out/nls.messages.json
             sed -i 's/VSCodium Announcements/Astrolabe Announcements/g' dist-linux/astrolabe/resources/app/out/nls.messages.json
@@ -262,6 +271,10 @@ jobs:
           if [ -f "dist-win/astrolabe/bin/codium.cmd" ]; then
             mv dist-win/astrolabe/bin/codium.cmd dist-win/astrolabe/bin/astrolabe.cmd
           fi
+          if [ -f "dist-win/astrolabe/bin/astrolabe.cmd" ]; then
+            sed -i 's/VSCodium\.exe/astrolabe\.exe/g' dist-win/astrolabe/bin/astrolabe.cmd 2>/dev/null || true
+            sed -i 's/codium\.exe/astrolabe\.exe/g' dist-win/astrolabe/bin/astrolabe.cmd 2>/dev/null || true
+          fi
           
           # Inject native AI daemon (Windows) & DLLs
           mkdir -p dist-win/astrolabe/daemon dist-win/astrolabe/resources/app/daemon
@@ -322,6 +335,10 @@ jobs:
           
           # Brand desktopName and Walkthrough/Announcements text
           sed -i 's/"desktopName":"codium.desktop"/"desktopName":"astrolabe.desktop"/g' dist-win/astrolabe/resources/app/out/main.js 2>/dev/null || true
+          sed -i 's/"desktopName":"codium.desktop"/"desktopName":"astrolabe.desktop"/g' dist-win/astrolabe/resources/app/out/cli.js 2>/dev/null || true
+          sed -i 's/"desktopName":"codium.desktop"/"desktopName":"astrolabe.desktop"/g' dist-win/astrolabe/resources/app/out/bootstrap-fork.js 2>/dev/null || true
+          sed -i 's/"desktopName": "codium.desktop"/"desktopName": "astrolabe.desktop"/g' dist-win/astrolabe/resources/app/package.json 2>/dev/null || true
+          sed -i 's/"desktopName":"codium.desktop"/"desktopName":"astrolabe.desktop"/g' dist-win/astrolabe/resources/app/package.json 2>/dev/null || true
           if [ -f "dist-win/astrolabe/resources/app/out/nls.messages.json" ]; then
             sed -i 's/Get started with VSCodium/Get started with Astrolabe/g' dist-win/astrolabe/resources/app/out/nls.messages.json
             sed -i 's/VSCodium Announcements/Astrolabe Announcements/g' dist-win/astrolabe/resources/app/out/nls.messages.json
