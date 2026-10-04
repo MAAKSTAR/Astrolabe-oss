@@ -169,6 +169,20 @@ jobs:
           sed -i 's/"desktopName":"codium.desktop"/"desktopName":"astrolabe.desktop"/g' dist-linux/astrolabe/resources/app/out/bootstrap-fork.js 2>/dev/null || true
           sed -i 's/"desktopName": "codium.desktop"/"desktopName": "astrolabe.desktop"/g' dist-linux/astrolabe/resources/app/package.json 2>/dev/null || true
           sed -i 's/"desktopName":"codium.desktop"/"desktopName":"astrolabe.desktop"/g' dist-linux/astrolabe/resources/app/package.json 2>/dev/null || true
+
+          # Inject Astrolabe Electron App & Window Manager Identity into main.js
+          node -e '
+            const fs = require("fs");
+            const file = "dist-linux/astrolabe/resources/app/out/main.js";
+            let c = fs.readFileSync(file, "utf8");
+            const target = `import{app as Ue,protocol as OF,crashReporter as WF,Menu as NF,contentTracing as UF}from"electron";`;
+            const patch = target + `Ue.name="Astrolabe";try{Ue.setName("Astrolabe")}catch(e){}try{if(process.platform==="linux"&&Ue.setDesktopName){Ue.setDesktopName("astrolabe.desktop")}}catch(e){}try{if(process.platform==="win32"&&Ue.setAppUserModelId){Ue.setAppUserModelId("Astrolabe.IDE")}}catch(e){}`;
+            if (c.includes(target) && !c.includes("Ue.name=\"Astrolabe\"")) {
+              fs.writeFileSync(file, c.replace(target, patch), "utf8");
+              console.log("✓ Injected Astrolabe window branding into Linux main.js");
+            }
+          '
+
           if [ -f "dist-linux/astrolabe/resources/app/out/nls.messages.json" ]; then
             sed -i 's/Get started with VSCodium/Get started with Astrolabe/g' dist-linux/astrolabe/resources/app/out/nls.messages.json
             sed -i 's/VSCodium Announcements/Astrolabe Announcements/g' dist-linux/astrolabe/resources/app/out/nls.messages.json
@@ -178,8 +192,8 @@ jobs:
           sed -i 's/Get started with VSCodium/Get started with Astrolabe/g' dist-linux/astrolabe/resources/app/out/vs/workbench/workbench.desktop.main.js 2>/dev/null || true
           sed -i 's/VSCodium Announcements/Astrolabe Announcements/g' dist-linux/astrolabe/resources/app/out/vs/workbench/workbench.desktop.main.js 2>/dev/null || true
 
-          # Generate astrolabe.desktop file for Linux dock/taskbar integration
-          printf "[Desktop Entry]\nName=Astrolabe IDE\nComment=The Sovereign AI-Native IDE\nGenericName=Text Editor\nExec=/usr/share/astrolabe/astrolabe %%F\nIcon=astrolabe\nType=Application\nStartupNotify=false\nStartupWMClass=astrolabe\nCategories=TextEditor;Development;IDE;\nMimeType=text/plain;inode/directory;\nActions=new-empty-window;\nKeywords=astrolabe;codium;vscode;ide;ai;\n\n[Desktop Action new-empty-window]\nName=New Empty Window\nExec=/usr/share/astrolabe/astrolabe --new-window %%F\nIcon=astrolabe\n" > dist-linux/astrolabe/astrolabe.desktop
+          # Generate universal astrolabe.desktop file for Linux dock/taskbar integration
+          printf "[Desktop Entry]\nVersion=1.0\nName=Astrolabe\nGenericName=AI-Native IDE\nComment=The Sovereign AI-Native IDE with Built-In Local GPU Inference\nExec=astrolabe --no-sandbox %%F\nIcon=astrolabe\nType=Application\nStartupNotify=true\nStartupWMClass=astrolabe\nCategories=Development;IDE;TextEditor;\nMimeType=text/plain;inode/directory;\nActions=new-empty-window;\nKeywords=astrolabe;exovon;ai;ide;code;developer;\n\n[Desktop Action new-empty-window]\nName=New Empty Window\nExec=astrolabe --no-sandbox --new-window %%F\nIcon=astrolabe\n" > dist-linux/astrolabe/astrolabe.desktop
           cp dist-linux/astrolabe/astrolabe.desktop dist-linux/astrolabe/resources/linux/code.desktop 2>/dev/null || true
           cp dist-linux/astrolabe/astrolabe.desktop dist-linux/astrolabe/resources/app/resources/linux/code.desktop 2>/dev/null || true
 
@@ -339,6 +353,19 @@ jobs:
           sed -i 's/"desktopName":"codium.desktop"/"desktopName":"astrolabe.desktop"/g' dist-win/astrolabe/resources/app/out/bootstrap-fork.js 2>/dev/null || true
           sed -i 's/"desktopName": "codium.desktop"/"desktopName": "astrolabe.desktop"/g' dist-win/astrolabe/resources/app/package.json 2>/dev/null || true
           sed -i 's/"desktopName":"codium.desktop"/"desktopName":"astrolabe.desktop"/g' dist-win/astrolabe/resources/app/package.json 2>/dev/null || true
+
+          # Inject Astrolabe Electron App & Window Manager Identity into Windows main.js
+          node -e '
+            const fs = require("fs");
+            const file = "dist-win/astrolabe/resources/app/out/main.js";
+            let c = fs.readFileSync(file, "utf8");
+            const target = `import{app as Ue,protocol as OF,crashReporter as WF,Menu as NF,contentTracing as UF}from"electron";`;
+            const patch = target + `Ue.name="Astrolabe";try{Ue.setName("Astrolabe")}catch(e){}try{if(process.platform==="linux"&&Ue.setDesktopName){Ue.setDesktopName("astrolabe.desktop")}}catch(e){}try{if(process.platform==="win32"&&Ue.setAppUserModelId){Ue.setAppUserModelId("Astrolabe.IDE")}}catch(e){}`;
+            if (c.includes(target) && !c.includes("Ue.name=\"Astrolabe\"")) {
+              fs.writeFileSync(file, c.replace(target, patch), "utf8");
+              console.log("✓ Injected Astrolabe window branding into Windows main.js");
+            }
+          '
           if [ -f "dist-win/astrolabe/resources/app/out/nls.messages.json" ]; then
             sed -i 's/Get started with VSCodium/Get started with Astrolabe/g' dist-win/astrolabe/resources/app/out/nls.messages.json
             sed -i 's/VSCodium Announcements/Astrolabe Announcements/g' dist-win/astrolabe/resources/app/out/nls.messages.json
