@@ -2451,7 +2451,7 @@ export default function SettingsApp() {
                     </div>
                   </div>
                   <div className="text-[10px] text-zinc-500">
-                    Offload layers to <span className="text-zinc-400 font-medium">AMD Radeon 760M (Vulkan)</span> ({offloadLayers}/{totalModelLayers} layers)
+                    Offload layers to <span className="text-zinc-400 font-medium">{daemonHealth?.hardware?.gpu ? `${daemonHealth.hardware.gpu} (Vulkan)` : 'GPU Acceleration (Vulkan)'}</span> ({offloadLayers}/{totalModelLayers} layers)
                   </div>
                   <input 
                     type="range"
@@ -2480,7 +2480,7 @@ export default function SettingsApp() {
                     />
                   </div>
                   <div className="text-[10px] text-zinc-500">
-                    Physical Zen 4 CPU cores for host execution (recommended: 4 or 6)
+                    {daemonHealth?.hardware?.cpu ? `Physical ${daemonHealth.hardware.cpu} cores for host execution` : 'Physical CPU cores for host execution'} (recommended: 4 or 6)
                   </div>
                   <input 
                     type="range"

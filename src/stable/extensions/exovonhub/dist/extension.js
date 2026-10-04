@@ -48338,7 +48338,7 @@ class EngineStatusBarManager {
         if (this.isEngineRunning) {
             items.push({
                 label: '$(pulse) Engine Status: Running (127.0.0.1:47990)',
-                detail: `Backend: Vulkan GPU | Host: ${this.hardwareInfo?.cpu || 'AMD Zen 4'}`,
+                detail: `Backend: Vulkan GPU | Host: ${this.hardwareInfo?.cpu || 'Host CPU'}`,
                 action: 'status'
             });
         }
