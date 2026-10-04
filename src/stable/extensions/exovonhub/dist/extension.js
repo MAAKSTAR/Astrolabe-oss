@@ -215,38 +215,54 @@ async function activate(context) {
         brainCoordinator = new BrainCoordinator_1.BrainCoordinator(context, () => {
             updateBrainStatusBar();
         });
-        // Git Integration (GIT-1)
-        const gitExtension = vscode.extensions.getExtension('vscode.git')?.exports;
-        if (gitExtension) {
-            const git = gitExtension.getAPI(1);
-            git.onDidOpenRepository((repo) => {
-                const branch = repo.state.HEAD?.name || 'main';
-                if (brainCoordinator) {
-                    brainCoordinator.currentBranch = branch;
+        // Git Integration (GIT-1) - Non-blocking & resilient
+        const initGitIntegration = async () => {
+            try {
+                const ext = vscode.extensions.getExtension('vscode.git');
+                if (!ext) {
+                    return;
                 }
-                updateBrainStatusBar();
-                let lastCommit = repo.state.HEAD?.commit;
-                repo.state.onDidChange(() => {
-                    const newBranch = repo.state.HEAD?.name || 'main';
-                    const newCommit = repo.state.HEAD?.commit;
-                    if (newBranch !== brainCoordinator?.currentBranch) {
-                        if (brainCoordinator) {
-                            const oldBranch = brainCoordinator.currentBranch;
-                            brainCoordinator.currentBranch = newBranch;
-                            brainCoordinator.differentialBranchSwitch(oldBranch, newBranch, lastCommit, newCommit);
-                        }
-                        updateBrainStatusBar();
-                        lastCommit = newCommit;
+                const gitExports = ext.isActive ? ext.exports : await ext.activate();
+                if (!gitExports) {
+                    return;
+                }
+                const git = gitExports.getAPI(1);
+                if (!git) {
+                    return;
+                }
+                git.onDidOpenRepository((repo) => {
+                    const branch = repo.state.HEAD?.name || 'main';
+                    if (brainCoordinator) {
+                        brainCoordinator.currentBranch = branch;
                     }
-                    else if (newCommit !== lastCommit) {
-                        lastCommit = newCommit;
-                        if (brainCoordinator && newCommit) {
-                            brainCoordinator.recordCommit(newBranch, newCommit);
+                    updateBrainStatusBar();
+                    let lastCommit = repo.state.HEAD?.commit;
+                    repo.state.onDidChange(() => {
+                        const newBranch = repo.state.HEAD?.name || 'main';
+                        const newCommit = repo.state.HEAD?.commit;
+                        if (newBranch !== brainCoordinator?.currentBranch) {
+                            if (brainCoordinator) {
+                                const oldBranch = brainCoordinator.currentBranch;
+                                brainCoordinator.currentBranch = newBranch;
+                                brainCoordinator.differentialBranchSwitch(oldBranch, newBranch, lastCommit, newCommit);
+                            }
+                            updateBrainStatusBar();
+                            lastCommit = newCommit;
                         }
-                    }
+                        else if (newCommit !== lastCommit) {
+                            lastCommit = newCommit;
+                            if (brainCoordinator && newCommit) {
+                                brainCoordinator.recordCommit(newBranch, newCommit);
+                            }
+                        }
+                    });
                 });
-            });
-        }
+            }
+            catch (e) {
+                console.warn('Git integration initialization skipped:', e);
+            }
+        };
+        initGitIntegration().catch(() => { });
         // Start initial workspace seed
         if (brainCoordinator) {
             brainCoordinator.seedWorkspace().then(() => {
