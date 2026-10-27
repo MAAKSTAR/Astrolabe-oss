@@ -51,6 +51,11 @@ impl LlamaServerEngine {
         candidates.into_iter().find(|p| p.is_file())
     }
 
+    /// Check if llama-server binary is present on the system.
+    pub fn is_available() -> bool {
+        Self::find_binary().is_some()
+    }
+
     /// Spawn the llama-server as a managed child process.
     pub async fn load(
         model_path: &str,
@@ -76,28 +81,45 @@ impl LlamaServerEngine {
         let bin_dir = binary_path.parent().unwrap_or_else(|| Path::new("."));
         let ld_path = format!("{}:{}", bin_dir.display(), std::env::var("LD_LIBRARY_PATH").unwrap_or_default());
 
+        // Single-user editor sessions require at least 8192 context to accommodate system instructions.
+        // Cap at 32768 to prevent exceeding shared VRAM on APUs / integrated graphics.
+        let effective_ctx = ctx_size.clamp(8192, 32768);
+
+        // Safe GPU layer offloading: if user specified negative or excessive layers for integrated GPU, cap at 24
+        let effective_gpu_layers = if n_gpu_layers < 0 || n_gpu_layers > 24 {
+            24
+        } else {
+            n_gpu_layers
+        };
+
         tracing::info!("🚀 Spawning llama-server for model: {} on port {}", model_name, port);
         tracing::info!("   Binary: {}", binary_path.display());
-        tracing::info!("   Context size: {}, GPU layers: {}", ctx_size, n_gpu_layers);
+        tracing::info!("   Context size: {} (requested: {}), GPU layers: {} (requested: {})", effective_ctx, ctx_size, effective_gpu_layers, n_gpu_layers);
 
         let mut cmd = Command::new(&binary_path);
         cmd.arg("-m").arg(model_path)
             .arg("--port").arg(port.to_string())
             .arg("--host").arg("127.0.0.1")
-            .arg("-c").arg(ctx_size.to_string())
+            .arg("-c").arg(effective_ctx.to_string())
+            .arg("-np").arg("1") // Single slot to reserve all context for editor chat
+            .arg("-ngl").arg(effective_gpu_layers.to_string())
             .env("LD_LIBRARY_PATH", &ld_path);
 
-        if n_gpu_layers >= 0 {
-            cmd.arg("-ngl").arg(n_gpu_layers.to_string());
-        } else {
-            // Offload layers (default to 24 for APUs/integrated graphics to stay safely within VRAM)
-            cmd.arg("-ngl").arg("24");
-        }
-
         if flash_attn {
-            cmd.arg("-fa");
+            cmd.arg("-fa").arg("on");
         }
 
+        let log_file = std::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open("/tmp/llama_server.log")
+            .map_err(|e| format!("Failed to open log file: {}", e))?;
+        let err_file = log_file.try_clone()
+            .map_err(|e| format!("Failed to clone log file handle: {}", e))?;
+
+        cmd.stdout(log_file);
+        cmd.stderr(err_file);
         cmd.kill_on_drop(true);
 
         let child = cmd

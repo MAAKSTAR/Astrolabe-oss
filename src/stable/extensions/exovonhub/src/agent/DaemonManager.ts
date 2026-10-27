@@ -28,6 +28,12 @@ export class DaemonManager {
             return true;
         }
 
+        // Avoid address collision if daemon is already running independently on port 47990
+        if (await this.isAlive()) {
+            console.log('[DaemonManager] Daemon is already healthy on port 47990.');
+            return true;
+        }
+
         if (this.isStarting) {
             return false;
         }

@@ -477,14 +477,33 @@ async fn load_model(
         }
     }
 
-    let resolved_path = if std::path::Path::new(&req.model_path).is_absolute() {
-        req.model_path.clone()
-    } else {
-        std::path::Path::new(&state.models_dir)
-            .join(&req.model_path)
-            .to_string_lossy()
-            .to_string()
-    };
+    let mut resolved = std::path::PathBuf::from(&req.model_path);
+    if !resolved.is_absolute() {
+        resolved = std::path::Path::new(&state.models_dir).join(&req.model_path);
+    }
+    if !resolved.exists() && !req.model_path.ends_with(".gguf") {
+        let with_gguf = resolved.with_extension("gguf");
+        if with_gguf.exists() {
+            resolved = with_gguf;
+        }
+    }
+    if !resolved.exists() {
+        if let Some(file_name) = std::path::Path::new(&req.model_path).file_name() {
+            for fallback_dir in &["/run/media/maakstar/c/AI MODELS", "/run/media/maakstar/c/SLMS"] {
+                let candidate = std::path::Path::new(fallback_dir).join(file_name);
+                if candidate.exists() {
+                    resolved = candidate;
+                    break;
+                }
+                let candidate_gguf = std::path::Path::new(fallback_dir).join(format!("{}.gguf", file_name.to_string_lossy()));
+                if candidate_gguf.exists() {
+                    resolved = candidate_gguf;
+                    break;
+                }
+            }
+        }
+    }
+    let resolved_path = resolved.to_string_lossy().to_string();
 
     let (name, new_engine) = if use_sglang {
         let sglang_engine = crate::sglang::SglangEngine::load(&resolved_path, 47991)
@@ -493,37 +512,63 @@ async fn load_model(
         let name = sglang_engine.model_name.clone();
         (name, crate::ActiveEngine::Sglang(sglang_engine))
     } else {
-        let config = EngineConfig {
-            model_path: resolved_path.clone(),
-            ctx_size: req.ctx_size,
-            n_gpu_layers: req.n_gpu_layers,
-            n_threads: req.n_threads,
-            n_batch: req.n_batch,
-            n_ubatch: req.n_ubatch,
-            use_mmap: req.use_mmap,
-            flash_attn: req.flash_attn,
-            ..Default::default()
+        let use_server = if let Some(pref) = &req.backend_preference {
+            let p = pref.to_lowercase();
+            if p == "legacy" || p == "internal" {
+                false
+            } else {
+                crate::llama_server::LlamaServerEngine::is_available()
+            }
+        } else {
+            crate::llama_server::LlamaServerEngine::is_available()
         };
 
-        let in_proc_res = tokio::task::spawn_blocking(move || InferenceEngine::load(config)).await;
-        match in_proc_res {
-            Ok(Ok(engine)) => {
-                let name = engine.model_name.clone();
-                (name, crate::ActiveEngine::Llama(engine))
-            }
-            _ => {
-                tracing::warn!("In-process engine load failed or architecture unsupported. Falling back to upstream llama-server...");
-                let server_engine = crate::llama_server::LlamaServerEngine::load(
-                    &resolved_path,
-                    47992,
-                    req.ctx_size,
-                    req.n_gpu_layers,
-                    req.flash_attn,
-                )
-                .await
-                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
-                let name = server_engine.model_name.clone();
-                (name, crate::ActiveEngine::LlamaServer(server_engine))
+        if use_server {
+            tracing::info!("Using modern llama-server for model: {}", resolved_path);
+            let server_engine = crate::llama_server::LlamaServerEngine::load(
+                &resolved_path,
+                47992,
+                req.ctx_size,
+                req.n_gpu_layers,
+                req.flash_attn,
+            )
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+            let name = server_engine.model_name.clone();
+            (name, crate::ActiveEngine::LlamaServer(server_engine))
+        } else {
+            let config = EngineConfig {
+                model_path: resolved_path.clone(),
+                ctx_size: req.ctx_size,
+                n_gpu_layers: req.n_gpu_layers,
+                n_threads: req.n_threads,
+                n_batch: req.n_batch,
+                n_ubatch: req.n_ubatch,
+                use_mmap: req.use_mmap,
+                flash_attn: req.flash_attn,
+                ..Default::default()
+            };
+
+            let in_proc_res = tokio::task::spawn_blocking(move || InferenceEngine::load(config)).await;
+            match in_proc_res {
+                Ok(Ok(engine)) => {
+                    let name = engine.model_name.clone();
+                    (name, crate::ActiveEngine::Llama(engine))
+                }
+                _ => {
+                    tracing::warn!("In-process engine load failed or architecture unsupported. Falling back to upstream llama-server...");
+                    let server_engine = crate::llama_server::LlamaServerEngine::load(
+                        &resolved_path,
+                        47992,
+                        req.ctx_size,
+                        req.n_gpu_layers,
+                        req.flash_attn,
+                    )
+                    .await
+                    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+                    let name = server_engine.model_name.clone();
+                    (name, crate::ActiveEngine::LlamaServer(server_engine))
+                }
             }
         }
     };
