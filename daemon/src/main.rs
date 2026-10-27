@@ -12,6 +12,7 @@ mod hardware;
 mod models;
 
 mod sglang;
+mod llama_server;
 
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -20,6 +21,7 @@ use tracing_subscriber::EnvFilter;
 
 pub enum ActiveEngine {
     Llama(engine::InferenceEngine),
+    LlamaServer(llama_server::LlamaServerEngine),
     Sglang(sglang::SglangEngine),
 }
 

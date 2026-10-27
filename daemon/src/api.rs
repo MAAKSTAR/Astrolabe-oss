@@ -354,6 +354,33 @@ async fn chat_completions(
 
             Ok(Sse::new(stream).into_response())
         }
+        crate::ActiveEngine::LlamaServer(server_engine) => {
+            let server_port = server_engine.port;
+            drop(engine_guard);
+
+            let client = reqwest::Client::new();
+            let server_url = format!("http://127.0.0.1:{}/v1/chat/completions", server_port);
+            
+            let server_res = client
+                .post(&server_url)
+                .header("Content-Type", "application/json")
+                .body(req_body.to_vec())
+                .send()
+                .await
+                .map_err(|e| (StatusCode::BAD_GATEWAY, format!("Failed to reach llama-server: {}", e)))?;
+
+            let mut response_builder = axum::response::Response::builder()
+                .status(server_res.status());
+            
+            for (k, v) in server_res.headers() {
+                response_builder = response_builder.header(k, v);
+            }
+
+            let stream = server_res.bytes_stream();
+            let body = axum::body::Body::from_stream(stream);
+            
+            Ok(response_builder.body(body).unwrap())
+        }
         crate::ActiveEngine::Sglang(sglang_engine) => {
             let sglang_port = sglang_engine.port;
             drop(engine_guard);
@@ -430,6 +457,7 @@ async fn load_model(
         if let Some(ref mut e) = *engine {
             match e {
                 crate::ActiveEngine::Llama(l) => l.unload(),
+                crate::ActiveEngine::LlamaServer(s) => s.unload().await,
                 crate::ActiveEngine::Sglang(s) => s.unload().await,
             }
         }
@@ -466,7 +494,7 @@ async fn load_model(
         (name, crate::ActiveEngine::Sglang(sglang_engine))
     } else {
         let config = EngineConfig {
-            model_path: resolved_path,
+            model_path: resolved_path.clone(),
             ctx_size: req.ctx_size,
             n_gpu_layers: req.n_gpu_layers,
             n_threads: req.n_threads,
@@ -477,12 +505,27 @@ async fn load_model(
             ..Default::default()
         };
 
-        let engine = tokio::task::spawn_blocking(move || InferenceEngine::load(config))
-            .await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Task join error: {}", e)))?
-            .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
-        let name = engine.model_name.clone();
-        (name, crate::ActiveEngine::Llama(engine))
+        let in_proc_res = tokio::task::spawn_blocking(move || InferenceEngine::load(config)).await;
+        match in_proc_res {
+            Ok(Ok(engine)) => {
+                let name = engine.model_name.clone();
+                (name, crate::ActiveEngine::Llama(engine))
+            }
+            _ => {
+                tracing::warn!("In-process engine load failed or architecture unsupported. Falling back to upstream llama-server...");
+                let server_engine = crate::llama_server::LlamaServerEngine::load(
+                    &resolved_path,
+                    47992,
+                    req.ctx_size,
+                    req.n_gpu_layers,
+                    req.flash_attn,
+                )
+                .await
+                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+                let name = server_engine.model_name.clone();
+                (name, crate::ActiveEngine::LlamaServer(server_engine))
+            }
+        }
     };
 
     {
@@ -508,6 +551,7 @@ async fn unload_model(
     if let Some(ref mut e) = *engine {
         match e {
             crate::ActiveEngine::Llama(l) => l.unload(),
+            crate::ActiveEngine::LlamaServer(s) => s.unload().await,
             crate::ActiveEngine::Sglang(s) => s.unload().await,
         }
     }

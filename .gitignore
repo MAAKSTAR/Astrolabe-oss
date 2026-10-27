@@ -21,6 +21,7 @@ stores/snapcraft/stable/*.snap
 
 # Rust build artifacts
 daemon/target/
+daemon/bin/
 **/target/
 Cargo.lock
 
