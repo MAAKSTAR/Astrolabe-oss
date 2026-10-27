@@ -122,6 +122,19 @@ chmod +x "$DESKTOP_DIR/astrolabe.desktop"
 update-desktop-database "$DESKTOP_DIR" 2>/dev/null || true
 gtk-update-icon-cache -f -t "$HOME/.local/share/icons/hicolor" 2>/dev/null || true
 
+# 7. Configure Native Wayland & GPU Acceleration
+ASTROLABE_CONFIG_DIR="$HOME/.astrolabe"
+mkdir -p "$ASTROLABE_CONFIG_DIR"
+if [ ! -f "$ASTROLABE_CONFIG_DIR/argv.json" ] || ! grep -q 'ozone-platform-hint' "$ASTROLABE_CONFIG_DIR/argv.json"; then
+cat << 'ARGV_EOF' > "$ASTROLABE_CONFIG_DIR/argv.json"
+{
+	"ozone-platform-hint": "auto",
+	"enable-features": "WaylandWindowDecorations",
+	"enable-crash-reporter": false
+}
+ARGV_EOF
+fi
+
 # 7. Create Binary Launcher Symlink in PATH
 if [ -f "$INSTALL_DIR/bin/astrolabe" ]; then
     ln -sf "$INSTALL_DIR/bin/astrolabe" "$BIN_DIR/astrolabe"
