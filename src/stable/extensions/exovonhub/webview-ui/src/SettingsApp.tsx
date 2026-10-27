@@ -2117,11 +2117,34 @@ export default function SettingsApp() {
               </div>
 
               {systemUpdateInfo && (
-                <div className="mb-4 p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-xs text-emerald-300 flex items-center gap-2 font-mono">
-                  <svg className="w-4 h-4 shrink-0 text-emerald-400" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                  </svg>
-                  <span>{systemUpdateInfo.message || 'All runtime components and model workers are synchronized and operational.'}</span>
+                <div className={`mb-4 p-3.5 rounded-xl text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 border ${
+                  systemUpdateInfo.hasUpdate 
+                    ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300' 
+                    : 'bg-white/5 border-white/10 text-zinc-300'
+                }`}>
+                  <div className="flex items-center gap-2.5 font-mono">
+                    <svg className={`w-4 h-4 shrink-0 ${systemUpdateInfo.hasUpdate ? 'text-emerald-400' : 'text-zinc-400'}`} viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                    <span>{systemUpdateInfo.message || 'All runtime components and model workers are synchronized and operational.'}</span>
+                  </div>
+                  {systemUpdateInfo.hasUpdate && systemUpdateInfo.downloadUrl && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        vscodeApi?.postMessage({
+                          command: 'installSystemUpdate',
+                          downloadUrl: systemUpdateInfo.downloadUrl
+                        });
+                      }}
+                      className="px-3.5 py-1.5 rounded-lg text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-500 transition-colors shadow-lg shadow-emerald-900/30 flex items-center gap-2 shrink-0 cursor-pointer"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                      </svg>
+                      <span>Update to {systemUpdateInfo.latestVersion} & Restart</span>
+                    </button>
+                  )}
                 </div>
               )}
 

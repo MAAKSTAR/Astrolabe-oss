@@ -37,7 +37,7 @@ jobs:
           echo "✓ astrolabe binary is present and executable"
 
           echo "==> 2. Checking embedded Rust daemon..."
-          test -f ~/.local/share/astrolabe/exovon-daemon
+          test -f ~/.local/share/astrolabe/daemon/exovon-daemon || test -f ~/.local/share/astrolabe/exovon-daemon
           echo "✓ exovon-daemon is present"
 
           echo "==> 3. Checking desktop launcher entry..."

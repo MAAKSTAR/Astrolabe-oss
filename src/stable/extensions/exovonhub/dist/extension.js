@@ -46,7 +46,7 @@ const fs = __importStar(__webpack_require__(2));
 const path = __importStar(__webpack_require__(3));
 const ExovonSidebarProvider_1 = __webpack_require__(4);
 const SettingsProvider_1 = __webpack_require__(283);
-const BrainCoordinator_1 = __webpack_require__(284);
+const BrainCoordinator_1 = __webpack_require__(285);
 const LlamaEngine_1 = __webpack_require__(291);
 const CopilotProvider_1 = __webpack_require__(293);
 const AuthService_1 = __webpack_require__(295);
@@ -50052,6 +50052,8 @@ exports.SettingsProvider = void 0;
 const vscode = __importStar(__webpack_require__(1));
 const fs = __importStar(__webpack_require__(2));
 const path = __importStar(__webpack_require__(3));
+const os = __importStar(__webpack_require__(284));
+const cp = __importStar(__webpack_require__(31));
 class SettingsProvider {
     static viewType = 'exovonhubSettings';
     static currentPanel;
@@ -50586,6 +50588,122 @@ class SettingsProvider {
                     vscode.commands.executeCommand('workbench.action.showCommands');
                     break;
                 }
+                case 'checkSystemUpdates': {
+                    try {
+                        let currentVersion = 'v1.0.12';
+                        try {
+                            const pkgJsonPath = path.join(this._context.extensionPath, 'package.json');
+                            if (fs.existsSync(pkgJsonPath)) {
+                                const pkg = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf8'));
+                                if (pkg.version) {
+                                    currentVersion = pkg.version.startsWith('v') ? pkg.version : `v${pkg.version}`;
+                                }
+                            }
+                        }
+                        catch (_) { }
+                        const res = await fetch('https://api.github.com/repos/MAAKSTAR/Astrolabe-oss/releases/latest', {
+                            headers: { 'User-Agent': 'Astrolabe-IDE' }
+                        });
+                        if (!res.ok) {
+                            throw new Error(`GitHub returned HTTP ${res.status}`);
+                        }
+                        const release = await res.json();
+                        const latestVersion = release.tag_name || '';
+                        const cleanCur = currentVersion.replace(/^v/, '').trim();
+                        const cleanLatest = latestVersion.replace(/^v/, '').trim();
+                        const hasUpdate = cleanLatest !== '' && cleanCur !== cleanLatest;
+                        const isWindows = process.platform === 'win32';
+                        const targetAsset = release.assets?.find((a) => isWindows ? a.name.includes('windows-x64.zip') : a.name.includes('linux-x64.tar.gz'));
+                        const downloadUrl = targetAsset ? targetAsset.browser_download_url : release.html_url;
+                        this._panel.webview.postMessage({
+                            type: 'systemUpdateStatus',
+                            hasUpdate,
+                            currentVersion,
+                            latestVersion,
+                            message: hasUpdate
+                                ? `New release ${latestVersion} is available!`
+                                : `Astrolabe is up to date (${currentVersion}).`,
+                            downloadUrl,
+                            releaseNotes: release.body || ''
+                        });
+                    }
+                    catch (err) {
+                        this._panel.webview.postMessage({
+                            type: 'systemUpdateStatus',
+                            hasUpdate: false,
+                            message: `Update check failed: ${err.message}`
+                        });
+                    }
+                    break;
+                }
+                case 'installSystemUpdate': {
+                    const downloadUrl = data.downloadUrl;
+                    if (!downloadUrl) {
+                        vscode.window.showErrorMessage('No download URL provided for update.');
+                        break;
+                    }
+                    const isWindows = process.platform === 'win32';
+                    const defaultLinuxInstallDir = path.join(os.homedir(), '.local', 'share', 'astrolabe');
+                    const installDir = fs.existsSync(defaultLinuxInstallDir)
+                        ? defaultLinuxInstallDir
+                        : path.dirname(path.dirname(process.execPath));
+                    vscode.window.withProgress({
+                        location: vscode.ProgressLocation.Notification,
+                        title: "Updating Astrolabe...",
+                        cancellable: false
+                    }, async (progress) => {
+                        try {
+                            progress.report({ message: "Downloading latest release package..." });
+                            const tmpDir = os.tmpdir();
+                            const archiveExt = isWindows ? 'zip' : 'tar.gz';
+                            const tmpArchive = path.join(tmpDir, `astrolabe-update.${archiveExt}`);
+                            const resp = await fetch(downloadUrl, { headers: { 'User-Agent': 'Astrolabe-IDE' } });
+                            if (!resp.ok)
+                                throw new Error(`Download failed with HTTP ${resp.status}`);
+                            const arrayBuffer = await resp.arrayBuffer();
+                            fs.writeFileSync(tmpArchive, Buffer.from(arrayBuffer));
+                            progress.report({ message: "Applying update in-place..." });
+                            if (!isWindows) {
+                                try {
+                                    cp.execSync(`tar -xzf "${tmpArchive}" -C "${installDir}" --strip-components=1`, { stdio: 'ignore' });
+                                }
+                                catch (_) {
+                                    cp.execSync(`tar -xzf "${tmpArchive}" -C "${installDir}"`, { stdio: 'ignore' });
+                                }
+                                try {
+                                    cp.execSync(`chmod +x "${path.join(installDir, 'astrolabe')}" "${path.join(installDir, 'bin', 'astrolabe')}" "${path.join(installDir, 'daemon', 'exovon-daemon')}" 2>/dev/null || true`);
+                                }
+                                catch (_) { }
+                            }
+                            else {
+                                const psCmd = `Expand-Archive -Path "${tmpArchive}" -DestinationPath "${installDir}" -Force`;
+                                cp.execSync(`powershell -NoProfile -Command "${psCmd}"`, { stdio: 'ignore' });
+                            }
+                            try {
+                                fs.unlinkSync(tmpArchive);
+                            }
+                            catch (_) { }
+                            this._panel?.webview.postMessage({
+                                type: 'systemUpdateStatus',
+                                hasUpdate: false,
+                                message: 'Update applied successfully! Restart to apply changes.'
+                            });
+                            const choice = await vscode.window.showInformationMessage("Astrolabe update applied successfully! Restart now to complete the update.", "Restart Now", "Later");
+                            if (choice === "Restart Now") {
+                                vscode.commands.executeCommand('workbench.action.reloadWindow');
+                            }
+                        }
+                        catch (err) {
+                            vscode.window.showErrorMessage(`Update installation failed: ${err.message}`);
+                            this._panel?.webview.postMessage({
+                                type: 'systemUpdateStatus',
+                                hasUpdate: false,
+                                message: `Update installation failed: ${err.message}`
+                            });
+                        }
+                    });
+                    break;
+                }
             }
         }, null, this._disposables);
     }
@@ -50636,6 +50754,13 @@ exports.SettingsProvider = SettingsProvider;
 
 /***/ }),
 /* 284 */
+/***/ ((module) => {
+
+"use strict";
+module.exports = require("os");
+
+/***/ }),
+/* 285 */
 /***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 "use strict";
@@ -50679,10 +50804,10 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.BrainCoordinator = void 0;
 const vscode = __importStar(__webpack_require__(1));
-const worker_threads_1 = __webpack_require__(285);
+const worker_threads_1 = __webpack_require__(286);
 const path = __importStar(__webpack_require__(3));
 const fs = __importStar(__webpack_require__(2));
-const os_1 = __importDefault(__webpack_require__(286));
+const os_1 = __importDefault(__webpack_require__(284));
 const crypto = __importStar(__webpack_require__(27));
 const GraphIndexer_1 = __webpack_require__(287);
 let DatabaseConstructor = null;
@@ -51944,18 +52069,11 @@ exports.BrainCoordinator = BrainCoordinator;
 
 
 /***/ }),
-/* 285 */
-/***/ ((module) => {
-
-"use strict";
-module.exports = require("worker_threads");
-
-/***/ }),
 /* 286 */
 /***/ ((module) => {
 
 "use strict";
-module.exports = require("os");
+module.exports = require("worker_threads");
 
 /***/ }),
 /* 287 */
@@ -53303,7 +53421,7 @@ exports.MotionCompiler = MotionCompiler;
  */
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.processMotionCompile = processMotionCompile;
-const worker_threads_1 = __webpack_require__(285);
+const worker_threads_1 = __webpack_require__(286);
 const MotionIR_1 = __webpack_require__(301);
 const InsertionResolver_1 = __webpack_require__(302);
 const MotionEmitter_1 = __webpack_require__(303);
