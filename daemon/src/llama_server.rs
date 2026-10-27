@@ -62,7 +62,11 @@ impl LlamaServerEngine {
         port: u16,
         ctx_size: u32,
         n_gpu_layers: i32,
+        n_threads: u32,
+        n_batch: u32,
+        n_ubatch: u32,
         flash_attn: bool,
+        use_mmap: bool,
     ) -> Result<Self, String> {
         let path = Path::new(model_path);
         if !path.exists() {
@@ -81,35 +85,46 @@ impl LlamaServerEngine {
         let bin_dir = binary_path.parent().unwrap_or_else(|| Path::new("."));
         let ld_path = format!("{}:{}", bin_dir.display(), std::env::var("LD_LIBRARY_PATH").unwrap_or_default());
 
-        // Honor user requested context length (e.g. 131072 / 128K), ensuring at least 8192 for editor instructions.
-        let effective_ctx = if ctx_size == 0 {
-            131072
-        } else {
-            ctx_size.max(8192)
-        };
-
-        // Safe GPU layer offloading: if user specified negative or excessive layers for integrated GPU, cap at 24
-        let effective_gpu_layers = if n_gpu_layers < 0 || n_gpu_layers > 24 {
-            24
-        } else {
-            n_gpu_layers
-        };
-
         tracing::info!("🚀 Spawning llama-server for model: {} on port {}", model_name, port);
         tracing::info!("   Binary: {}", binary_path.display());
-        tracing::info!("   Context size: {} (requested: {}), GPU layers: {} (requested: {})", effective_ctx, ctx_size, effective_gpu_layers, n_gpu_layers);
+        tracing::info!("   Context size: {}, GPU layers: {}, Threads: {}, Batch: {}, UBatch: {}, FlashAttn: {}, MMap: {}", 
+            ctx_size, n_gpu_layers, n_threads, n_batch, n_ubatch, flash_attn, use_mmap);
 
         let mut cmd = Command::new(&binary_path);
         cmd.arg("-m").arg(model_path)
             .arg("--port").arg(port.to_string())
             .arg("--host").arg("127.0.0.1")
-            .arg("-c").arg(effective_ctx.to_string())
+            .arg("-c").arg(ctx_size.to_string())
             .arg("-np").arg("1") // Single slot to reserve all context for editor chat
-            .arg("-ngl").arg(effective_gpu_layers.to_string())
             .env("LD_LIBRARY_PATH", &ld_path);
+
+        if n_gpu_layers >= 0 {
+            cmd.arg("-ngl").arg(n_gpu_layers.to_string());
+        } else {
+            // Negative means offload all layers in llama.cpp
+            cmd.arg("-ngl").arg("999");
+        }
+
+        if n_threads > 0 {
+            cmd.arg("-t").arg(n_threads.to_string());
+        }
+
+        if n_batch > 0 {
+            cmd.arg("-b").arg(n_batch.to_string());
+        }
+
+        if n_ubatch > 0 {
+            cmd.arg("-ub").arg(n_ubatch.to_string());
+        }
 
         if flash_attn {
             cmd.arg("-fa").arg("on");
+        } else {
+            cmd.arg("-fa").arg("off");
+        }
+
+        if !use_mmap {
+            cmd.arg("--load-mode").arg("none");
         }
 
         let log_file = std::fs::OpenOptions::new()

@@ -489,16 +489,13 @@ async fn load_model(
     }
     if !resolved.exists() {
         if let Some(file_name) = std::path::Path::new(&req.model_path).file_name() {
-            for fallback_dir in &["/run/media/maakstar/c/AI MODELS", "/run/media/maakstar/c/SLMS"] {
-                let candidate = std::path::Path::new(fallback_dir).join(file_name);
-                if candidate.exists() {
-                    resolved = candidate;
-                    break;
-                }
-                let candidate_gguf = std::path::Path::new(fallback_dir).join(format!("{}.gguf", file_name.to_string_lossy()));
+            let candidate = std::path::Path::new(&state.models_dir).join(file_name);
+            if candidate.exists() {
+                resolved = candidate;
+            } else {
+                let candidate_gguf = std::path::Path::new(&state.models_dir).join(format!("{}.gguf", file_name.to_string_lossy()));
                 if candidate_gguf.exists() {
                     resolved = candidate_gguf;
-                    break;
                 }
             }
         }
@@ -530,7 +527,11 @@ async fn load_model(
                 47992,
                 req.ctx_size,
                 req.n_gpu_layers,
+                req.n_threads,
+                req.n_batch,
+                req.n_ubatch,
                 req.flash_attn,
+                req.use_mmap,
             )
             .await
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
@@ -562,7 +563,11 @@ async fn load_model(
                         47992,
                         req.ctx_size,
                         req.n_gpu_layers,
+                        req.n_threads,
+                        req.n_batch,
+                        req.n_ubatch,
                         req.flash_attn,
+                        req.use_mmap,
                     )
                     .await
                     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
