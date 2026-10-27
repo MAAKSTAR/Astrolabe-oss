@@ -81,9 +81,12 @@ impl LlamaServerEngine {
         let bin_dir = binary_path.parent().unwrap_or_else(|| Path::new("."));
         let ld_path = format!("{}:{}", bin_dir.display(), std::env::var("LD_LIBRARY_PATH").unwrap_or_default());
 
-        // Single-user editor sessions require at least 8192 context to accommodate system instructions.
-        // Cap at 32768 to prevent exceeding shared VRAM on APUs / integrated graphics.
-        let effective_ctx = ctx_size.clamp(8192, 32768);
+        // Honor user requested context length (e.g. 131072 / 128K), ensuring at least 8192 for editor instructions.
+        let effective_ctx = if ctx_size == 0 {
+            131072
+        } else {
+            ctx_size.max(8192)
+        };
 
         // Safe GPU layer offloading: if user specified negative or excessive layers for integrated GPU, cap at 24
         let effective_gpu_layers = if n_gpu_layers < 0 || n_gpu_layers > 24 {

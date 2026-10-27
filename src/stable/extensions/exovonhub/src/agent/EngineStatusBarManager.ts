@@ -703,7 +703,7 @@ export class EngineStatusBarManager {
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
                             model_path: selected.modelId,
-                            ctx_size: 8192,
+                            ctx_size: 131072,
                             n_gpu_layers: -1,
                             n_threads: 0,
                             n_batch: 2048,

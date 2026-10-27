@@ -187,7 +187,7 @@ struct LoadRequest {
     #[serde(default = "default_true")]
     flash_attn: bool,
 }
-fn default_ctx() -> u32 { 8192 }
+fn default_ctx() -> u32 { 131072 }
 fn default_gpu_layers() -> i32 { -1 }
 fn default_zero() -> u32 { 0 }
 fn default_batch() -> u32 { 2048 }
