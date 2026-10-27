@@ -62,7 +62,7 @@ export function CortexCanvas({ elements, agentFocusNodeIds }: CortexCanvasProps)
           {
             selector: 'node[type="chunk"]',
             style: {
-              'background-color': '#6366f1', // indigo
+              'background-color': '#38bdf8', // sky
               'shape': 'round-rectangle',
               'label': 'data(label)',
               'color': '#e2e8f0',
@@ -73,7 +73,7 @@ export function CortexCanvas({ elements, agentFocusNodeIds }: CortexCanvasProps)
               'height': '15px',
               'padding': '8px',
               'border-width': 1,
-              'border-color': '#4f46e5',
+              'border-color': '#0284c7',
               'border-style': 'dashed'
             }
           },

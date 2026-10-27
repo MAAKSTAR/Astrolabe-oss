@@ -102,7 +102,7 @@ function TypewriterMarkdown({ content, chatEndRef, disableAnimation }: { content
                 </div>
               </div>
             ) : (
-              <code className="bg-zinc-900 px-1.5 py-0.5 rounded border border-zinc-800 text-purple-300 font-mono text-[10.5px]" {...props}>
+              <code className="bg-zinc-900 px-1.5 py-0.5 rounded border border-zinc-800 text-sky-300 font-mono text-[10.5px]" {...props}>
                 {children}
               </code>
             );
@@ -145,6 +145,8 @@ interface ChatScreenProps {
   setAttachedImages?: React.Dispatch<React.SetStateAction<string[]>>;
   quotaInfo?: { usedPercentage: number, dailyLimit: number, tokensUsed: number, currentTier: string, modelsUsed: string[], resetsIn: string } | null;
   activeLocalModel?: string;
+  activeDiffusionModel?: string;
+  availableLocalModels?: Array<{ id: string; name: string; size_display?: string; quantization?: string; architecture?: string; loaded?: boolean; is_primary?: boolean }>;
   currentContextTokens?: number;
   maxContextTokens?: number;
 }
@@ -265,89 +267,143 @@ function TaskProgressCard({ msg }: { msg: Message }) {
               return <ReadFileIcon status={status} />;
             };
 
+            let parsedPayload: any = {};
+            try {
+              parsedPayload = JSON.parse(event.content || '{}');
+            } catch {
+              parsedPayload = { raw: event.content };
+            }
+
+            const rawFilePath = event.filePath || parsedPayload.relativePath || parsedPayload.TargetFile || parsedPayload.AbsolutePath || parsedPayload.SearchPath || parsedPayload.DirectoryPath || parsedPayload.path || '';
+            const baseFileName = rawFilePath ? rawFilePath.split('/').pop() : '';
+
+            const actionVerb = event.actionVerb || (() => {
+              if (event.type === 'think') return 'Think';
+              if (event.type === 'log') return 'Log';
+              const name = event.toolName || '';
+              if (name === 'viewFile' || name === 'readFile') return 'Read';
+              if (name === 'listDir') return 'List';
+              if (name === 'runCommand' || name === 'run_command') return 'Run';
+              if (name.includes('Search') || name.includes('grep')) return 'Search';
+              if (name.includes('Edit') || name.includes('replace') || name.includes('Patch') || name.includes('write')) return 'Edit';
+              if (name.includes('create')) return 'Create';
+              if (name.includes('delete')) return 'Delete';
+              return name.replace(/([A-Z])/g, ' $1').trim() || 'Tool';
+            })();
+
+            const targetDisplay = event.targetDisplay || (() => {
+              if (event.type === 'think') return '';
+              if (baseFileName) return baseFileName;
+              if (parsedPayload.CommandLine || parsedPayload.command) {
+                const cmd = parsedPayload.CommandLine || parsedPayload.command;
+                return cmd.length > 35 ? cmd.substring(0, 32) + '...' : cmd;
+              }
+              if (parsedPayload.query) return `"${parsedPayload.query}"`;
+              return '';
+            })();
+
+            let lineInfo = event.lineInfo || '';
+            if (!lineInfo && event.output) {
+              const rangeMatch = event.output.match(/Showing lines (\d+) to (\d+)/i);
+              const lineMatch = event.output.match(/\((\d+)\s*lines total\)/i);
+              if (rangeMatch) {
+                lineInfo = `${rangeMatch[1]}-${rangeMatch[2]}`;
+              } else if (lineMatch) {
+                lineInfo = `1-${lineMatch[1]}`;
+              }
+            }
+            if (!lineInfo) {
+              const startLine = parsedPayload.startLine ?? parsedPayload.StartLine;
+              const endLine = parsedPayload.endLine ?? parsedPayload.EndLine;
+              if (startLine !== undefined && endLine !== undefined) {
+                lineInfo = `${startLine}-${endLine}`;
+              } else if (startLine !== undefined) {
+                lineInfo = `line ${startLine}`;
+              }
+            }
+
+            const isCommand = event.toolName === 'runCommand' || event.toolName === 'run_command' || parsedPayload.CommandLine || parsedPayload.command;
+            const commandText = parsedPayload.CommandLine || parsedPayload.command || (typeof event.content === 'string' ? event.content : '');
+
+            const cleanToolOutput = (text: string) => {
+              if (!text) return text;
+              return text
+                .replace(/^File:\s*"[^"]+"\s*\(\d+\s*lines total\)\s*(Showing lines \d+ to \d+:\s*)?/i, '')
+                .replace(/^File:\s*'[^']+'\s*\(\d+\s*lines total\)\s*(Showing lines \d+ to \d+:\s*)?/i, '')
+                .trimStart();
+            };
+
             return (
               <details key={event.id} className="group relative z-10 animate-in fade-in slide-in-from-left-2 duration-300" open={event.status === 'running'}>
-                <summary className={`flex items-center gap-3 py-2 cursor-pointer list-none select-none hover:bg-white/10 transition-colors rounded-lg px-2 -ml-2 ${event.status === 'running' ? 'bg-zinc-800/60 border border-white/30 shadow-sm' : ''}`}>
-                  <div className="w-6 h-6 shrink-0 flex items-center justify-center rounded-md bg-zinc-800 border border-white/25 shadow-md relative text-zinc-100">
+                <summary className={`flex items-center gap-2.5 py-1.5 cursor-pointer list-none select-none hover:bg-white/5 transition-colors rounded-lg px-2 -ml-2 ${event.status === 'running' ? 'bg-zinc-800/60 border border-white/20 shadow-sm' : ''}`}>
+                  <div className="w-5 h-5 shrink-0 flex items-center justify-center rounded bg-zinc-800/90 border border-white/20 shadow-sm relative text-zinc-100">
                     {renderEventIcon()}
                   </div>
-                  <span className={`text-[12px] shrink-0 uppercase tracking-wider font-bold ${event.status === 'running' ? 'glass-text-reflection text-cyan-200' : 'text-zinc-100'}`}>
-                    {event.title}
-                  </span>
-                  <div className="flex-1 flex items-center justify-between min-w-0">
-                    <span className="text-[11px] truncate font-mono flex-1 flex flex-col justify-center">
-                    {event.type === 'think' && event.status === 'running' ? (
-                      <div className="flex flex-col gap-1 w-full pr-4 py-1">
-                        <span className="glass-text-cyan text-[11.5px] font-semibold">Thinking & Planning...</span>
-                        <div className="w-full h-0.5 bg-zinc-800/80 rounded-full overflow-hidden">
-                          <div className="w-full h-full bg-cyan-500/50 animate-pulse"></div>
-                        </div>
-                      </div>
-                    ) : event.type === 'tool' && event.status === 'running' ? (
-                      <div className="flex flex-col gap-1 w-full pr-4 py-1">
-                        <span className="glass-text-cyan text-[11.5px] font-semibold">
-                          {(() => {
-                            try {
-                              const payload = JSON.parse(event.content || '{}');
-                              const file = payload.TargetFile || payload.relativePath || payload.AbsolutePath || payload.SearchPath || payload.DirectoryPath || payload.Cwd;
-                              if (file) return `Accessing ${file.split('/').pop()}...`;
-                            } catch { /* ignore JSON parsing error */ }
-                            return `Executing ${event.toolName}...`;
-                          })()}
+
+                  {event.type === 'tool' ? (
+                    <div className="flex items-center gap-2 flex-1 min-w-0 pr-1">
+                      <span className="text-[12px] font-semibold text-zinc-200 capitalize shrink-0">
+                        {actionVerb}
+                      </span>
+                      {targetDisplay && (
+                        <span className="text-[12px] font-medium text-zinc-100 font-mono truncate max-w-[200px]" title={rawFilePath || targetDisplay}>
+                          {targetDisplay}
                         </span>
-                        <div className="w-full h-0.5 bg-zinc-800/80 rounded-full overflow-hidden">
+                      )}
+                      {lineInfo && (
+                        <span className="text-[11px] font-mono text-zinc-500 font-normal shrink-0">
+                          {lineInfo}
+                        </span>
+                      )}
+                      {event.status === 'running' && (
+                        <div className="w-12 h-1 bg-zinc-800/80 rounded-full overflow-hidden shrink-0 ml-auto">
                           <div className="w-full h-full bg-cyan-400/60 animate-pulse"></div>
                         </div>
-                      </div>
-                    ) : event.type === 'tool' ? (
-                      <span className="text-zinc-300 font-mono text-[11px]">
-                        {(() => {
-                          try {
-                            const payload = JSON.parse(event.content || '{}');
-                            const file = payload.TargetFile || payload.relativePath || payload.AbsolutePath || payload.SearchPath || payload.DirectoryPath || payload.Cwd;
-                            if (file) return `[${event.toolName}] ${file.split('/').pop()}`;
-                          } catch { /* ignore JSON parsing error */ }
-                          return event.content?.substring(0, 40);
-                        })()}
+                      )}
+                    </div>
+                  ) : event.type === 'think' ? (
+                    <div className="flex items-center gap-2 flex-1 min-w-0 pr-1">
+                      <span className={`text-[12px] font-semibold ${event.status === 'running' ? 'text-cyan-200' : 'text-zinc-200'} shrink-0`}>
+                        {event.status === 'running' ? 'Thinking & Planning...' : 'Think'}
                       </span>
-                    ) : ''}
-                  </span>
-                  <span className="transform transition-transform duration-200 group-open:rotate-180 text-[11px] text-zinc-400 ml-2">
-                    ↓
-                  </span>
-                </div>
-              </summary>
-              <div className="pl-[26px] pb-3 pr-2 pt-1">
-                {event.type === 'think' ? (
-                  <div className="text-[11.5px] leading-[1.65] text-zinc-200 font-sans whitespace-pre-wrap pl-1">
-                    {event.content?.replace(/<\/?[a-zA-Z0-9_|-]+[^>]*>/gi, '').trim()}
-                  </div>
-                ) : event.type === 'log' ? (
-                  event.content?.includes('❌') || event.content?.includes('Failed') || event.content?.includes('SYNTAX ERROR') ? (
-                    <div className="bg-rose-950/40 border border-rose-800/60 rounded-xl p-3 text-[11.5px] font-mono text-rose-200 overflow-x-auto whitespace-pre-wrap leading-relaxed shadow-lg">
-                      <div className="flex items-center gap-1.5 mb-1 text-rose-300 font-bold text-xs">
-                        <span>⚠️ Error Diagnostic</span>
-                      </div>
-                      {event.content}
+                      {event.status === 'running' && (
+                        <div className="w-16 h-1 bg-zinc-800/80 rounded-full overflow-hidden shrink-0 ml-auto">
+                          <div className="w-full h-full bg-cyan-400/60 animate-pulse"></div>
+                        </div>
+                      )}
                     </div>
                   ) : (
-                    <div className="bg-zinc-800/80 border border-white/15 rounded-xl p-2.5 text-[11px] font-mono text-zinc-200 overflow-x-auto whitespace-pre-wrap shadow-sm">
-                      {event.content}
+                    <div className="flex items-center gap-2 flex-1 min-w-0 pr-1">
+                      <span className="text-[12px] font-medium text-zinc-300 truncate">
+                        {event.title || event.content?.substring(0, 40)}
+                      </span>
                     </div>
-                  )
-                ) : (() => {
-                  let parsed: any = {};
-                  try {
-                    parsed = JSON.parse(event.content || '{}');
-                  } catch {
-                    parsed = { raw: event.content };
-                  }
+                  )}
 
-                  const isCommand = event.toolName === 'runCommand' || event.toolName === 'run_command' || parsed.CommandLine || parsed.command;
-                  const commandText = parsed.CommandLine || parsed.command || (typeof event.content === 'string' ? event.content : '');
-                  const filePath = parsed.TargetFile || parsed.relativePath || parsed.AbsolutePath || parsed.SearchPath || parsed.DirectoryPath || parsed.Cwd;
+                  <span className="transform transition-transform duration-200 group-open:rotate-180 text-[10px] text-zinc-400 ml-auto shrink-0 pl-1">
+                    ▼
+                  </span>
+                </summary>
 
-                  return (
+                <div className="pl-[26px] pb-3 pr-2 pt-1">
+                  {event.type === 'think' ? (
+                    <div className="text-[11.5px] leading-[1.65] text-zinc-200 font-sans whitespace-pre-wrap pl-1">
+                      {event.content?.replace(/<\/?[a-zA-Z0-9_|-]+[^>]*>/gi, '').trim()}
+                    </div>
+                  ) : event.type === 'log' ? (
+                    event.content?.includes('❌') || event.content?.includes('Failed') || event.content?.includes('SYNTAX ERROR') ? (
+                      <div className="bg-rose-950/40 border border-rose-800/60 rounded-xl p-3 text-[11.5px] font-mono text-rose-200 overflow-x-auto whitespace-pre-wrap leading-relaxed shadow-lg">
+                        <div className="flex items-center gap-1.5 mb-1 text-rose-300 font-bold text-xs">
+                          <span>⚠️ Error Diagnostic</span>
+                        </div>
+                        {event.content}
+                      </div>
+                    ) : (
+                      <div className="bg-zinc-800/80 border border-white/15 rounded-xl p-2.5 text-[11px] font-mono text-zinc-200 overflow-x-auto whitespace-pre-wrap shadow-sm">
+                        {event.content}
+                      </div>
+                    )
+                  ) : (
                     <div className="bg-zinc-900 border border-white/20 rounded-xl overflow-hidden shadow-lg transition-all">
                       {/* Window Header */}
                       <div className="bg-zinc-800 px-3 py-1.5 border-b border-white/15 flex items-center justify-between select-none gap-2">
@@ -357,17 +413,17 @@ function TaskProgressCard({ msg }: { msg: Message }) {
                             <span className="w-2 h-2 rounded-full bg-zinc-600"></span>
                             <span className="w-2 h-2 rounded-full bg-zinc-600"></span>
                           </div>
-                          <span className="text-[12px] font-mono font-bold text-zinc-100 uppercase tracking-wider pl-1 shrink-0">
-                            {event.toolName || 'Tool Call'}
+                          <span className="text-[11px] font-mono text-zinc-300 truncate max-w-[280px]" title={rawFilePath || commandText}>
+                            {rawFilePath || (isCommand ? 'terminal' : actionVerb)}
                           </span>
-                          {filePath && (
-                            <span className="text-[11px] font-mono bg-zinc-700/80 text-zinc-200 px-2 py-0.5 rounded border border-white/10 truncate max-w-[140px]" title={filePath}>
-                              {filePath.split('/').pop()}
+                          {lineInfo && (
+                            <span className="text-[10px] font-mono text-zinc-500 bg-zinc-800 px-1.5 py-0.5 rounded border border-white/5">
+                              {lineInfo}
                             </span>
                           )}
                         </div>
 
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 shrink-0">
                           <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded uppercase tracking-wider ${event.status === 'running' ? 'bg-cyan-950 text-cyan-200 border border-cyan-700/50' : event.status === 'failed' ? 'bg-rose-950 text-rose-200 border border-rose-700/50' : 'bg-emerald-950 text-emerald-200 border border-emerald-700/50'}`}>
                             {event.status === 'running' ? 'Running' : event.status === 'failed' ? 'Failed' : 'Exit 0'}
                           </span>
@@ -389,29 +445,24 @@ function TaskProgressCard({ msg }: { msg: Message }) {
                         </div>
                       </div>
 
-                      {/* Command / Input Payload Bar */}
-                      {isCommand ? (
-                        <div className="p-3 bg-zinc-850 border-b border-white/10 font-mono text-[11.5px] leading-relaxed text-zinc-100 select-all overflow-x-auto whitespace-pre">
+                      {/* Command Input Bar (only for commands) */}
+                      {isCommand && (
+                        <div className="p-2.5 bg-zinc-850 border-b border-white/10 font-mono text-[11.5px] leading-relaxed text-zinc-100 select-all overflow-x-auto whitespace-pre">
                           <span className="text-zinc-400 font-bold select-none mr-2">$</span>
                           {commandText}
                         </div>
-                      ) : filePath ? (
-                        <div className="p-2.5 bg-zinc-850 border-b border-white/10 font-mono text-[11px] text-zinc-200 flex flex-wrap gap-2 items-center">
-                          <span className="text-zinc-400 font-semibold">Path:</span>
-                          <span className="text-zinc-100 font-medium select-all">{filePath}</span>
-                        </div>
-                      ) : null}
+                      )}
 
-                      {/* Execution Output Console (Grayish slate & scrollable) */}
+                      {/* Execution Output Console */}
                       {event.output ? (
                         <div className="p-3 bg-zinc-900/90 max-h-56 min-h-[48px] overflow-y-auto overflow-x-auto scrollbar-thin select-all font-mono text-[11px] leading-relaxed text-zinc-200 whitespace-pre">
-                          {event.output}
+                          {cleanToolOutput(event.output)}
                         </div>
                       ) : !isCommand && event.content && event.content !== '{}' ? (
                         <div className="p-3 bg-zinc-900/90 max-h-56 min-h-[40px] overflow-y-auto overflow-x-auto scrollbar-thin select-all font-mono text-[11px] leading-relaxed text-zinc-200 whitespace-pre">
                           {(() => {
                             try {
-                              return JSON.stringify(parsed, null, 2);
+                              return JSON.stringify(parsedPayload, null, 2);
                             } catch {
                               return event.content;
                             }
@@ -428,11 +479,10 @@ function TaskProgressCard({ msg }: { msg: Message }) {
                         </div>
                       )}
                     </div>
-                  );
-                })()}
-              </div>
-            </details>
-          );
+                  )}
+                </div>
+              </details>
+            );
         })}
         </div>
       )}
@@ -444,11 +494,56 @@ function TaskProgressCard({ msg }: { msg: Message }) {
 
 export function formatModelDisplayName(modelStr?: string): string {
   if (!modelStr) return '';
-  let name = modelStr.replace(/^local:/i, '');
+  let name = modelStr.replace(/^local:/i, '').replace(/^diffusion:/i, '');
   const parts = name.split(/[\\/]/);
   name = parts[parts.length - 1] || name;
   name = name.replace(/\.gguf$/i, '');
   return name;
+}
+
+export function getModelCategory(m: { id?: string; name?: string; architecture?: string }): 'diffusion' | 'projector' | 'llm' {
+  const name = (m.name || m.id || '').toLowerCase();
+  const arch = (m.architecture || '').toLowerCase();
+  
+  if (name.includes('mmproj') || name.startsWith('mmproj-') || arch.includes('clip')) {
+    return 'projector';
+  }
+  
+  const isDiffKeyword = (
+    name.includes('sd-') ||
+    name.includes('sd_') ||
+    name.includes('sd1') ||
+    name.includes('sd2') ||
+    name.includes('sdxl') ||
+    name.includes('turbo') ||
+    name.includes('diffusion') ||
+    name.includes('flux') ||
+    name.includes('schnell') ||
+    name.includes('illustrious') ||
+    name.includes('pony') ||
+    name.includes('stable-diffusion') ||
+    name.includes('wan-') ||
+    name.includes('wan2') ||
+    arch.includes('diffusion') ||
+    name.endsWith('.safetensors')
+  );
+  
+  const isLlmKeyword = (
+    name.includes('qwen') ||
+    name.includes('gemma') ||
+    name.includes('llama') ||
+    name.includes('bonsai') ||
+    name.includes('ornith') ||
+    name.includes('lfm') ||
+    name.includes('refact') ||
+    name.includes('vibethinker')
+  );
+
+  if (isDiffKeyword && !isLlmKeyword) {
+    return 'diffusion';
+  }
+
+  return 'llm';
 }
 
 export function ChatScreen({
@@ -481,6 +576,8 @@ export function ChatScreen({
   setAttachedImages,
   quotaInfo,
   activeLocalModel,
+  activeDiffusionModel,
+  availableLocalModels,
   currentContextTokens,
   maxContextTokens
 }: ChatScreenProps) {
@@ -513,6 +610,7 @@ export function ChatScreen({
   const [expandedDiffs, setExpandedDiffs] = React.useState<Record<string, boolean>>({});
   const [showQuotaPopover, setShowQuotaPopover] = React.useState(false);
   const [modelDropdownOpen, setModelDropdownOpen] = React.useState(false);
+  const [modelFilterTab, setModelFilterTab] = React.useState<'all' | 'llm' | 'diffusion' | 'projector'>('all');
   const [planDropdownOpen, setPlanDropdownOpen] = React.useState(false);
 
   const [showContextInput, setShowContextInput] = React.useState(false);
@@ -593,15 +691,15 @@ export function ChatScreen({
     <div className="flex-1 flex flex-col gap-3 min-h-0 justify-between relative">
 
       {/* UPSIDE EMPTY PLACE: CONTEXT PICKER HEADER */}
-      <div className="flex flex-wrap items-center gap-1.5 border-b border-zinc-900/50 pb-2 bg-zinc-950/20 pt-1 px-1 rounded-t-xl shrink-0">
+      <div className="flex flex-wrap items-center gap-1.5 pb-2 pt-1 px-1 shrink-0 border-b border-white/5">
         <span className="text-[8px] font-mono text-zinc-500 uppercase tracking-wider pl-1">
           Context:
         </span>
 
         {/* Active Editor Indicator */}
         {activeEditorFile && (
-          <div className="flex items-center gap-1.5 bg-purple-900/20 border border-purple-800/40 py-0.5 px-1.5 rounded-md font-mono text-[9px] text-purple-300 shadow-[0_0_10px_rgba(168,85,247,0.05)]">
-            <span className="w-1.5 h-1.5 bg-purple-500 rounded-full animate-pulse"></span>
+          <div className="flex items-center gap-1.5 bg-emerald-500/10 border border-emerald-500/20 py-0.5 px-1.5 rounded-md font-mono text-[9px] text-emerald-300 shadow-[0_0_10px_rgba(16,185,129,0.05)]">
+            <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse"></span>
             <span>Active: {activeEditorFile}</span>
           </div>
         )}
@@ -647,7 +745,7 @@ export function ChatScreen({
           <button
             aria-label="Add Context File"
             onClick={() => setShowContextInput(true)}
-            className="bg-zinc-950 hover:bg-zinc-800 border border-zinc-850 text-zinc-500 hover:text-zinc-300 py-0.5 px-1.5 rounded font-mono text-[9px] font-bold"
+            className="bg-white/5 hover:bg-white/10 border border-white/10 text-zinc-400 hover:text-zinc-200 py-0.5 px-2 rounded-md font-mono text-[9px] font-semibold transition-colors"
           >
             + Add
           </button>
@@ -659,7 +757,7 @@ export function ChatScreen({
         role="log"
         aria-live="polite"
         onScroll={handleScroll}
-        className="flex-1 overflow-y-auto space-y-4 pr-1 min-h-0 border border-zinc-900/50 bg-zinc-950/20 p-3 rounded-b-2xl shadow-inner scrollbar-thin"
+        className="flex-1 overflow-y-auto space-y-3.5 pr-1 min-h-0 py-2 scrollbar-thin"
       >
         {messages.map((msg, idx) => (
           <div
@@ -668,11 +766,49 @@ export function ChatScreen({
               }`}
           >
             {/* Thinking/Working Components (Distinct from Chat Response) */}
-            {msg.sender === 'agent' && msg.timeline && msg.timeline.length > 0 && (
+            {msg.sender === 'agent' && msg.isGeneratingImage && (
+              <div className="w-full max-w-md flex flex-col items-start gap-2.5 my-3 z-10 animate-in fade-in duration-200">
+                <div className="flex items-center gap-2 text-zinc-200 text-xs font-medium tracking-wide">
+                  <span className="text-emerald-400 animate-pulse text-sm">✦</span>
+                  <span>Creating your image</span>
+                </div>
+                <div className="w-full aspect-square rounded-3xl bg-[#18181b] border border-white/10 relative overflow-hidden flex flex-col items-center justify-center shadow-2xl">
+                  {/* Subtle elegant shimmer pulse */}
+                  <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/[0.04] to-transparent -translate-x-full animate-[shimmer_2s_infinite]" />
+                  <div className="text-center p-6 space-y-2 z-10">
+                    <div className="w-8 h-8 rounded-full border-2 border-emerald-500/20 border-t-emerald-400 animate-spin mx-auto mb-3" />
+                    <div className="text-xs font-mono text-zinc-300 font-semibold">Diffusion Engine (Port 47992)</div>
+                    <div className="text-[11px] font-mono text-zinc-500">Offloading latent tensors to Vulkan GPU...</div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {msg.sender === 'agent' && !msg.isGeneratingImage && msg.timeline && msg.timeline.length > 0 && (
               <TaskProgressCard msg={msg} />
             )}
             
             {msg.sender === 'agent' && !msg.text && (!msg.timeline || msg.timeline.length === 0) && isAgentThinking && (() => {
+              if (msg.isGeneratingImage) {
+                return (
+                  <div className="py-2.5 px-3.5 my-1.5 flex items-center gap-3 bg-cyan-950/30 border border-cyan-500/20 rounded-xl text-cyan-300 font-mono text-[11px] backdrop-blur-sm shadow-sm animate-in fade-in duration-200">
+                    <div className="relative flex items-center justify-center w-5 h-5 shrink-0">
+                      <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-ping absolute"></span>
+                      <span className="w-2 h-2 rounded-full bg-cyan-400"></span>
+                    </div>
+                    <div className="flex flex-col min-w-0">
+                      <span className="font-semibold text-cyan-200 flex items-center gap-1.5">
+                        <span>Generating Image via Diffusion Engine</span>
+                        <span className="text-[9px] px-1.5 py-0.2 rounded bg-cyan-500/20 text-cyan-300 font-mono">Port 47992</span>
+                      </span>
+                      <span className="text-[9px] text-cyan-400/70 truncate">
+                        {msg.generatedImagePrompt ? `"${msg.generatedImagePrompt}"` : 'Rendering visual asset...'}
+                      </span>
+                    </div>
+                  </div>
+                );
+              }
+
               const radius = 10;
               const circumference = 2 * Math.PI * radius;
               const hasProgress = msg.promptTokens !== undefined && msg.promptTokens > 0;
@@ -756,7 +892,7 @@ export function ChatScreen({
                         components={{
                           p: ({ children }) => <p className="mb-1.5 last:mb-0 text-zinc-200">{children}</p>,
                           code: ({ inline, className, children, ...props }: React.ComponentPropsWithoutRef<'code'> & { inline?: boolean; node?: unknown }) => (
-                            <code className="bg-zinc-800/80 px-1.5 py-0.5 rounded border border-white/5 text-purple-300 font-mono text-[10.5px]" {...props}>
+                            <code className="bg-zinc-800/80 px-1.5 py-0.5 rounded border border-white/5 text-sky-300 font-mono text-[10.5px]" {...props}>
                               {children}
                             </code>
                           )
@@ -768,22 +904,96 @@ export function ChatScreen({
                   ))}
                 </div>
 
-                {/* Sleek Floating Hover Toolbar (Completely hidden until cursor hovers over message card) */}
-                {!msg.isCommandApproval && !msg.isFileApproval && !msg.isPlanReview && (
-                  <div className="flex items-center justify-end gap-2 opacity-0 group-hover/message:opacity-100 transition-opacity duration-150 mt-1 select-none pr-1">
-                    {msg.sender === 'agent' && msg.metrics?.completion_tps ? (
-                      <span className="text-[10px] text-zinc-500 font-mono" title={`Prompt: ${msg.metrics.prompt_tokens?.toLocaleString() || 0} tokens | Output: ${msg.metrics.completion_tokens || 0} tokens | Latency: ${(msg.metrics.total_time_ms ? msg.metrics.total_time_ms / 1000 : 0).toFixed(2)}s`}>
-                        {msg.metrics.completion_tps.toFixed(1)} t/s
-                      </span>
-                    ) : null}
+                {/* Agent Token Metrics & Action Footer (Always visible) */}
+                {msg.sender === 'agent' ? (
+                  <div className="flex items-center justify-between gap-3 mt-2 pt-1.5 border-t border-white/5 select-none text-[10.5px] font-mono text-zinc-500">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      {msg.metrics?.total_tokens || (msg.metrics?.prompt_tokens && msg.metrics?.completion_tokens) ? (
+                        <span className="truncate">
+                          <span className="text-zinc-300 font-medium">{((msg.metrics.total_tokens ?? ((msg.metrics.prompt_tokens || 0) + (msg.metrics.completion_tokens || 0)))).toLocaleString()}</span> tokens
+                          <span className="text-zinc-500 font-normal ml-1.5">
+                            ({(msg.metrics.prompt_tokens || 0).toLocaleString()} in · {(msg.metrics.completion_tokens || 0).toLocaleString()} out
+                            {msg.metrics.completion_tps ? ` · ${msg.metrics.completion_tps.toFixed(1)} t/s` : ''})
+                          </span>
+                        </span>
+                      ) : msg.promptTokens ? (
+                        <span>
+                          <span className="text-zinc-300 font-medium">{msg.promptTokens.toLocaleString()}</span> prompt tokens
+                        </span>
+                      ) : null}
+                    </div>
 
+                    <div className="flex items-center gap-2 shrink-0 ml-auto">
+                      {msg.timestamp && (
+                        <span className="text-[10px] text-zinc-600 font-mono">{msg.timestamp}</span>
+                      )}
+                      {/* Copy Button */}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          navigator.clipboard.writeText(msg.text || '');
+                          const btn = e.currentTarget;
+                          const originalSvg = btn.innerHTML;
+                          btn.innerHTML = `<svg class="w-3.5 h-3.5 text-emerald-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`;
+                          setTimeout(() => { btn.innerHTML = originalSvg; }, 1500);
+                        }}
+                        className="p-1 rounded text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800/60 transition-colors cursor-pointer"
+                        title="Copy"
+                      >
+                        <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                        </svg>
+                      </button>
+
+                      {/* Checkpoint Rollback / Restore Button */}
+                      {msg.checkpoint && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (vscodeApi) {
+                              vscodeApi.postMessage({ command: 'rollbackToCheckpoint', checkpointId: msg.checkpoint.id });
+                            }
+                          }}
+                          className="p-1 rounded text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800/60 transition-colors cursor-pointer"
+                          title={`Rollback workspace to Checkpoint #${msg.checkpoint.stepNumber || msg.checkpoint.id.substring(0, 8)}`}
+                        >
+                          <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+                            <path d="M3 3v5h5" />
+                          </svg>
+                        </button>
+                      )}
+                      {/* Checkpoint Branch Button */}
+                      {msg.checkpoint && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            vscodeApi?.postMessage({
+                              command: 'branchFromCheckpoint',
+                              checkpointId: msg.checkpoint.id
+                            });
+                          }}
+                          className="p-1 rounded text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800/60 transition-colors cursor-pointer"
+                          title={`Branch conversation from Checkpoint #${msg.checkpoint.stepNumber || msg.checkpoint.id.substring(0, 8)}`}
+                        >
+                          <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <line x1="6" y1="3" x2="6" y2="15"></line>
+                            <circle cx="18" cy="6" r="3"></circle>
+                            <circle cx="6" cy="18" r="3"></circle>
+                            <path d="M18 9a9 9 0 0 1-9 9"></path>
+                          </svg>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-end gap-2 opacity-0 group-hover/message:opacity-100 transition-opacity duration-150 mt-1 select-none pr-1">
                     {msg.timestamp && (
                       <span className="text-[10px] text-zinc-500 font-mono">
                         {msg.timestamp}
                       </span>
                     )}
-
-                    {/* Copy Button (Clean SVG) */}
                     <button
                       type="button"
                       onClick={(e) => {
@@ -801,56 +1011,6 @@ export function ChatScreen({
                         <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
                       </svg>
                     </button>
-
-                    {/* Checkpoint Rollback / Restore Button (Clean SVG) */}
-                    {msg.checkpoint && (
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          vscodeApi?.postMessage({
-                            command: 'rollbackToCheckpoint',
-                            checkpointId: msg.checkpoint.id
-                          });
-                          const btn = e.currentTarget;
-                          const originalSvg = btn.innerHTML;
-                          btn.innerHTML = `<svg class="w-3.5 h-3.5 text-cyan-400 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>`;
-                          setTimeout(() => { btn.innerHTML = originalSvg; }, 2000);
-                        }}
-                        className="p-1 rounded text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800/60 transition-colors cursor-pointer"
-                        title={`Restore files & chat to Checkpoint #${msg.checkpoint.stepNumber || 1}`}
-                      >
-                        <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <polyline points="1 4 1 10 7 10"></polyline>
-                          <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path>
-                        </svg>
-                      </button>
-                    )}
-
-                    {/* Checkpoint Branch Button (Clean SVG) */}
-                    {msg.checkpoint && (
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          vscodeApi?.postMessage({
-                            command: 'branchFromCheckpoint',
-                            checkpointId: msg.checkpoint.id
-                          });
-                          const btn = e.currentTarget;
-                          const originalSvg = btn.innerHTML;
-                          btn.innerHTML = `<svg class="w-3.5 h-3.5 text-emerald-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>`;
-                          setTimeout(() => { btn.innerHTML = originalSvg; }, 1500);
-                        }}
-                        className="p-1 rounded text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800/60 transition-colors cursor-pointer"
-                        title={`Branch conversation from Checkpoint #${msg.checkpoint.stepNumber || 1}`}
-                      >
-                        <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <line x1="6" y1="3" x2="6" y2="15"></line>
-                          <circle cx="18" cy="6" r="3"></circle>
-                          <circle cx="6" cy="18" r="3"></circle>
-                          <path d="M18 9a9 9 0 0 1-9 9"></path>
-                        </svg>
-                      </button>
-                    )}
                   </div>
                 )}
               </div>
@@ -1162,7 +1322,7 @@ export function ChatScreen({
       )}
 
       {/* INTERACTIVE INPUT CONTROL BOX */}
-      <div className="glass-panel-dark rounded-[24px] p-3 flex flex-col shadow-2xl shrink-0 transition-all focus-within:border-cyan-400/50">
+      <div className="bg-[#1a1a1c] border border-white/10 rounded-2xl p-2.5 flex flex-col shadow-md shrink-0 transition-all focus-within:border-sky-500/40 focus-within:ring-1 focus-within:ring-sky-500/20">
         {!autoScroll && (
           <div className="absolute bottom-32 right-4 z-10 flex flex-col gap-2">
             <button
@@ -1180,7 +1340,7 @@ export function ChatScreen({
 
         {/* Pre-empt Toast Overlay */}
         {isPreempting && (
-          <div className="absolute inset-0 glass-panel-dark z-10 rounded-2xl flex items-center justify-center border border-emerald-500/30 shadow-xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+          <div className="absolute inset-0 bg-[#1a1a1c] z-10 rounded-2xl flex items-center justify-center border border-emerald-500/30 shadow-xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
             <div className="absolute inset-0 bg-gradient-to-r from-transparent via-emerald-500/10 to-transparent -translate-x-full animate-[shimmer_1.5s_infinite]"></div>
             <p className="text-[10px] font-mono font-bold text-emerald-400 z-20 flex items-center gap-2">
               <span className="animate-pulse">⚡</span> Pre-empting context queue...
@@ -1239,7 +1399,7 @@ export function ChatScreen({
             <div className="relative">
               <button
                 onClick={() => setShowToolbox(!showToolbox)}
-                className={`w-7 h-7 flex items-center justify-center glass-component-white rounded-full transition-colors focus:outline-none ${showToolbox ? 'bg-white/20 text-white' : 'text-zinc-300 hover:text-white'}`}
+                className={`w-7 h-7 flex items-center justify-center bg-white/5 hover:bg-white/10 border border-white/10 rounded-full transition-colors focus:outline-none ${showToolbox ? 'bg-white/20 text-white' : 'text-zinc-400 hover:text-white'}`}
                 title="Add Context"
                 aria-label="Add Context"
               >
@@ -1292,7 +1452,7 @@ export function ChatScreen({
               onClick={() => {
                 if (vscodeApi) vscodeApi.postMessage({ command: 'toggleInspector' });
               }}
-              className={`w-7 h-7 flex items-center justify-center rounded-full transition-colors focus:outline-none ${inspectorActive ? 'bg-purple-500/30 text-purple-300 border border-purple-400/40' : 'glass-component-white text-zinc-300 hover:text-white'}`}
+              className={`w-7 h-7 flex items-center justify-center rounded-full transition-colors focus:outline-none ${inspectorActive ? 'bg-sky-500/20 text-sky-300 border border-sky-400/30' : 'bg-white/5 hover:bg-white/10 border border-white/10 text-zinc-400 hover:text-white'}`}
               title={inspectorActive ? "Deactivate Inspector" : "Inspect UI Element"}
               aria-label="Inspect UI Element"
             >
@@ -1302,7 +1462,7 @@ export function ChatScreen({
             {/* Modern Model Selector */}
             <div className="relative group flex items-center">
               <div
-                className="flex items-center gap-2 px-3 py-1.5 glass-component-white rounded-full cursor-pointer transition-all active:scale-95"
+                className="flex items-center gap-2 px-3 py-1 bg-white/5 hover:bg-white/10 border border-white/10 rounded-full cursor-pointer transition-all active:scale-95"
                 onClick={() => {
                   const nextState = !modelDropdownOpen;
                   setModelDropdownOpen(nextState);
@@ -1312,65 +1472,411 @@ export function ChatScreen({
                   }
                 }}
               >
-                <div className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.9)] animate-pulse"></div>
-                <span className="text-[11px] font-bold text-white tracking-wide uppercase">
-                  {selectedModel?.startsWith('local:') ? `Local: ${formatModelDisplayName(selectedModel)}` : selectedModel === 'Qwen/Qwen3-235B-A22B-Instruct-2507' ? 'Astrolabe Base' : selectedModel === 'gemma-4-31b-it' ? 'Gemma 4' : selectedModel === 'mimo-v2.5' ? 'MiMo V2.5' : selectedModel === 'mimo-v2.5-pro' ? 'MiMo Pro' : selectedModel === 'deepseek-v4-flash' ? 'DS V4 Flash' : selectedModel === 'deepseek-v4-pro' ? 'DS V4 Pro' : selectedModel === 'glm-5.2' ? 'GLM 5.2' : selectedModel?.startsWith('@') ? 'ASTROLABE' : selectedModel || 'ASTROLABE-BASE'}
+                <div className={`w-2 h-2 rounded-full ${
+                  (selectedModel?.startsWith('diffusion:') || (!selectedModel && activeDiffusionModel && !activeLocalModel))
+                    ? (activeDiffusionModel ? 'bg-cyan-400 animate-pulse shadow-sm shadow-cyan-400/50' : 'bg-zinc-600')
+                    : (activeLocalModel ? 'bg-emerald-500' : 'bg-zinc-600')
+                }`}></div>
+                <span className={`text-[11px] font-semibold tracking-wide uppercase truncate max-w-[160px] ${
+                  (selectedModel?.startsWith('diffusion:') || (!selectedModel && activeDiffusionModel && !activeLocalModel))
+                    ? (activeDiffusionModel ? 'text-zinc-100' : 'text-zinc-400')
+                    : (activeLocalModel ? 'text-zinc-100' : 'text-zinc-400')
+                }`} title={
+                  (selectedModel?.startsWith('diffusion:') || (!selectedModel && activeDiffusionModel && !activeLocalModel))
+                    ? (activeDiffusionModel ? `Diffusion: ${formatModelDisplayName(activeDiffusionModel)}` : 'No Image Model')
+                    : (activeLocalModel ? `Local: ${formatModelDisplayName(activeLocalModel)}` : 'No Model Loaded')
+                }>
+                  {(selectedModel?.startsWith('diffusion:') || (!selectedModel && activeDiffusionModel && !activeLocalModel))
+                    ? (activeDiffusionModel ? `Diffusion: ${formatModelDisplayName(activeDiffusionModel)}` : 'No Image Model')
+                    : (activeLocalModel ? `Local: ${formatModelDisplayName(activeLocalModel)}` : 'No Model Loaded')}
                 </span>
-                <svg className="w-3 h-3 text-zinc-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                <svg className="w-3 h-3 text-zinc-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
               </div>
 
               {/* Dropdown Menu */}
-              {modelDropdownOpen && (
-                <>
-                  <div className="fixed inset-0 z-40" onClick={() => setModelDropdownOpen(false)} />
-                  <div className="absolute bottom-full left-0 mb-2 w-48 glass-panel-dark rounded-xl shadow-2xl z-50 overflow-hidden divide-y divide-white/10">
-                    <div className="p-1.5">
-                      <div className="px-2 py-1.5 text-[9px] font-bold text-zinc-400 uppercase tracking-widest">Standard</div>
-                      <button
-                        onClick={() => { handleModelChange?.('Qwen/Qwen3-235B-A22B-Instruct-2507'); setModelDropdownOpen(false); (document.activeElement as HTMLElement)?.blur(); }}
-                        className={`w-full text-left px-2.5 py-2 rounded-lg text-xs flex flex-col gap-1 transition-colors ${selectedModel === 'Qwen/Qwen3-235B-A22B-Instruct-2507' ? 'glass-component-white text-emerald-300 font-bold' : 'text-zinc-200 hover:bg-white/10'}`}
-                      >
-                        <span className="font-semibold">Astrolabe Base (Free)</span>
-                        <span className="text-[9px] font-mono text-zinc-400">Astrolabe Standard</span>
-                      </button>
-                      <button
-                        onClick={() => { handleModelChange?.('gemma-4-31b-it'); setModelDropdownOpen(false); (document.activeElement as HTMLElement)?.blur(); }}
-                        className={`w-full text-left px-2.5 py-2 rounded-lg text-xs flex flex-col gap-1 transition-colors ${selectedModel === 'gemma-4-31b-it' ? 'glass-component-white text-emerald-300 font-bold' : 'text-zinc-200 hover:bg-white/10'}`}
-                      >
-                        <span className="font-semibold">Gemma 4 31B IT (Free)</span>
-                        <span className="text-[9px] font-mono text-zinc-400">Google Gemma 4</span>
-                      </button>
-                    </div>
-                    <div className="p-1.5">
-                      <div className="px-2 py-1.5 text-[9px] font-bold text-amber-400 uppercase tracking-widest flex items-center gap-1">
-                        <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" /></svg>
-                        Pro Tier
+              {modelDropdownOpen && (() => {
+                const categorizedModels = (availableLocalModels || []).map(m => ({
+                  ...m,
+                  category: getModelCategory(m)
+                }));
+                const llmModels = categorizedModels.filter(m => m.category === 'llm');
+                const diffModels = categorizedModels.filter(m => m.category === 'diffusion');
+                const projModels = categorizedModels.filter(m => m.category === 'projector');
+                const filteredModels = modelFilterTab === 'llm'
+                  ? llmModels
+                  : modelFilterTab === 'diffusion'
+                    ? diffModels
+                    : modelFilterTab === 'projector'
+                      ? projModels
+                      : categorizedModels;
+
+                return (
+                  <>
+                    <div className="fixed inset-0 z-40" onClick={() => setModelDropdownOpen(false)} />
+                    <div className="absolute bottom-full left-0 mb-2 w-80 sm:w-88 glass-panel-dark rounded-2xl shadow-2xl z-50 overflow-hidden divide-y divide-white/10 max-h-[500px] flex flex-col border border-white/15 bg-zinc-950/95 backdrop-blur-xl">
+                      <div className="overflow-y-auto scrollbar-thin flex-1 divide-y divide-white/5">
+                        
+                        {/* Primary LLM Engine */}
+                        <div className="p-2.5">
+                          <div className="px-1 py-1 text-[9px] font-bold text-zinc-400 uppercase tracking-widest flex items-center justify-between mb-1.5">
+                            <span className="flex items-center gap-1.5">
+                              <span className={`w-2 h-2 rounded-full ${activeLocalModel ? 'bg-emerald-500 shadow-sm shadow-emerald-500/50' : 'bg-zinc-600'}`}></span>
+                              Primary LLM Engine
+                            </span>
+                            <span className="font-mono text-[9px] text-zinc-500">Port 47990</span>
+                          </div>
+                          {activeLocalModel ? (
+                            <div className="rounded-xl p-2.5 bg-emerald-500/10 border border-emerald-500/25 flex flex-col gap-2">
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="font-semibold text-xs text-zinc-100 truncate" title={activeLocalModel}>
+                                  {formatModelDisplayName(activeLocalModel)}
+                                </span>
+                                <span className="px-1.5 py-0.5 rounded text-[9px] font-mono bg-emerald-500/20 text-emerald-300 shrink-0">
+                                  ✓ In RAM/VRAM
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    handleModelChange?.(`local:${activeLocalModel}`);
+                                    setModelDropdownOpen(false);
+                                  }}
+                                  className={`flex-1 py-1 px-2 rounded text-[11px] font-medium text-center transition-colors cursor-pointer ${
+                                    selectedModel === `local:${activeLocalModel}` || (!selectedModel?.startsWith('diffusion:') && selectedModel)
+                                      ? 'bg-emerald-500 text-black font-semibold'
+                                      : 'bg-white/10 hover:bg-white/15 text-zinc-200'
+                                  }`}
+                                >
+                                  {selectedModel === `local:${activeLocalModel}` || (!selectedModel?.startsWith('diffusion:') && selectedModel)
+                                    ? '✓ Active in Chat'
+                                    : 'Select for Chat'}
+                                </button>
+                                <button
+                                  type="button"
+                                  title="Unload model from RAM/VRAM"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    vscodeApi?.postMessage({ command: 'unloadLocalModel', target: 'primary' });
+                                  }}
+                                  className="py-1 px-2.5 rounded text-[11px] font-medium bg-red-500/15 hover:bg-red-500/25 text-red-400 border border-red-500/20 transition-colors cursor-pointer shrink-0"
+                                >
+                                  ⏏ Unload
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="rounded-xl p-2.5 border border-dashed border-white/10 bg-white/[0.02] flex items-center justify-between gap-2">
+                              <div className="flex flex-col">
+                                <span className="text-xs text-zinc-400 font-medium">No LLM loaded</span>
+                                <span className="text-[10px] text-zinc-500 font-mono">Select a model below to load</span>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => setModelFilterTab('llm')}
+                                className="px-2.5 py-1 rounded text-[11px] font-semibold bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30 transition-colors cursor-pointer shrink-0"
+                              >
+                                + Load LLM
+                              </button>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Visual & Diffusion Engine */}
+                        <div className="p-2.5">
+                          <div className="px-1 py-1 text-[9px] font-bold text-zinc-400 uppercase tracking-widest flex items-center justify-between mb-1.5">
+                            <span className="flex items-center gap-1.5">
+                              <span className={`w-2 h-2 rounded-full ${activeDiffusionModel ? 'bg-cyan-400 animate-pulse shadow-sm shadow-cyan-400/50' : 'bg-zinc-600'}`}></span>
+                              Visual & Diffusion Engine
+                            </span>
+                            <span className="font-mono text-[9px] text-zinc-500">Port 47992 (Vulkan)</span>
+                          </div>
+                          {activeDiffusionModel ? (
+                            <div className="rounded-xl p-2.5 bg-cyan-500/10 border border-cyan-500/25 flex flex-col gap-2">
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="font-semibold text-xs text-zinc-100 truncate" title={activeDiffusionModel}>
+                                  {formatModelDisplayName(activeDiffusionModel)}
+                                </span>
+                                <span className="px-1.5 py-0.5 rounded text-[9px] font-mono bg-cyan-500/20 text-cyan-300 shrink-0">
+                                  ✦ Port 47992
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    handleModelChange?.(`diffusion:${activeDiffusionModel}`);
+                                    setModelDropdownOpen(false);
+                                  }}
+                                  className={`flex-1 py-1 px-2 rounded text-[11px] font-medium text-center transition-colors cursor-pointer ${
+                                    selectedModel?.startsWith('diffusion:')
+                                      ? 'bg-cyan-500 text-black font-semibold'
+                                      : 'bg-white/10 hover:bg-white/15 text-zinc-200'
+                                  }`}
+                                >
+                                  {selectedModel?.startsWith('diffusion:')
+                                    ? '✦ Active for Images'
+                                    : 'Select for Image Gen'}
+                                </button>
+                                <button
+                                  type="button"
+                                  title="Unload diffusion model"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    vscodeApi?.postMessage({ command: 'unloadLocalModel', target: 'diffusion' });
+                                  }}
+                                  className="py-1 px-2.5 rounded text-[11px] font-medium bg-red-500/15 hover:bg-red-500/25 text-red-400 border border-red-500/20 transition-colors cursor-pointer shrink-0"
+                                >
+                                  ⏏ Unload
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="rounded-xl p-2.5 border border-dashed border-white/10 bg-white/[0.02] flex items-center justify-between gap-2">
+                              <div className="flex flex-col">
+                                <span className="text-xs text-zinc-400 font-medium">No Image Model loaded</span>
+                                <span className="text-[10px] text-zinc-500 font-mono">Load SD/Turbo/Flux into Port 47992</span>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => setModelFilterTab('diffusion')}
+                                className="px-2.5 py-1 rounded text-[11px] font-semibold bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/30 transition-colors cursor-pointer shrink-0"
+                              >
+                                + Load Image Model
+                              </button>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Available Models Quick Switcher & Loader */}
+                        {availableLocalModels && availableLocalModels.length > 0 && (
+                          <div className="p-2.5 flex flex-col gap-2">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest">
+                                Available Models ({availableLocalModels.length})
+                              </span>
+                            </div>
+
+                            {/* Filter Tabs */}
+                            <div className="flex items-center gap-1 p-0.5 bg-black/40 rounded-lg border border-white/5 text-[10px]">
+                              <button
+                                type="button"
+                                onClick={() => setModelFilterTab('all')}
+                                className={`flex-1 py-1 text-center rounded transition-all font-medium cursor-pointer ${
+                                  modelFilterTab === 'all'
+                                    ? 'bg-white/15 text-white font-semibold'
+                                    : 'text-zinc-400 hover:text-zinc-200'
+                                }`}
+                              >
+                                All ({categorizedModels.length})
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setModelFilterTab('llm')}
+                                className={`flex-1 py-1 text-center rounded transition-all font-medium cursor-pointer ${
+                                  modelFilterTab === 'llm'
+                                    ? 'bg-emerald-500/25 text-emerald-300 font-semibold border border-emerald-500/30'
+                                    : 'text-zinc-400 hover:text-emerald-300'
+                                }`}
+                              >
+                                LLMs ({llmModels.length})
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setModelFilterTab('diffusion')}
+                                className={`flex-1 py-1 text-center rounded transition-all font-medium cursor-pointer ${
+                                  modelFilterTab === 'diffusion'
+                                    ? 'bg-cyan-500/25 text-cyan-300 font-semibold border border-cyan-500/30'
+                                    : 'text-zinc-400 hover:text-cyan-300'
+                                }`}
+                              >
+                                Image ({diffModels.length})
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setModelFilterTab('projector')}
+                                className={`flex-1 py-1 text-center rounded transition-all font-medium cursor-pointer ${
+                                  modelFilterTab === 'projector'
+                                    ? 'bg-purple-500/25 text-purple-300 font-semibold border border-purple-500/30'
+                                    : 'text-zinc-400 hover:text-purple-300'
+                                }`}
+                              >
+                                Vision ({projModels.length})
+                              </button>
+                            </div>
+
+                            {/* Model List */}
+                            <div className="space-y-1.5 max-h-48 overflow-y-auto scrollbar-thin pr-1">
+                              {filteredModels.length === 0 ? (
+                                <div className="py-4 text-center text-xs text-zinc-500 font-mono">
+                                  No models in this category
+                                </div>
+                              ) : (
+                                filteredModels.map(m => {
+                                  const modelBaseName = m.name || m.id.split('/').pop() || '';
+                                  const isCurrentActiveLlm = activeLocalModel && (activeLocalModel === modelBaseName || m.id.endsWith(activeLocalModel));
+                                  const isCurrentActiveDiff = activeDiffusionModel && (activeDiffusionModel === modelBaseName || m.id.endsWith(activeDiffusionModel));
+
+                                  return (
+                                    <div
+                                      key={m.id}
+                                      className={`p-2 rounded-xl text-xs flex flex-col gap-1.5 border transition-all ${
+                                        isCurrentActiveLlm
+                                          ? 'bg-emerald-950/25 border-emerald-500/30'
+                                          : isCurrentActiveDiff
+                                            ? 'bg-cyan-950/25 border-cyan-500/30'
+                                            : 'bg-zinc-900/50 hover:bg-zinc-900/80 border-white/5'
+                                      }`}
+                                    >
+                                      {/* Top row: Name & Category Badge */}
+                                      <div className="flex items-center justify-between gap-2">
+                                        <span className="font-medium text-zinc-200 truncate flex-1" title={m.id}>
+                                          {formatModelDisplayName(modelBaseName)}
+                                        </span>
+                                        {m.category === 'diffusion' && (
+                                          <span className="px-1.5 py-0.5 rounded text-[9px] font-bold font-mono bg-cyan-500/15 text-cyan-300 border border-cyan-500/25 shrink-0">
+                                            IMAGE GEN
+                                          </span>
+                                        )}
+                                        {m.category === 'llm' && (
+                                          <span className="px-1.5 py-0.5 rounded text-[9px] font-bold font-mono bg-emerald-500/15 text-emerald-300 border border-emerald-500/25 shrink-0">
+                                            LLM
+                                          </span>
+                                        )}
+                                        {m.category === 'projector' && (
+                                          <span className="px-1.5 py-0.5 rounded text-[9px] font-bold font-mono bg-purple-500/15 text-purple-300 border border-purple-500/25 shrink-0">
+                                            VISION PROJ
+                                          </span>
+                                        )}
+                                      </div>
+
+                                      {/* Bottom row: Meta & Load/Unload Actions */}
+                                      <div className="flex items-center justify-between gap-2">
+                                        <div className="flex items-center gap-1.5 text-[10px] font-mono text-zinc-400">
+                                          <span>{m.size_display || 'Local'}</span>
+                                          {m.quantization && (
+                                            <>
+                                              <span className="text-zinc-600">•</span>
+                                              <span>{m.quantization}</span>
+                                            </>
+                                          )}
+                                        </div>
+
+                                        <div className="flex items-center gap-1 shrink-0">
+                                          {m.category === 'diffusion' && (
+                                            isCurrentActiveDiff ? (
+                                              <div className="flex items-center gap-1">
+                                                <button
+                                                  type="button"
+                                                  onClick={() => {
+                                                    handleModelChange?.(`diffusion:${modelBaseName}`);
+                                                    setModelDropdownOpen(false);
+                                                  }}
+                                                  className={`px-2 py-0.5 text-[10px] font-semibold rounded transition-colors cursor-pointer ${
+                                                    selectedModel === `diffusion:${modelBaseName}`
+                                                      ? 'bg-cyan-500 text-black font-bold'
+                                                      : 'bg-cyan-500/20 text-cyan-300 hover:bg-cyan-500/30'
+                                                  }`}
+                                                >
+                                                  {selectedModel === `diffusion:${modelBaseName}` ? '✦ Selected' : 'Select'}
+                                                </button>
+                                                <button
+                                                  type="button"
+                                                  onClick={() => vscodeApi?.postMessage({ command: 'unloadLocalModel', target: 'diffusion' })}
+                                                  className="px-1.5 py-0.5 text-[9px] bg-red-500/15 hover:bg-red-500/25 text-red-400 rounded transition-colors cursor-pointer"
+                                                >
+                                                  Unload
+                                                </button>
+                                              </div>
+                                            ) : (
+                                              <button
+                                                type="button"
+                                                onClick={() => {
+                                                  handleModelChange?.(`diffusion:${modelBaseName}`);
+                                                  vscodeApi?.postMessage({ command: 'loadLocalModel', modelId: m.id, target: 'diffusion' });
+                                                }}
+                                                className="px-2 py-0.5 text-[10px] font-semibold bg-cyan-500/20 hover:bg-cyan-500/35 text-cyan-300 rounded border border-cyan-500/30 transition-colors cursor-pointer"
+                                              >
+                                                Load Diffusion
+                                              </button>
+                                            )
+                                          )}
+
+                                          {m.category === 'llm' && (
+                                            isCurrentActiveLlm ? (
+                                              <div className="flex items-center gap-1">
+                                                <button
+                                                  type="button"
+                                                  onClick={() => {
+                                                    handleModelChange?.(`local:${modelBaseName}`);
+                                                    setModelDropdownOpen(false);
+                                                  }}
+                                                  className={`px-2 py-0.5 text-[10px] font-semibold rounded transition-colors cursor-pointer ${
+                                                    selectedModel === `local:${modelBaseName}`
+                                                      ? 'bg-emerald-500 text-black font-bold'
+                                                      : 'bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30'
+                                                  }`}
+                                                >
+                                                  {selectedModel === `local:${modelBaseName}` ? '✓ Selected' : 'Select'}
+                                                </button>
+                                                <button
+                                                  type="button"
+                                                  onClick={() => vscodeApi?.postMessage({ command: 'unloadLocalModel', target: 'primary' })}
+                                                  className="px-1.5 py-0.5 text-[9px] bg-red-500/15 hover:bg-red-500/25 text-red-400 rounded transition-colors cursor-pointer"
+                                                >
+                                                  Unload
+                                                </button>
+                                              </div>
+                                            ) : (
+                                              <button
+                                                type="button"
+                                                onClick={() => {
+                                                  handleModelChange?.(`local:${modelBaseName}`);
+                                                  vscodeApi?.postMessage({ command: 'loadLocalModel', modelId: m.id, target: 'primary' });
+                                                }}
+                                                className="px-2 py-0.5 text-[10px] font-semibold bg-emerald-500/20 hover:bg-emerald-500/35 text-emerald-300 rounded border border-emerald-500/30 transition-colors cursor-pointer"
+                                              >
+                                                Load in RAM
+                                              </button>
+                                            )
+                                          )}
+
+                                          {m.category === 'projector' && (
+                                            <span className="text-[9px] font-mono text-zinc-500">
+                                              Vision Clip
+                                            </span>
+                                          )}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  );
+                                })
+                              )}
+                            </div>
+                          </div>
+                        )}
                       </div>
-                      <button onClick={() => { handleModelChange?.('deepseek-v4-flash'); setModelDropdownOpen(false); (document.activeElement as HTMLElement)?.blur(); }} className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs text-zinc-200 hover:bg-white/10">DeepSeek V4 Flash</button>
-                      <button onClick={() => { handleModelChange?.('deepseek-v4-pro'); setModelDropdownOpen(false); (document.activeElement as HTMLElement)?.blur(); }} className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs text-zinc-200 hover:bg-white/10">DeepSeek V4 Pro</button>
-                      <button onClick={() => { handleModelChange?.('mimo-v2.5'); setModelDropdownOpen(false); (document.activeElement as HTMLElement)?.blur(); }} className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs text-zinc-200 hover:bg-white/10">Xiaomi MiMo V2.5</button>
-                      <button onClick={() => { handleModelChange?.('mimo-v2.5-pro'); setModelDropdownOpen(false); (document.activeElement as HTMLElement)?.blur(); }} className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs text-zinc-200 hover:bg-white/10">Xiaomi MiMo V2.5 Pro</button>
-                      <button onClick={() => { handleModelChange?.('glm-5.2'); setModelDropdownOpen(false); (document.activeElement as HTMLElement)?.blur(); }} className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs text-zinc-200 hover:bg-white/10">GLM 5.2</button>
-                    </div>
-                    <div className="p-1.5">
-                      <div className="px-2 py-1.5 text-[9px] font-bold text-emerald-400 uppercase tracking-widest flex items-center gap-1">
-                        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14M12 5l7 7-7 7" /></svg>
-                        Local Engine
-                      </div>
-                      {activeLocalModel ? (
+
+                      {/* Actions */}
+                      <div className="p-2 bg-black/30 flex flex-col gap-1">
                         <button
-                          onClick={() => { handleModelChange?.(`local:${activeLocalModel}`); setModelDropdownOpen(false); (document.activeElement as HTMLElement)?.blur(); }}
-                          className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs transition-colors ${selectedModel === `local:${activeLocalModel}` ? 'glass-component-white text-emerald-300 font-bold' : 'text-zinc-200 hover:bg-white/10'}`}
+                          onClick={() => {
+                            vscodeApi?.postMessage({ command: 'openSettings' });
+                            setModelDropdownOpen(false);
+                          }}
+                          className="w-full flex items-center justify-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium text-zinc-300 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
                         >
-                          <div className="truncate w-full font-medium" title={activeLocalModel}>{formatModelDisplayName(activeLocalModel)}</div>
+                          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                          </svg>
+                          Hardware & Engine Settings
                         </button>
-                      ) : (
-                        <div className="px-2.5 py-1.5 text-[10px] text-zinc-400 font-mono">Select a local model in Settings.</div>
-                      )}
+                      </div>
                     </div>
-                  </div>
-                </>
-              )}
+                  </>
+                );
+              })()}
             </div>
 
             {/* Quota / Context Ring Widget */}
@@ -1380,7 +1886,7 @@ export function ChatScreen({
                   setShowQuotaPopover(!showQuotaPopover);
                   setModelDropdownOpen(false);
                 }}
-                className="relative flex items-center gap-1.5 px-2.5 py-1.5 glass-component-white rounded-full transition-colors focus:outline-none"
+                className="relative flex items-center gap-1.5 px-2.5 py-1 bg-white/5 hover:bg-white/10 border border-white/10 rounded-full transition-colors focus:outline-none"
                 title={selectedModel?.startsWith('local:') ? "Local Context Window Usage" : "Daily Quota Usage"}
               >
                 {(() => {
@@ -1412,94 +1918,96 @@ export function ChatScreen({
                 })()}
               </button>
 
-              {/* Glassmorphism Popover */}
+              {/* Native Context & Quota Popover */}
               {showQuotaPopover && (
                 <>
                   <div className="fixed inset-0 z-40" onClick={() => setShowQuotaPopover(false)} />
-                  <div className="absolute right-0 bottom-full mb-2 w-64 rounded-xl glass-panel-dark border border-white/20 shadow-2xl overflow-hidden z-50 animate-in fade-in slide-in-from-bottom-2 duration-200">
+                  <div className="absolute right-0 bottom-full mb-2 w-72 rounded-xl bg-[#1a1a1c] border border-white/10 shadow-2xl overflow-hidden z-50 animate-in fade-in slide-in-from-bottom-2 duration-150 text-zinc-200 select-none">
                     {selectedModel?.startsWith('local:') ? (
                       <div>
-                        <div className="p-3 border-b border-white/10 bg-gradient-to-r from-emerald-500/20 to-sky-500/20">
+                        {/* Header */}
+                        <div className="p-3 border-b border-white/10 bg-[#161618]">
                           <div className="flex justify-between items-center mb-1">
-                            <span className="text-[10px] font-bold uppercase tracking-wider text-white">Local Context Window</span>
-                            <span className="text-[9px] bg-emerald-500/20 text-emerald-300 px-1.5 py-0.5 rounded border border-emerald-500/40 uppercase tracking-widest font-mono font-bold">VULKAN GPU</span>
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-300">Context Memory</span>
+                            <span className="text-[9px] bg-white/5 text-zinc-300 px-1.5 py-0.5 rounded border border-white/10 uppercase tracking-wider font-mono font-medium">GPU VRAM</span>
                           </div>
                           <div className="flex items-baseline gap-1 mt-2">
-                            <span className="text-2xl font-light text-white">
+                            <span className="text-xl font-semibold text-white">
                               {Math.min(100, Math.round(((currentContextTokens || 0) / (maxContextTokens || 8192)) * 100))}%
                             </span>
-                            <span className="text-xs text-zinc-400 uppercase tracking-wide">Capacity</span>
+                            <span className="text-xs text-zinc-400">capacity used</span>
                           </div>
-                          <p className="text-[10px] font-mono text-zinc-300 mt-1">
+                          <p className="text-[10px] font-mono text-zinc-400 mt-0.5">
                             {(currentContextTokens || 0).toLocaleString()} / {(maxContextTokens || 8192).toLocaleString()} tokens
                           </p>
                         </div>
 
-                        <div className="p-3 space-y-3 bg-black/40">
-                          <div className="w-full bg-zinc-900 rounded-full h-1.5 overflow-hidden border border-white/5">
+                        {/* Body */}
+                        <div className="p-3 space-y-3 bg-[#1a1a1c]">
+                          <div className="w-full bg-zinc-800 rounded-full h-1.5 overflow-hidden">
                             <div 
-                              className="bg-gradient-to-r from-emerald-400 to-sky-400 h-1.5 rounded-full transition-all duration-300"
+                              className="bg-zinc-300 h-1.5 rounded-full transition-all duration-300"
                               style={{ width: `${Math.min(100, Math.max(3, Math.round(((currentContextTokens || 0) / (maxContextTokens || 8192)) * 100)))}%` }}
                             ></div>
                           </div>
 
                           {/* Context Scope Box (Last N Turns) */}
-                          <div className="bg-zinc-950/70 p-2.5 rounded-xl border border-white/5 space-y-2">
+                          <div className="bg-[#141416] p-2.5 rounded-lg border border-white/5 space-y-2">
                             <div className="flex items-center justify-between">
-                              <span className="text-[11px] font-semibold text-zinc-200">Context Scope</span>
-                              <div className="flex items-center gap-1.5 bg-zinc-900 px-2 py-0.5 rounded-lg border border-white/10">
+                              <span className="text-[11px] font-medium text-zinc-300">History Retention</span>
+                              <div className="flex items-center gap-1.5 bg-[#1a1a1c] px-2 py-0.5 rounded-md border border-white/10">
                                 <button
                                   onClick={() => {
                                     const next = Math.max(1, keepLastNTurns - 1);
                                     setKeepLastNTurns(next);
                                     vscodeApi?.postMessage({ command: 'setContextKeepLastNTurns', turns: next });
                                   }}
-                                  className="text-xs text-zinc-400 hover:text-white px-1 font-bold"
-                                  title="Decrease kept turns"
+                                  className="text-xs text-zinc-400 hover:text-white px-1 font-bold cursor-pointer transition-colors"
+                                  title="Decrease retained turns"
                                 >
                                   -
                                 </button>
-                                <span className="text-xs font-mono font-bold text-sky-400 min-w-[2ch] text-center">
+                                <span className="text-xs font-mono font-semibold text-zinc-100 min-w-[2ch] text-center">
                                   {keepLastNTurns}
                                 </span>
                                 <button
                                   onClick={() => {
-                                    const next = Math.min(20, keepLastNTurns + 1);
+                                    const next = Math.min(50, keepLastNTurns + 1);
                                     setKeepLastNTurns(next);
                                     vscodeApi?.postMessage({ command: 'setContextKeepLastNTurns', turns: next });
                                   }}
-                                  className="text-xs text-zinc-400 hover:text-white px-1 font-bold"
-                                  title="Increase kept turns"
+                                  className="text-xs text-zinc-400 hover:text-white px-1 font-bold cursor-pointer transition-colors"
+                                  title="Increase retained turns"
                                 >
                                   +
                                 </button>
                                 <span className="text-[10px] text-zinc-400">turns</span>
                               </div>
                             </div>
-                            <p className="text-[9.5px] text-zinc-400 leading-tight">
-                              Keeps last {keepLastNTurns} turns in the model's active KV memory. Your chat transcript stays fully visible on screen.
+                            <p className="text-[10px] text-zinc-400 leading-relaxed">
+                              Keeps last {keepLastNTurns} full interaction turns in model memory. Older turns are automatically compacted while remaining fully visible on screen.
                             </p>
                           </div>
 
-                          <div className="flex gap-2">
+                          <div className="flex gap-2 pt-1">
                             <button
                               onClick={() => {
                                 vscodeApi?.postMessage({ command: 'pruneKvCache' });
                                 setShowQuotaPopover(false);
                               }}
-                              className="flex-1 py-1.5 px-2 rounded-lg text-xs font-bold bg-sky-500/20 text-sky-300 hover:bg-sky-500/30 border border-sky-500/30 transition-colors flex items-center justify-center gap-1.5"
-                              title="Prune older turns from KV memory while keeping chat transcript intact"
+                              className="flex-1 py-1.5 px-2.5 rounded-lg text-xs font-medium bg-white/5 hover:bg-white/10 text-zinc-200 border border-white/10 transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-sm"
+                              title="Compact older tool outputs and thoughts from model context"
                             >
-                              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
-                              <span>Prune KV Cache</span>
+                              <svg className="w-3.5 h-3.5 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                              <span>Compact Context</span>
                             </button>
                             <button
                               onClick={() => {
                                 vscodeApi?.postMessage({ command: 'clearKvCache' });
                                 setShowQuotaPopover(false);
                               }}
-                              className="py-1.5 px-2.5 rounded-lg text-xs font-bold bg-red-500/20 text-red-300 hover:bg-red-500/30 border border-red-500/30 transition-colors flex items-center justify-center"
-                              title="Reset active conversational context"
+                              className="py-1.5 px-2.5 rounded-lg text-xs font-medium bg-white/5 hover:bg-red-500/15 text-zinc-400 hover:text-red-300 border border-white/10 transition-colors flex items-center justify-center cursor-pointer shadow-sm"
+                              title="Clear all active conversation context"
                             >
                               <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                             </button>
@@ -1508,28 +2016,28 @@ export function ChatScreen({
                       </div>
                     ) : (
                       <div>
-                        <div className="p-3 border-b border-white/10 bg-gradient-to-r from-purple-500/20 to-blue-500/20">
+                        <div className="p-3 border-b border-white/10 bg-[#161618]">
                           <div className="flex justify-between items-center mb-1">
-                            <span className="text-[10px] font-bold uppercase tracking-wider text-white">Daily Quota</span>
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-300">Daily Quota</span>
                             {quotaInfo?.currentTier?.toLowerCase().includes('pro') || quotaInfo?.currentTier?.toLowerCase().includes('enterprise') ? (
-                              <span className="text-[9px] bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded border border-amber-500/40 uppercase tracking-widest font-mono font-bold">PRO</span>
+                              <span className="text-[9px] bg-white/10 text-amber-300 px-1.5 py-0.5 rounded border border-amber-500/30 uppercase tracking-widest font-mono font-bold">PRO</span>
                             ) : (
-                              <span className="text-[9px] glass-component-white text-zinc-300 px-1.5 py-0.5 rounded uppercase tracking-widest font-mono">FREE</span>
+                              <span className="text-[9px] bg-white/5 text-zinc-400 px-1.5 py-0.5 rounded border border-white/10 uppercase tracking-widest font-mono">FREE</span>
                             )}
                           </div>
                           <div className="flex items-baseline gap-1 mt-2">
-                            <span className="text-2xl font-light text-white">{quotaInfo?.usedPercentage || 0}%</span>
-                            <span className="text-xs text-zinc-400 uppercase tracking-wide">Used</span>
+                            <span className="text-xl font-semibold text-white">{quotaInfo?.usedPercentage || 0}%</span>
+                            <span className="text-xs text-zinc-400">used</span>
                           </div>
                         </div>
 
-                        <div className="p-3 space-y-2.5 bg-black/40">
+                        <div className="p-3 space-y-2.5 bg-[#1a1a1c]">
                           <div className="flex justify-between items-center text-[10px]">
                             <span className="text-zinc-400 flex items-center gap-1">
-                              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                              <svg className="w-3 h-3 text-zinc-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
                               Resets In
                             </span>
-                            <span className="text-purple-300 font-mono font-bold">{quotaInfo?.resetsIn || '24h 00m'}</span>
+                            <span className="text-zinc-200 font-mono">{quotaInfo?.resetsIn || '24h 00m'}</span>
                           </div>
                         </div>
                       </div>
@@ -1664,7 +2172,7 @@ export function ChatScreen({
             <button
               aria-label="Submit message"
               onClick={() => handleSendMessage()}
-              className="w-8 h-8 flex items-center justify-center shrink-0 rounded-full transition-all glass-btn disabled:opacity-30"
+              className="w-8 h-8 flex items-center justify-center shrink-0 rounded-full transition-all bg-sky-500 hover:bg-sky-400 text-white disabled:opacity-25 disabled:hover:bg-sky-500 shadow-sm"
               disabled={!inputValue.trim()}
             >
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg>

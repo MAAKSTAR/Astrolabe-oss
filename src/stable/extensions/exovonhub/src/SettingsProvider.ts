@@ -62,7 +62,9 @@ export class SettingsProvider {
               localLlmModelName: config.get<string>('localLlmModelName') || '',
               inlineGhostModel: config.get<string>('inlineGhostModel') || '',
               enableGhostText: config.get<boolean>('enableGhostText', true),
-              localModelSystemPrompt: config.get<string>('localModelSystemPrompt') || DEFAULT_LOCAL_SYSTEM_PROMPT
+              localModelSystemPrompt: config.get<string>('localModelSystemPrompt') || DEFAULT_LOCAL_SYSTEM_PROMPT,
+              huggingFaceToken: config.get<string>('huggingFaceToken') || '',
+              useHfMirror: config.get<boolean>('useHfMirror', false)
             });
             break;
           }
@@ -408,14 +410,58 @@ export class SettingsProvider {
             }
             break;
           }
+          case 'updateHfToken': {
+            try {
+              const config = vscode.workspace.getConfiguration('exovonhub');
+              await config.update('huggingFaceToken', data.token || '', vscode.ConfigurationTarget.Global);
+              this._panel.webview.postMessage({ type: 'settingsState', huggingFaceToken: data.token || '' });
+              vscode.window.showInformationMessage('Hugging Face Token saved.');
+              const fetch = (await import('node-fetch')).default;
+              await fetch('http://127.0.0.1:47990/v1/system/config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ hf_token: data.token || '' })
+              }).catch(() => {});
+            } catch (err: any) {
+              vscode.window.showErrorMessage(`Failed to save token: ${err.message}`);
+            }
+            break;
+          }
+          case 'toggleHfMirror': {
+            try {
+              const config = vscode.workspace.getConfiguration('exovonhub');
+              const next = data.useMirror !== undefined ? data.useMirror : !config.get<boolean>('useHfMirror', false);
+              await config.update('useHfMirror', next, vscode.ConfigurationTarget.Global);
+              this._panel.webview.postMessage({ type: 'settingsState', useHfMirror: next });
+              vscode.window.showInformationMessage(`High-Speed CDN Mirror ${next ? 'Enabled' : 'Disabled'}.`);
+              const fetch = (await import('node-fetch')).default;
+              await fetch('http://127.0.0.1:47990/v1/system/config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ use_mirror: next })
+              }).catch(() => {});
+            } catch (err: any) {
+              vscode.window.showErrorMessage(`Failed to update mirror: ${err.message}`);
+            }
+            break;
+          }
           case 'downloadLocalModel': {
             try {
               const fetch = (await import('node-fetch')).default;
-              vscode.window.showInformationMessage(`Starting download for ${data.filename}... Check daemon logs for progress.`);
+              const config = vscode.workspace.getConfiguration('exovonhub');
+              const hfToken = config.get<string>('huggingFaceToken') || undefined;
+              const useMirror = config.get<boolean>('useHfMirror', false);
+
+              vscode.window.showInformationMessage(`Starting download for ${data.filename}... Priority 16-channel streaming active.`);
               const res = await fetch('http://127.0.0.1:47990/v1/models/download', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ url: data.url, filename: data.filename })
+                body: JSON.stringify({
+                  url: data.url,
+                  filename: data.filename,
+                  hf_token: hfToken,
+                  use_mirror: useMirror
+                })
               });
               
               if (!res.ok) {

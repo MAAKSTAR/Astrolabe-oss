@@ -49,6 +49,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/v1/models/search", get(search_models))
         .route("/v1/models/tree", get(repo_tree))
         .route("/v1/health", get(health_check))
+        .route("/v1/system/config", get(get_system_config).post(update_system_config))
         .route("/v1/system/install_sglang", post(install_sglang))
         .with_state(state)
 }
@@ -196,6 +197,18 @@ fn default_ubatch() -> u32 { 512 }
 struct DownloadRequest {
     url: String,
     filename: String,
+    #[serde(default)]
+    hf_token: Option<String>,
+    #[serde(default)]
+    use_mirror: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+struct SystemConfigRequest {
+    #[serde(default)]
+    hf_token: Option<String>,
+    #[serde(default)]
+    use_mirror: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -506,6 +519,47 @@ async fn unload_model(
     Json(serde_json::json!({ "status": "unloaded" }))
 }
 
+/// GET /v1/system/config — Get current system configurations (HF token, mirror, network concurrency)
+async fn get_system_config(
+    State(state): State<Arc<AppState>>,
+) -> Json<serde_json::Value> {
+    let tok = state.hf_token.read().await;
+    let mirror = *state.use_mirror.read().await;
+    Json(serde_json::json!({
+        "hf_token_configured": tok.is_some() && !tok.as_ref().unwrap().trim().is_empty(),
+        "use_mirror": mirror,
+        "max_connections": 16,
+        "disk_cache_mb": 64,
+        "preallocation": "falloc",
+    }))
+}
+
+/// POST /v1/system/config — Update system configurations
+async fn update_system_config(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<SystemConfigRequest>,
+) -> Json<serde_json::Value> {
+    if let Some(tok) = req.hf_token {
+        let trimmed = tok.trim();
+        let val = if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        };
+        *state.hf_token.write().await = val;
+    }
+    if let Some(mirror) = req.use_mirror {
+        *state.use_mirror.write().await = mirror;
+    }
+    let tok = state.hf_token.read().await;
+    let mirror = *state.use_mirror.read().await;
+    Json(serde_json::json!({
+        "status": "updated",
+        "hf_token_configured": tok.is_some() && !tok.as_ref().unwrap().trim().is_empty(),
+        "use_mirror": mirror,
+    }))
+}
+
 /// POST /v1/models/download — Download a model from HuggingFace
 async fn download_model(
     State(state): State<Arc<AppState>>,
@@ -525,7 +579,7 @@ async fn download_model(
     // Cache the download URL for pause/retry support
     state.download_urls.write().await.insert(filename.clone(), url.clone());
 
-    let (tx, mut rx) = tokio::sync::watch::channel(crate::models::DownloadProgress {
+    let initial_progress = crate::models::DownloadProgress {
         model_name: filename.clone(),
         downloaded_bytes: 0,
         total_bytes: 0,
@@ -534,7 +588,13 @@ async fn download_model(
         speed_display: None,
         eta_seconds: None,
         status: "starting".to_string(),
-    });
+        url: Some(url.clone()),
+    };
+
+    // Immediately insert initial "starting" progress so the client sees it right away
+    state.active_downloads.write().await.insert(filename.clone(), initial_progress.clone());
+
+    let (tx, mut rx) = tokio::sync::watch::channel(initial_progress);
 
     let state_clone = Arc::clone(&state);
     let filename_clone = filename.clone();
@@ -550,9 +610,18 @@ async fn download_model(
     let models_dir = state.models_dir.clone();
     let filename_for_task = filename.clone();
     let state_clone2 = Arc::clone(&state);
+    let url_for_task = url.clone();
 
+    let hf_token = if req.hf_token.is_some() && !req.hf_token.as_ref().unwrap().trim().is_empty() {
+        req.hf_token
+    } else {
+        state.hf_token.read().await.clone()
+    };
+    let use_mirror = req.use_mirror.unwrap_or(*state.use_mirror.read().await);
+
+    let hf_token_for_task = hf_token.clone();
     let task = tokio::spawn(async move {
-        match models::download_model(&url, &models_dir, &filename_for_task, Some(tx)).await {
+        match models::download_model(&url, &models_dir, &filename_for_task, hf_token_for_task.as_deref(), use_mirror, Some(tx)).await {
             Ok(_) => {
                 if let Some(dl) = state_clone2.active_downloads.write().await.get_mut(&filename_for_task) {
                     dl.status = "finished".to_string();
@@ -561,8 +630,21 @@ async fn download_model(
                 state_clone2.download_tasks.write().await.remove(&filename_for_task);
             }
             Err(e) => {
-                if let Some(dl) = state_clone2.active_downloads.write().await.get_mut(&filename_for_task) {
+                let mut map = state_clone2.active_downloads.write().await;
+                if let Some(dl) = map.get_mut(&filename_for_task) {
                     dl.status = format!("error: {}", e);
+                } else {
+                    map.insert(filename_for_task.clone(), crate::models::DownloadProgress {
+                        model_name: filename_for_task.clone(),
+                        downloaded_bytes: 0,
+                        total_bytes: 0,
+                        percent: 0.0,
+                        speed_bytes_per_sec: None,
+                        speed_display: None,
+                        eta_seconds: None,
+                        status: format!("error: {}", e),
+                        url: Some(url_for_task),
+                    });
                 }
                 state_clone2.download_tasks.write().await.remove(&filename_for_task);
             }
@@ -581,6 +663,8 @@ async fn download_model(
 struct DownloadControlRequest {
     filename: String,
     action: String, // "pause" | "retry" | "delete"
+    #[serde(default)]
+    url: Option<String>,
 }
 
 /// POST /v1/models/downloads/control — Control active downloads (pause, retry, delete)
@@ -602,24 +686,43 @@ async fn control_download(
                 dl.speed_bytes_per_sec = None;
                 dl.eta_seconds = None;
             }
+            models::update_manifest_entry(&state.models_dir, &filename, "", 0, "paused");
             Ok(Json(serde_json::json!({ "status": "paused", "filename": filename })))
         }
         "retry" | "resume" => {
-            let url_opt = state.download_urls.read().await.get(&filename).cloned();
+            let mut url_opt = req.url.clone();
+            if url_opt.is_none() {
+                url_opt = state.download_urls.read().await.get(&filename).cloned();
+            }
+            if url_opt.is_none() {
+                let manifest = models::load_manifest(&state.models_dir);
+                if let Some(rec) = manifest.get(&filename) {
+                    url_opt = Some(rec.url.clone());
+                }
+            }
             if let Some(url) = url_opt {
+                state.download_urls.write().await.insert(filename.clone(), url.clone());
                 if let Some(handle) = state.download_tasks.write().await.remove(&filename) {
                     handle.abort();
                 }
 
+                let dest_path = std::path::PathBuf::from(&state.models_dir).join(&filename);
+                let existing_size = if dest_path.exists() {
+                    tokio::fs::metadata(&dest_path).await.map(|m| m.len()).unwrap_or(0)
+                } else {
+                    0
+                };
+
                 let (tx, mut rx) = tokio::sync::watch::channel(crate::models::DownloadProgress {
                     model_name: filename.clone(),
-                    downloaded_bytes: 0,
+                    downloaded_bytes: existing_size,
                     total_bytes: 0,
                     percent: 0.0,
                     speed_bytes_per_sec: None,
                     speed_display: None,
                     eta_seconds: None,
-                    status: "starting".to_string(),
+                    status: "downloading".to_string(),
+                    url: Some(url.clone()),
                 });
 
                 let state_clone = Arc::clone(&state);
@@ -635,8 +738,12 @@ async fn control_download(
                 let filename_for_task = filename.clone();
                 let state_clone2 = Arc::clone(&state);
 
+                let hf_token = state.hf_token.read().await.clone();
+                let use_mirror = *state.use_mirror.read().await;
+                let hf_token_for_task = hf_token.clone();
+
                 let task = tokio::spawn(async move {
-                    match models::download_model(&url, &models_dir, &filename_for_task, Some(tx)).await {
+                    match models::download_model(&url, &models_dir, &filename_for_task, hf_token_for_task.as_deref(), use_mirror, Some(tx)).await {
                         Ok(_) => {
                             if let Some(dl) = state_clone2.active_downloads.write().await.get_mut(&filename_for_task) {
                                 dl.status = "finished".to_string();
@@ -656,7 +763,7 @@ async fn control_download(
                 state.download_tasks.write().await.insert(filename.clone(), task.abort_handle());
                 Ok(Json(serde_json::json!({ "status": "resumed", "filename": filename })))
             } else {
-                Err((StatusCode::NOT_FOUND, format!("No URL cached for {}", filename)))
+                Err((StatusCode::NOT_FOUND, format!("No URL cached or found in manifest for {}", filename)))
             }
         }
         "delete" | "cancel" => {
@@ -665,10 +772,15 @@ async fn control_download(
             }
             state.active_downloads.write().await.remove(&filename);
             state.download_urls.write().await.remove(&filename);
+            models::remove_manifest_entry(&state.models_dir, &filename);
 
             let file_path = std::path::PathBuf::from(&state.models_dir).join(&filename);
             if file_path.exists() {
                 let _ = tokio::fs::remove_file(&file_path).await;
+            }
+            let aria2_file = std::path::PathBuf::from(&state.models_dir).join(format!("{}.aria2", filename));
+            if aria2_file.exists() {
+                let _ = tokio::fs::remove_file(&aria2_file).await;
             }
 
             Ok(Json(serde_json::json!({ "status": "deleted", "filename": filename })))

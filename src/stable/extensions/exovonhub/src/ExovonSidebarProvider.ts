@@ -40,17 +40,40 @@ export class ExovonSidebarProvider implements vscode.WebviewViewProvider {
   private _statusBarItem: vscode.StatusBarItem;
 
   public updateActiveModel(modelName: string | null, ctxSize?: number) {
+    const config = vscode.workspace.getConfiguration('exovonhub');
     if (modelName) {
-      const config = vscode.workspace.getConfiguration('exovonhub');
       config.update('localLlmModelName', modelName, vscode.ConfigurationTarget.Global);
       this.postMessage({
         type: 'settingsState',
         localLlmModelName: modelName,
+        model: `local:${modelName}`,
         ctx_size: ctxSize || 8192
       });
     } else {
+      config.update('localLlmModelName', '', vscode.ConfigurationTarget.Global);
       this.postMessage({
         type: 'modelUnloaded'
+      });
+      this.postMessage({
+        type: 'settingsState',
+        localLlmModelName: '',
+        model: ''
+      });
+    }
+  }
+
+  public updateDiffusionModel(modelName: string | null) {
+    if (modelName) {
+      this.postMessage({
+        type: 'settingsState',
+        activeDiffusionModel: modelName,
+        model: `diffusion:${modelName}`
+      });
+    } else {
+      this.postMessage({
+        type: 'settingsState',
+        activeDiffusionModel: '',
+        model: ''
       });
     }
   }
@@ -370,7 +393,7 @@ export class ExovonSidebarProvider implements vscode.WebviewViewProvider {
           });
 
           // Send initial Cortex Graph if an editor is already open
-          if (vscode.window.activeTextEditor && this._brainCoordinator) {
+          if (vscode.window.activeTextEditor && this._brainCoordinator && !this.isInternalOrExcludedFile(vscode.window.activeTextEditor.document.fileName)) {
             const elements = this._brainCoordinator.getGraphForFile(vscode.window.activeTextEditor.document.uri.fsPath);
             webviewView.webview.postMessage({ type: 'cortexGraphUpdate', elements });
           }
@@ -439,7 +462,8 @@ export class ExovonSidebarProvider implements vscode.WebviewViewProvider {
           const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
           if (workspaceRoot && checkpointId) {
             const { StateGraphCheckpointer } = await import('./agent/checkpoint/StateGraphCheckpointer');
-            const checkpointer = this._activeOrchestrator?.getCheckpointer() || new StateGraphCheckpointer(workspaceRoot);
+            const storageDir = this._context?.globalStorageUri?.fsPath;
+            const checkpointer = this._activeOrchestrator?.getCheckpointer() || new StateGraphCheckpointer(workspaceRoot, storageDir);
             const res = await checkpointer.rollback(undefined, checkpointId);
             if (res.success && res.restoredCheckpoint) {
               webviewView.webview.postMessage({
@@ -461,7 +485,8 @@ export class ExovonSidebarProvider implements vscode.WebviewViewProvider {
           const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
           if (workspaceRoot && checkpointId) {
             const { StateGraphCheckpointer } = await import('./agent/checkpoint/StateGraphCheckpointer');
-            const checkpointer = this._activeOrchestrator?.getCheckpointer() || new StateGraphCheckpointer(workspaceRoot);
+            const storageDir = this._context?.globalStorageUri?.fsPath;
+            const checkpointer = this._activeOrchestrator?.getCheckpointer() || new StateGraphCheckpointer(workspaceRoot, storageDir);
             const newThreadId = `branch_${Date.now()}`;
             const branchedChk = checkpointer.branch('default_thread', checkpointId, newThreadId, branchName || 'Alternative Approach');
             if (branchedChk) {
@@ -500,21 +525,47 @@ export class ExovonSidebarProvider implements vscode.WebviewViewProvider {
         case 'getSettingsState': {
           const config = vscode.workspace.getConfiguration('exovonhub');
           let activeCtxSize = 8192;
+          let liveActiveModel: string | null = null;
+          let liveDiffusionModel: string | null = null;
+          let availableLocalModels: any[] = [];
           try {
             const fetch = (await import('node-fetch')).default;
             const res = await fetch('http://127.0.0.1:47990/v1/health');
             if (res.ok) {
               const data = await res.json() as any;
-              if (data.ctx_size) {
-                activeCtxSize = data.ctx_size;
+              if (data.ctx_size) activeCtxSize = data.ctx_size;
+              if (data.active_model) liveActiveModel = data.active_model;
+            }
+            // Check Diffusion Engine on Port 47992
+            try {
+              const diffRes = await fetch('http://127.0.0.1:47992/v1/health');
+              if (diffRes.ok) {
+                const diffData = await diffRes.json() as any;
+                if (diffData?.active_config?.model_path) {
+                  liveDiffusionModel = diffData.active_config.model_path;
+                }
+              }
+            } catch {}
+
+            // Fetch available models from daemon
+            const modelsRes = await fetch('http://127.0.0.1:47990/v1/models');
+            if (modelsRes.ok) {
+              const modelsData = await modelsRes.json() as any;
+              if (modelsData?.data && Array.isArray(modelsData.data)) {
+                availableLocalModels = modelsData.data;
               }
             }
           } catch {}
 
+          const resolvedLocalName = liveActiveModel ? path.basename(liveActiveModel) : '';
+          const resolvedDiffusionName = liveDiffusionModel ? path.basename(liveDiffusionModel) : '';
+
           webviewView.webview.postMessage({ 
             type: 'settingsState', 
-            model: config.get<string>('preferredModel') || 'Qwen/Qwen3-235B-A22B-Instruct-2507',
-            localLlmModelName: config.get<string>('localLlmModelName') || 'llama3.1:latest',
+            model: resolvedLocalName ? `local:${resolvedLocalName}` : (resolvedDiffusionName ? `diffusion:${resolvedDiffusionName}` : (config.get<string>('preferredModel') || '')),
+            localLlmModelName: resolvedLocalName,
+            activeDiffusionModel: resolvedDiffusionName,
+            availableLocalModels,
             localModelsDirectory: config.get<string>('localModelsDirectory') || '~/.exovon/models',
             contextKeepLastNTurns: config.get<number>('contextKeepLastNTurns') || 3,
             ctx_size: activeCtxSize
@@ -522,13 +573,72 @@ export class ExovonSidebarProvider implements vscode.WebviewViewProvider {
           break;
         }
 
+        case 'loadLocalModel': {
+          try {
+            const fetch = (await import('node-fetch')).default;
+            const targetPort = data.target === 'diffusion' ? 47992 : 47990;
+            const res = await fetch(`http://127.0.0.1:${targetPort}/v1/models/load`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ model_path: data.modelId, ...data })
+            });
+            if (res.ok) {
+              const baseName = path.basename(data.modelId);
+              if (data.target === 'diffusion') {
+                this.updateDiffusionModel(baseName);
+                vscode.window.showInformationMessage(`Diffusion Model ${baseName} active on Port 47992`);
+              } else {
+                this.updateActiveModel(baseName, data.ctxSize || 8192);
+                vscode.window.showInformationMessage(`Loaded ${baseName} into memory.`);
+              }
+              // Refresh state
+              this._view?.webview.postMessage({
+                type: 'settingsState',
+                model: data.target === 'diffusion' ? `diffusion:${baseName}` : `local:${baseName}`,
+                localLlmModelName: data.target === 'diffusion' ? undefined : baseName,
+                activeDiffusionModel: data.target === 'diffusion' ? baseName : undefined
+              });
+            }
+          } catch (e: any) {
+            vscode.window.showErrorMessage(`Failed to load model: ${e.message}`);
+          }
+          break;
+        }
+
+        case 'unloadLocalModel': {
+          try {
+            const fetch = (await import('node-fetch')).default;
+            const targetPort = data.target === 'diffusion' ? 47992 : 47990;
+            const res = await fetch(`http://127.0.0.1:${targetPort}/v1/models/unload`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({})
+            });
+            if (res.ok) {
+              if (data.target === 'diffusion') {
+                this.updateDiffusionModel(null);
+                vscode.window.showInformationMessage('Diffusion Model unloaded from memory.');
+              } else {
+                this.updateActiveModel(null);
+                vscode.window.showInformationMessage('LLM unloaded from memory. VRAM/RAM freed.');
+              }
+            }
+          } catch (e: any) {
+            vscode.window.showErrorMessage(`Failed to unload model: ${e.message}`);
+          }
+          break;
+        }
+
         case 'updatePreferredModel': {
           const config = vscode.workspace.getConfiguration('exovonhub');
           await config.update('preferredModel', data.value, vscode.ConfigurationTarget.Global);
+          const isDiff = data.value?.startsWith('diffusion:');
+          const diffModel = isDiff ? data.value.replace('diffusion:', '') : undefined;
           webviewView.webview.postMessage({ 
             type: 'settingsState', 
             model: data.value,
-            localLlmModelName: config.get<string>('localLlmModelName') || 'llama3.1:latest',
+            localLlmModelName: config.get<string>('localLlmModelName') || '',
+            activeDiffusionModel: diffModel,
             localModelsDirectory: config.get<string>('localModelsDirectory') || '~/.exovon/models'
           });
           break;
@@ -570,16 +680,70 @@ export class ExovonSidebarProvider implements vscode.WebviewViewProvider {
         case 'initiateAgent': {
           const { mode, prompt, contextFiles, threadId, messageId } = data;
 
+          if (data.model?.startsWith('diffusion') || data.isDiffusion || data.model?.toLowerCase().includes('sd-turbo')) {
+            webviewView.webview.postMessage({
+              type: 'imageGeneratingStart',
+              messageId: data.messageId,
+              prompt: data.prompt
+            });
+            try {
+              const fetch = (await import('node-fetch')).default;
+              const genRes = await fetch('http://127.0.0.1:47992/v1/images/generations', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  prompt: data.prompt,
+                  model: data.model ? data.model.replace('diffusion:', '') : 'sd-turbo-f16.gguf',
+                  size: '512x512',
+                  steps: 4,
+                  cfg_scale: 1.8
+                })
+              });
+              if (genRes.ok) {
+                const genData = await genRes.json() as any;
+                const b64 = genData.data?.[0]?.b64_json;
+                if (b64) {
+                  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '/tmp';
+                  const outDir = path.join(workspaceRoot, 'assets');
+                  if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
+                  const fileName = `generated_${Date.now()}.png`;
+                  const outPath = path.join(outDir, fileName);
+                  fs.writeFileSync(outPath, Buffer.from(b64, 'base64'));
+
+                  webviewView.webview.postMessage({
+                    type: 'imageGeneratingComplete',
+                    messageId: data.messageId,
+                    b64_json: b64,
+                    savedPath: outPath,
+                    prompt: data.prompt
+                  });
+                  return;
+                }
+              }
+              const errText = await genRes.text();
+              throw new Error(errText || 'Diffusion worker returned an error');
+            } catch (err: any) {
+              webviewView.webview.postMessage({
+                type: 'imageGeneratingFailed',
+                messageId: data.messageId,
+                error: err.message || 'Diffusion Engine generation failed on Port 47992'
+              });
+              return;
+            }
+          }
+
           let previousMessages: any[] = [];
-          if (threadId && this._brainCoordinator) {
-             previousMessages = this._brainCoordinator.getChatMessages(threadId);
+          if (data.messages && Array.isArray(data.messages) && data.messages.length > 0) {
+            previousMessages = data.messages;
+          } else if (threadId && this._brainCoordinator) {
+            previousMessages = this._brainCoordinator.getChatMessages(threadId);
           }
 
           // 1. Gather Rich Active Editor Context (surrounding 200 lines to preserve token boundaries)
           const activeEditor = vscode.window.activeTextEditor;
           let activeFileContext = '';
           
-          if (activeEditor) {
+          if (activeEditor && !this.isInternalOrExcludedFile(activeEditor.document.fileName)) {
             const document = activeEditor.document;
             const selection = activeEditor.selection;
             const cursorLine = selection.active.line;
@@ -774,6 +938,7 @@ Developer Action Request: "${finalPrompt}"
                 // Send plan to webview for user review
                 const planMarkdown = (update as any).planMarkdown || '';
                 const planTitle = (update as any).title;
+                webviewView.webview.postMessage({ type: 'planReview', planMarkdown, title: planTitle, messageId });
                 // Open the rich rendered implementation plan in a dedicated editor tab!
                 PlanViewerProvider.createOrShow(this._context, planMarkdown, this._activeOrchestrator, planTitle);
 
@@ -826,8 +991,23 @@ Developer Action Request: "${finalPrompt}"
           this._activeOrchestrator = orchestrator;
 
           const config = vscode.workspace.getConfiguration('exovonhub');
-          const selectedModel = config.get<string>('preferredModel') || 'Qwen/Qwen3-235B-A22B-Instruct-2507';
+          const localModelName = config.get<string>('localLlmModelName');
+          const selectedModel = data.model || (localModelName ? `local:${localModelName}` : (config.get<string>('preferredModel') || ''));
           
+          if (!selectedModel) {
+            webviewView.webview.postMessage({
+              type: 'agentLog',
+              text: '⚠️ No model is currently loaded in memory. Please select or load a model from the Model Selector.',
+              logType: 'error',
+              messageId
+            });
+            webviewView.webview.postMessage({
+              type: 'agentComplete',
+              messageId
+            });
+            return;
+          }
+
           // Run orchestrator with injected diagnostics & file lines matrix context
           orchestrator.execute(richPrompt, selectedModel, previousMessages, messageId, data.images);
           break;
@@ -906,7 +1086,23 @@ Developer Action Request: "${finalPrompt}"
         }
 
         case 'revertSandbox': {
-          if (this._activeOrchestrator) {
+          const initChkId = this._activeOrchestrator?.getInitialCheckpointId();
+          if (this._activeOrchestrator && initChkId) {
+            const res = await this._activeOrchestrator.rollbackToCheckpoint(initChkId);
+            webviewView.webview.postMessage({
+              type: 'agentLog',
+              text: res.success ? `🔄 ACID Rollback: Reverted workspace to pre-run checkpoint.` : `⚠️ Rollback failed: ${res.error}`,
+              logType: res.success ? 'info' : 'warning'
+            });
+            if (res.success && res.restoredCheckpoint) {
+              webviewView.webview.postMessage({
+                type: 'checkpointRollbackComplete',
+                checkpoint: res.restoredCheckpoint,
+                checkpointId: res.restoredCheckpoint.id,
+                text: `Restored files to pre-run state`
+              });
+            }
+          } else if (this._activeOrchestrator) {
             const res = await this._activeOrchestrator.getFsTools().clearShadowWorkspace();
             webviewView.webview.postMessage({ type: 'agentLog', text: `🔄 ${res}`, logType: 'info' });
           } else {
@@ -1294,20 +1490,46 @@ Developer Action Request: "${finalPrompt}"
 
     // Send active editor updates to webview
     this._editorDisposable = vscode.window.onDidChangeActiveTextEditor((editor) => {
-      if (editor && webviewView) {
+      if (webviewView) {
+        const fileName = (editor && !this.isInternalOrExcludedFile(editor.document.fileName))
+          ? path.basename(editor.document.fileName)
+          : '';
         webviewView.webview.postMessage({
           type: 'activeEditorChanged',
-          fileName: path.basename(editor.document.fileName)
+          fileName
         });
       }
     });
 
     if (vscode.window.activeTextEditor && webviewView) {
+      const fileName = !this.isInternalOrExcludedFile(vscode.window.activeTextEditor.document.fileName)
+        ? path.basename(vscode.window.activeTextEditor.document.fileName)
+        : '';
       webviewView.webview.postMessage({
         type: 'activeEditorChanged',
-        fileName: path.basename(vscode.window.activeTextEditor.document.fileName)
+        fileName
       });
     }
+  }
+
+  private isInternalOrExcludedFile(filePath?: string): boolean {
+    if (!filePath) return true;
+    const normalized = filePath.replace(/\\/g, '/');
+    return (
+      normalized.includes('/.exovon/') ||
+      normalized.includes('/.exovon-shadow/') ||
+      normalized.includes('/.git/') ||
+      normalized.includes('/.vscode/') ||
+      normalized.includes('/node_modules/') ||
+      normalized.endsWith('/sessions.json') ||
+      normalized.endsWith('sessions.json') ||
+      normalized.endsWith('.exovon_brain.db') ||
+      normalized.includes('/dist/') ||
+      normalized.includes('/build/') ||
+      normalized.includes('/out/') ||
+      normalized.startsWith('extension-output-') ||
+      normalized.startsWith('output:')
+    );
   }
 
   public async commitShadowFile(filePath: string) {
@@ -1362,21 +1584,22 @@ Developer Action Request: "${finalPrompt}"
     const baseUri = vscode.Uri.joinPath(this._context.extensionUri, 'webview-ui', 'dist');
 
     // Rewrite all attributes starting with absolute or relative paths like src="/assets/index.js" or href="./assets/index.css"
-    // to their corresponding webview-safe URIs
+    // to their corresponding webview-safe URIs and append a cache-buster
+    const cacheBuster = `?v=${Date.now()}`;
     let webviewHtml = htmlContent.replace(
       /(href|src)="(?:\.\/|\/)?(assets\/[^"]+|favicon\.svg[^"]*)"/g,
       (match, attr, assetPath) => {
         const assetUri = vscode.Uri.joinPath(baseUri, assetPath);
         const webviewUri = webview.asWebviewUri(assetUri);
-        return `${attr}="${webviewUri}"`;
+        return `${attr}="${webviewUri}${cacheBuster}"`;
       }
     );
 
     // Strip crossorigin attributes which can cause load blocks in Webviews due to protocol restrictions
     webviewHtml = webviewHtml.replace(/\scrossorigin(="")?/g, '');
 
-    // Inject compatible CSP meta tag supporting fonts and scripts
-    const cspMeta = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline' https:; font-src ${webview.cspSource} https: data:; script-src ${webview.cspSource} 'unsafe-inline' 'unsafe-eval'; img-src ${webview.cspSource} https: data:; connect-src ${webview.cspSource} https: ws:;">`;
+    // Inject compatible CSP meta tag
+    const cspMeta = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src ${webview.cspSource} 'unsafe-inline'; img-src ${webview.cspSource} https: data:; connect-src ${webview.cspSource} https:;">`;
     webviewHtml = webviewHtml.replace('<head>', `<head>\n    ${cspMeta}`);
 
     return webviewHtml;

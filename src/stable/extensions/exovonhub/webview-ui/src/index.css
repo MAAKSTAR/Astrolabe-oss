@@ -1,18 +1,23 @@
 @import "tailwindcss";
 
-/* Base resets and ambient animated mesh background */
-body {
+/* Native theme integration matching VS Code / Astrolabe sidebar */
+html, body, #root {
   margin: 0;
   padding: 0;
-  background-color: #09090b;
-  background-image: 
-    radial-gradient(at 0% 0%, rgba(56, 189, 248, 0.08) 0px, transparent 50%),
-    radial-gradient(at 100% 0%, rgba(168, 85, 247, 0.08) 0px, transparent 50%),
-    radial-gradient(at 50% 100%, rgba(236, 72, 153, 0.05) 0px, transparent 50%);
-  background-attachment: fixed;
-  color: var(--vscode-editor-foreground, #e4e4e7);
-  font-family: 'Outfit', var(--vscode-font-family), ui-sans-serif, system-ui, sans-serif;
-  overflow-x: hidden;
+  background-color: transparent;
+  color: var(--vscode-sideBar-foreground, var(--vscode-editor-foreground, #e4e4e7));
+  font-family: var(--vscode-font-family), -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  overflow: hidden;
+  width: 100%;
+  height: 100%;
+}
+
+.window-drag {
+  -webkit-app-region: drag;
+}
+
+.window-no-drag {
+  -webkit-app-region: no-drag;
 }
 
 ::-webkit-scrollbar {
@@ -25,37 +30,26 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.12);
   border-radius: 9999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.3);
+  background: rgba(255, 255, 255, 0.25);
 }
 
-/* FAKE FROSTED BLACK GLASS (Container/Background UI) */
+/* NATIVE OBSIDIAN PANELS */
 .glass-panel-dark {
-  background: linear-gradient(135deg, rgba(18, 18, 24, 0.85) 0%, rgba(10, 10, 14, 0.92) 100%);
+  background: #18181b;
   border: 1px solid rgba(255, 255, 255, 0.08);
-  border-top: 1px solid rgba(255, 255, 255, 0.16);
-  border-left: 1px solid rgba(255, 255, 255, 0.12);
-  box-shadow: 
-    inset 0 1px 0 0 rgba(255, 255, 255, 0.1),
-    inset 0 -1px 0 0 rgba(0, 0, 0, 0.6),
-    0 12px 32px -4px rgba(0, 0, 0, 0.6);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
 }
 
-/* FAKE FROSTED WHITE GLASS (Buttons / Interactive Components) */
+/* NATIVE INTERACTIVE COMPONENTS */
 .glass-component-white {
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.12) 0%, rgba(255, 255, 255, 0.04) 100%);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  border-top: 1px solid rgba(255, 255, 255, 0.4);
-  border-left: 1px solid rgba(255, 255, 255, 0.3);
-  box-shadow: 
-    inset 0 1px 1px 0 rgba(255, 255, 255, 0.4),
-    inset 0 -1px 2px 0 rgba(0, 0, 0, 0.3),
-    0 4px 16px 0 rgba(0, 0, 0, 0.25);
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  transition: all 0.15s ease;
 }
 
 .glass-btn {
@@ -85,63 +79,23 @@ body {
   box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.4);
 }
 
-/* REALISTIC REFLECTION GLASS TEXT (Tool calls, Thinking, Actions) */
+/* REALISTIC REFLECTION GLASS TEXT (Specular Static Gradient - No GPU Churn) */
 .glass-text-reflection {
-  background: linear-gradient(
-    110deg,
-    #ffffff 0%,
-    #e2e8f0 30%,
-    #38bdf8 45%,
-    #ffffff 55%,
-    #94a3b8 80%,
-    #ffffff 100%
-  );
-  background-size: 200% auto;
+  background: linear-gradient(110deg, #ffffff 0%, #e2e8f0 40%, #94a3b8 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
-  animation: glass-shimmer 4s linear infinite;
-  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.6));
   font-weight: 700;
   letter-spacing: 0.02em;
 }
 
 .glass-text-cyan {
-  background: linear-gradient(
-    110deg,
-    #7dd3fc 0%,
-    #38bdf8 30%,
-    #ffffff 50%,
-    #0284c7 70%,
-    #7dd3fc 100%
-  );
-  background-size: 200% auto;
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  animation: glass-shimmer 3s linear infinite;
-  filter: drop-shadow(0 0 8px rgba(56, 189, 248, 0.4));
+  color: #38bdf8;
   font-weight: 700;
 }
 
 .glass-text-purple {
-  background: linear-gradient(
-    110deg,
-    #c084fc 0%,
-    #a855f7 30%,
-    #ffffff 50%,
-    #7e22ce 70%,
-    #c084fc 100%
-  );
-  background-size: 200% auto;
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  animation: glass-shimmer 3.5s linear infinite;
-  filter: drop-shadow(0 0 8px rgba(168, 85, 247, 0.4));
+  color: #38bdf8;
   font-weight: 700;
-}
-
-@keyframes glass-shimmer {
-  0% { background-position: 200% 0; }
-  100% { background-position: -200% 0; }
 }
 
 /* Legacy classes mapped to fake glass */

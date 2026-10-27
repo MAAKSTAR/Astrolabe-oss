@@ -20,6 +20,10 @@ export interface TimelineEvent {
   toolName?: string;
   output?: string;
   checkpointId?: string;
+  actionVerb?: string;
+  targetDisplay?: string;
+  lineInfo?: string;
+  filePath?: string;
 }
 
 export interface InferenceMetrics {
@@ -30,6 +34,7 @@ export interface InferenceMetrics {
   completion_time_ms?: number;
   completion_tps?: number;
   total_time_ms?: number;
+  total_tokens?: number;
 }
 
 export interface Message {
@@ -59,6 +64,9 @@ export interface Message {
   startTime?: number;
   endTime?: number;
   images?: string[]; // Array of base64 data URLs
+  isGeneratingImage?: boolean;
+  generatedImagePrompt?: string;
+  generatedImageB64?: string;
   promptTokens?: number;
   promptProcessed?: number;
   metrics?: InferenceMetrics;

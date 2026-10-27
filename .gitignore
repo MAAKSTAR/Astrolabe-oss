@@ -45,3 +45,4 @@ node_modules/
 # Operating System
 .DS_Store
 Thumbs.db
+dist-linux/

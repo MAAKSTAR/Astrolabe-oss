@@ -33,6 +33,8 @@ pub struct AppState {
     pub active_downloads: RwLock<HashMap<String, crate::models::DownloadProgress>>,
     pub download_tasks: RwLock<HashMap<String, tokio::task::AbortHandle>>,
     pub download_urls: RwLock<HashMap<String, String>>,
+    pub hf_token: RwLock<Option<String>>,
+    pub use_mirror: RwLock<bool>,
 }
 
 #[derive(Parser, Debug)]
@@ -78,13 +80,67 @@ async fn main() {
     let hw = hardware::detect();
     tracing::info!("🖥️  Hardware: {} ({})", hw.gpu_description, hw.backend_recommendation);
 
+    // Load persisted download history from manifest
+    let manifest = models::load_manifest(&models_dir);
+    let mut initial_downloads = HashMap::new();
+    let mut initial_urls = HashMap::new();
+
+    for (fname, record) in manifest {
+        initial_urls.insert(fname.clone(), record.url.clone());
+        let file_path = std::path::PathBuf::from(&models_dir).join(&fname);
+        let existing = if file_path.exists() {
+            std::fs::metadata(&file_path).map(|m| m.len()).unwrap_or(0)
+        } else {
+            0
+        };
+
+        let is_done = record.total_bytes > 0 && existing >= record.total_bytes;
+        let pct = if record.total_bytes > 0 {
+            ((existing as f64 / record.total_bytes as f64) * 100.0).min(100.0)
+        } else {
+            0.0
+        };
+
+        let status = if is_done {
+            "finished".to_string()
+        } else {
+            "paused".to_string()
+        };
+
+        // If not completed yet and has partial bytes, restore to active_downloads as paused
+        if !is_done && existing > 0 {
+            tracing::info!("Found partial download for {} ({} bytes, {:.1}%), ready to resume", fname, existing, pct);
+            initial_downloads.insert(fname.clone(), models::DownloadProgress {
+                model_name: fname,
+                downloaded_bytes: existing,
+                total_bytes: record.total_bytes,
+                percent: pct,
+                speed_bytes_per_sec: None,
+                speed_display: None,
+                eta_seconds: None,
+                status,
+                url: Some(record.url.clone()),
+            });
+        }
+    }
+
+    let initial_hf_token = std::env::var("HF_TOKEN")
+        .or_else(|_| std::env::var("HUGGING_FACE_HUB_TOKEN"))
+        .ok()
+        .filter(|t| !t.trim().is_empty());
+    let initial_use_mirror = std::env::var("HF_MIRROR")
+        .map(|v| v == "1" || v.to_lowercase() == "true")
+        .unwrap_or(false);
+
     let state = Arc::new(AppState {
         engine: RwLock::new(None),
         models_dir: models_dir.clone(),
         active_model: RwLock::new(None),
-        active_downloads: RwLock::new(HashMap::new()),
+        active_downloads: RwLock::new(initial_downloads),
         download_tasks: RwLock::new(HashMap::new()),
-        download_urls: RwLock::new(HashMap::new()),
+        download_urls: RwLock::new(initial_urls),
+        hf_token: RwLock::new(initial_hf_token),
+        use_mirror: RwLock::new(initial_use_mirror),
     });
 
     let app = api::build_router(state);

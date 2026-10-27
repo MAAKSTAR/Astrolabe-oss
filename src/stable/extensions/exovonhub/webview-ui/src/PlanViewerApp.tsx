@@ -31,7 +31,7 @@ const cleanPlanMarkdown = (raw: string): string => {
       if (typeof parsed === 'string') {
         text = parsed;
       } else if (parsed && typeof parsed === 'object') {
-        text = parsed.plan || parsed.content || parsed.markdown || parsed.text || text;
+        text = parsed.plan || parsed.content || parsed.markdown || parsed.planMarkdown || parsed.text || parsed.relativePath || text;
       }
     } catch {}
   }
@@ -41,6 +41,12 @@ const cleanPlanMarkdown = (raw: string): string => {
     text = text.replace(/\\r\\n/g, '\n')
                .replace(/\\n/g, '\n')
                .replace(/\\t/g, '\t');
+  }
+
+  // Unwrap outer markdown code blocks if the whole plan is wrapped in ```markdown ... ```
+  const codeBlockMatch = text.match(/^```(?:markdown|md)?\s*\n([\s\S]*?)\n```$/i);
+  if (codeBlockMatch) {
+    text = codeBlockMatch[1];
   }
 
   // 1. Strip thought and reasoning blocks

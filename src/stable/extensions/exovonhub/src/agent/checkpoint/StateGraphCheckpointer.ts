@@ -51,9 +51,9 @@ export class StateGraphCheckpointer {
     threads: {}
   };
 
-  constructor(workspaceRoot: string) {
+  constructor(workspaceRoot: string, storageDir?: string) {
     this.workspaceRoot = workspaceRoot;
-    this.checkpointDir = path.join(workspaceRoot, '.exovon', 'checkpoints');
+    this.checkpointDir = storageDir ? path.join(storageDir, 'checkpoints') : path.join(workspaceRoot, '.exovon', 'checkpoints');
     this.sessionsFile = path.join(this.checkpointDir, 'sessions.json');
     this.snapshotter = new WorkspaceSnapshotter(workspaceRoot);
     this.loadSessions();

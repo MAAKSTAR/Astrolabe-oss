@@ -78,7 +78,7 @@ export function MotionStudioPanel() {
         onClick={handleOpenStudioWindow}
         style={{
           width: '100%',
-          background: 'linear-gradient(135deg, #7c3aed 0%, #4c1d95 100%)',
+          background: 'linear-gradient(135deg, #0284c7 0%, #0369a1 100%)',
           color: '#fff',
           border: '1px solid rgba(255, 255, 255, 0.2)',
           borderRadius: '8px',
@@ -90,7 +90,7 @@ export function MotionStudioPanel() {
           alignItems: 'center',
           justifyContent: 'center',
           gap: '8px',
-          boxShadow: '0 4px 15px rgba(124, 58, 237, 0.4)',
+          boxShadow: '0 4px 15px rgba(2, 132, 199, 0.3)',
           marginBottom: '16px'
         }}
       >
@@ -98,7 +98,7 @@ export function MotionStudioPanel() {
       </button>
 
       {/* Status Card */}
-      <div style={{ background: '#1e1e2e', border: '1px solid #2b2b3b', borderRadius: '8px', padding: '12px', marginBottom: '16px' }}>
+      <div style={{ background: '#1a1a1c', border: '1px solid #27272a', borderRadius: '8px', padding: '12px', marginBottom: '16px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
           <span style={{ fontSize: '12px', color: '#aaa' }}>Engine Status</span>
           <span style={{ fontSize: '11px', background: '#10b98122', color: '#10b981', padding: '2px 8px', borderRadius: '12px', fontWeight: 600 }}>
@@ -117,9 +117,9 @@ export function MotionStudioPanel() {
         <button
           onClick={handleCompile}
           style={{
-            background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
+            background: 'linear-gradient(135deg, #27272a 0%, #18181b 100%)',
             color: '#fff',
-            border: 'none',
+            border: '1px solid rgba(255, 255, 255, 0.1)',
             borderRadius: '6px',
             padding: '10px 14px',
             fontSize: '13px',
