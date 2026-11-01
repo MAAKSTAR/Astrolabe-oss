@@ -533,6 +533,7 @@ function formatRelativeTime(dateStr?: string): string {
 
 
 
+
 function renderProviderLogo(modelId: string, author?: string) {
   return <ModelOrgAvatar modelId={modelId} author={author} />;
 }
@@ -1787,8 +1788,8 @@ export default function SettingsApp() {
                               onClick={() => fetchModelDetails(m.id)}
                               className={`p-3 rounded-xl border transition-all cursor-pointer flex items-start gap-3 ${
                                 isSelected 
-                                  ? 'bg-zinc-800/90 border-white/20 text-white shadow-md ring-1 ring-white/10' 
-                                  : 'bg-zinc-900/30 border-white/5 hover:border-white/15 hover:bg-zinc-800/40 text-zinc-300'
+                                  ? 'bg-[#222227] border-white/20 text-white shadow-lg ring-1 ring-white/10' 
+                                  : 'bg-[#151518] border-white/5 hover:border-white/15 hover:bg-[#1a1a1e] text-zinc-300'
                               }`}
                             >
                               {renderProviderLogo(m.id, author)}
@@ -1796,82 +1797,70 @@ export default function SettingsApp() {
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-center justify-between gap-1 mb-1">
                                   <div className="flex items-center gap-1.5 min-w-0">
-                                    <span className={`text-xs font-semibold truncate ${isSelected ? 'text-white font-bold' : 'text-zinc-100'}`}>
+                                    <span className="text-[13px] font-semibold text-white tracking-tight truncate">
                                       {modelName}
-                                    </span>
-                                    {/* Blue verified checkmark icon */}
-                                    <span title="Verified Model">
-                                      <svg className="w-3.5 h-3.5 text-blue-500 fill-current shrink-0" viewBox="0 0 24 24">
-                                        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
-                                      </svg>
                                     </span>
                                   </div>
 
-                                  {/* Right Capability Icons & Timestamp */}
-                                  <div className="flex items-center gap-1 shrink-0">
+                                  {/* Right Capability Tags & Timestamp */}
+                                  <div className="flex items-center gap-1.5 shrink-0">
                                     {caps.isVision && (
-                                      <span className="p-0.5 text-zinc-400 hover:text-zinc-200" title="Vision Multimodal (Understands Images)">
-                                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                                        </svg>
-                                      </span>
-                                    )}
-                                    {caps.isToolUse && (
-                                      <span className="p-0.5 text-zinc-400 hover:text-zinc-200" title="Tool Calling / Agent Functions">
-                                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                                        </svg>
+                                      <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-medium bg-zinc-800 text-zinc-300 border border-white/10" title="Vision Multimodal (Understands Images)">
+                                        Vision
                                       </span>
                                     )}
                                     {caps.isReasoning && (
-                                      <span className="p-0.5 text-zinc-400 hover:text-zinc-200" title="Deep Reasoning & Thinking (CoT)">
-                                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
-                                        </svg>
+                                      <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-medium bg-zinc-800 text-zinc-300 border border-white/10" title="Deep Reasoning & Thinking (CoT)">
+                                        Reasoning
+                                      </span>
+                                    )}
+                                    {caps.isToolUse && (
+                                      <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-medium bg-zinc-800 text-zinc-300 border border-white/10" title="Tool Calling / Agent Functions">
+                                        Tools
                                       </span>
                                     )}
                                     {caps.isImageGen && (
-                                      <span className="p-0.5 text-zinc-400 hover:text-zinc-200" title="Image Generation / Diffusion">
-                                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                                        </svg>
+                                      <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-medium bg-zinc-800 text-zinc-300 border border-white/10" title="Image Generation / Diffusion">
+                                        Image
                                       </span>
                                     )}
                                     {caps.isAudio && (
-                                      <span className="p-0.5 text-zinc-400 hover:text-zinc-200" title="Voice & Speech / TTS">
-                                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
-                                        </svg>
+                                      <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-medium bg-zinc-800 text-zinc-300 border border-white/10" title="Voice & Speech / TTS">
+                                        TTS
                                       </span>
                                     )}
-                                    <span className="text-[10px] text-zinc-500 font-mono ml-1">
+                                    {!caps.isVision && !caps.isImageGen && !caps.isAudio && !caps.isReasoning && (
+                                      <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-medium bg-zinc-800 text-zinc-300 border border-white/10" title="Language Model">
+                                        LLM
+                                      </span>
+                                    )}
+                                    <span className="text-xs text-zinc-400 font-mono ml-1 flex items-center gap-1">
                                       {formatRelativeTime(m.lastModified)}
                                     </span>
                                   </div>
                                 </div>
 
                                 {author && (
-                                  <p className="text-[11px] text-zinc-400 truncate mb-1.5 font-mono">
+                                  <p className="text-xs text-zinc-300 font-medium truncate mb-1.5">
                                     by {author}
                                   </p>
                                 )}
 
-                                <div className="flex items-center gap-2.5 text-[10px] text-zinc-400 font-mono">
+                                <div className="flex items-center gap-3 text-xs text-zinc-400 font-mono">
                                   <span className="flex items-center gap-1">
-                                    <svg className="w-3 h-3 text-zinc-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <svg className="w-3.5 h-3.5 text-zinc-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                                     </svg>
                                     {(m.downloads || 0).toLocaleString()}
                                   </span>
                                   <span className="flex items-center gap-1">
-                                    <svg className="w-3 h-3 text-zinc-400 shrink-0" fill="currentColor" viewBox="0 0 24 24">
+                                    <svg className="w-3.5 h-3.5 text-zinc-400 shrink-0" fill="currentColor" viewBox="0 0 24 24">
                                       <path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z" />
                                     </svg>
                                     {m.likes || 0}
                                   </span>
                                   {isModelPresent && (
-                                    <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                                    <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-medium bg-zinc-800 text-zinc-300 border border-white/10">
                                       ✓ Local
                                     </span>
                                   )}
