@@ -1386,70 +1386,6 @@ export default function SettingsApp() {
                 </div>
               </div>
             </div>
-
-            {/* Pricing Tiers Section */}
-            <div>
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-xs font-bold text-zinc-500 uppercase tracking-widest">Available Upgrades</h3>
-                <span className="text-[10px] text-zinc-500">Billed via exovon.in/payments</span>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {/* Free Plan */}
-                <div className="bg-zinc-900/30 border border-white/5 rounded-2xl p-5 flex flex-col justify-between hover:border-white/10 transition-colors">
-                  <div>
-                    <h4 className="text-sm font-bold text-zinc-300 uppercase tracking-widest">Free</h4>
-                    <p className="text-xs text-zinc-500 mt-2 leading-relaxed">Basic agent access. No edge hosting included.</p>
-                  </div>
-                  <button onClick={() => vscodeApi?.postMessage({ command: 'buyProPass', tier: 'free' })} className="mt-6 w-full py-2 rounded-lg text-xs font-bold text-zinc-400 bg-zinc-800 hover:bg-zinc-700 transition-colors">Current Plan</button>
-                </div>
-
-                {/* Pro Plan */}
-                <div className="bg-zinc-900/30 border border-sky-500/20 rounded-2xl p-5 flex flex-col justify-between hover:border-sky-500/40 transition-colors relative overflow-hidden group">
-                  <div className="absolute top-0 right-0 w-24 h-24 bg-sky-500/10 blur-2xl rounded-full group-hover:bg-sky-500/20 transition-all"></div>
-                  <div className="relative z-10">
-                    <h4 className="text-sm font-bold text-sky-400 uppercase tracking-widest">Astrolabe Pro</h4>
-                    <p className="text-xs text-zinc-400 mt-2 leading-relaxed">Advanced reasoning models and unlimited local context.</p>
-                  </div>
-                  <button onClick={() => vscodeApi?.postMessage({ command: 'buyProPass', tier: 'pro' })} className="relative z-10 mt-6 w-full py-2 rounded-lg text-xs font-bold text-white bg-sky-600 hover:bg-sky-500 shadow-lg shadow-sky-900/20 transition-colors">Upgrade to Pro</button>
-                </div>
-
-                {/* Pro + Hosting Plan */}
-                <div className="bg-gradient-to-b from-zinc-900/80 to-zinc-900/30 border border-blue-500/30 rounded-2xl p-5 flex flex-col justify-between hover:border-blue-500/50 transition-colors relative overflow-hidden group">
-                  <div className="absolute top-0 right-0 w-24 h-24 bg-blue-500/10 blur-2xl rounded-full group-hover:bg-blue-500/20 transition-all"></div>
-                  <div className="relative z-10">
-                    <div className="flex items-center gap-2 mb-1">
-                      <h4 className="text-sm font-bold text-white uppercase tracking-widest">Pro</h4>
-                      <span className="text-[10px] font-black text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded uppercase tracking-wider">+ Hosting</span>
-                    </div>
-                    <p className="text-xs text-zinc-400 mt-2 leading-relaxed">Everything in Pro, plus 1-click global edge hosting deployments.</p>
-                  </div>
-                  <button onClick={() => vscodeApi?.postMessage({ command: 'buyProPass', tier: 'pro_hosting' })} className="relative z-10 mt-6 w-full py-2 rounded-lg text-xs font-bold text-white bg-blue-600 hover:bg-blue-500 shadow-lg shadow-blue-900/20 transition-colors">Upgrade to Pro+Hosting</button>
-                </div>
-
-                {/* Enterprise Plan */}
-                <div className="bg-zinc-900/30 border border-amber-500/20 rounded-2xl p-5 flex flex-col justify-between hover:border-amber-500/40 transition-colors relative overflow-hidden group">
-                  <div className="absolute top-0 right-0 w-24 h-24 bg-amber-500/10 blur-2xl rounded-full group-hover:bg-amber-500/20 transition-all"></div>
-                  <div className="relative z-10">
-                    <h4 className="text-sm font-bold text-amber-400 uppercase tracking-widest">Enterprise</h4>
-                    <p className="text-xs text-zinc-400 mt-2 leading-relaxed">Custom fine-tuning and organizational vector databases.</p>
-                  </div>
-                  <button onClick={() => vscodeApi?.postMessage({ command: 'buyProPass', tier: 'enterprise' })} className="relative z-10 mt-6 w-full py-2 rounded-lg text-xs font-bold text-white bg-amber-600 hover:bg-amber-500 shadow-lg shadow-amber-900/20 transition-colors">Upgrade to Enterprise</button>
-                </div>
-
-                {/* Enterprise + Hosting Plan */}
-                <div className="bg-gradient-to-b from-zinc-900/80 to-zinc-900/30 border border-emerald-500/30 rounded-2xl p-5 flex flex-col justify-between hover:border-emerald-500/50 transition-colors relative overflow-hidden group">
-                  <div className="absolute top-0 right-0 w-24 h-24 bg-emerald-500/10 blur-2xl rounded-full group-hover:bg-emerald-500/20 transition-all"></div>
-                  <div className="relative z-10">
-                    <div className="flex items-center gap-2 mb-1">
-                      <h4 className="text-sm font-bold text-amber-400 uppercase tracking-widest">Enterprise</h4>
-                      <span className="text-[10px] font-black text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded uppercase tracking-wider">+ Hosting</span>
-                    </div>
-                    <p className="text-xs text-zinc-400 mt-2 leading-relaxed">Complete organization suite with dedicated edge fleet nodes.</p>
-                  </div>
-                  <button onClick={() => vscodeApi?.postMessage({ command: 'buyProPass', tier: 'enterprise_hosting' })} className="relative z-10 mt-6 w-full py-2 rounded-lg text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-500 shadow-lg shadow-emerald-900/20 transition-colors">Upgrade to Enterprise+Hosting</button>
-                </div>
-              </div>
-            </div>
           </div>
         )}
 
@@ -1499,13 +1435,6 @@ export default function SettingsApp() {
                     <p className="text-xs text-zinc-500 animate-pulse">Syncing dynamic quota rates from Exovon Cloud...</p>
                   </div>
                 )}
-              </div>
-
-              <div className="mt-8 flex justify-center relative z-10">
-                <button onClick={() => vscodeApi?.postMessage({ command: 'buyProPass' })} className="px-6 py-2.5 rounded-lg text-xs font-bold text-white bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 shadow-lg transition-all active:scale-95 flex items-center gap-2">
-                  <svg className="w-4 h-4 text-zinc-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
-                  Upgrade Monthly Base Plan
-                </button>
               </div>
             </div>
           </div>
