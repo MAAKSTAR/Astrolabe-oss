@@ -881,8 +881,9 @@ export default function SettingsApp() {
   const openModelHubWithQuery = (query: string = '') => {
     setHubSearchQuery(query);
     setSidebarModelSearch(query);
-    setIsModelHubOpen(true);
-    fetchLiveModels(hubSortMode, query);
+    setActiveTab('Discover');
+    vscodeApi?.postMessage({ command: 'setTabTitle', title: 'Discover Models' });
+    fetchLiveModels(hubSortMode, query, selectedModality);
   };
 
   // Keyboard shortcut (Ctrl+F / Cmd+F) to focus filter input, Escape to close sub-windows/modals
@@ -1004,7 +1005,7 @@ export default function SettingsApp() {
 
   useEffect(() => {
     let interval: ReturnType<typeof setTimeout>;
-    if ((activeTab === 'Models' || activeTab === 'System') && vscodeApi) {
+    if ((activeTab === 'Models' || activeTab === 'System' || activeTab === 'Discover') && vscodeApi) {
       vscodeApi.postMessage({ command: 'getLocalModels' });
       
       interval = setInterval(() => {
@@ -1019,6 +1020,12 @@ export default function SettingsApp() {
     };
   }, [activeTab, daemonRunning]);
 
+  useEffect(() => {
+    if (activeTab === 'Discover' && liveModelsList.length === 0) {
+      fetchLiveModels(hubSortMode, hubSearchQuery, selectedModality);
+    }
+  }, [activeTab]);
+
     const navTabs = [
       { id: 'Models', label: 'Models' },
       { id: 'System', label: 'System & Engine' },
@@ -1032,6 +1039,8 @@ export default function SettingsApp() {
 
     const getTabDescription = (tab: string) => {
       switch (tab) {
+        case 'Discover':
+          return 'Search Hugging Face models, compare quantization weights, and download directly to disk.';
         case 'Models':
           return 'Manage active loaded models, browse local model cards, and explore unified model packs.';
         case 'System':
@@ -1085,7 +1094,7 @@ export default function SettingsApp() {
               </div>
 
               {/* Sidebar Search Bar for Models */}
-              <div className="pt-2 border-t border-white/5">
+              <div className="pt-3 border-t border-white/10">
                 <div className="relative mb-2">
                   <svg className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -1094,23 +1103,42 @@ export default function SettingsApp() {
                     type="text"
                     placeholder="Search Hub..."
                     value={sidebarModelSearch}
-                    onChange={(e) => setSidebarModelSearch(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        openModelHubWithQuery(sidebarModelSearch);
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setSidebarModelSearch(val);
+                      setHubSearchQuery(val);
+                      if (activeTab !== 'Discover') {
+                        setActiveTab('Discover');
+                        vscodeApi?.postMessage({ command: 'setTabTitle', title: 'Discover Models' });
+                      }
+                      fetchLiveModels(hubSortMode, val, selectedModality);
+                    }}
+                    onFocus={() => {
+                      if (activeTab !== 'Discover') {
+                        setActiveTab('Discover');
+                        vscodeApi?.postMessage({ command: 'setTabTitle', title: 'Discover Models' });
+                        if (liveModelsList.length === 0) {
+                          fetchLiveModels(hubSortMode, hubSearchQuery, selectedModality);
+                        }
                       }
                     }}
-                    onClick={() => {
-                      if (!isModelHubOpen) {
-                        openModelHubWithQuery(sidebarModelSearch);
-                      }
-                    }}
-                    className="w-full bg-zinc-950/80 border border-white/10 rounded-xl pl-8 pr-2.5 py-1.5 text-xs text-zinc-200 placeholder:text-zinc-500 focus:outline-none focus:border-sky-500/50 transition-all"
+                    className="w-full bg-zinc-950/80 border border-white/10 rounded-xl pl-8 pr-2.5 py-1.5 text-xs text-zinc-200 placeholder:text-zinc-500 focus:outline-none focus:border-white/30 transition-all font-sans"
                   />
                 </div>
                 <button
-                  onClick={() => openModelHubWithQuery('')}
-                  className="w-full text-left px-3 py-2 rounded-xl text-xs font-medium text-zinc-300 hover:text-white hover:bg-white/5 border border-white/5 flex items-center justify-between transition-colors"
+                  type="button"
+                  onClick={() => {
+                    setActiveTab('Discover');
+                    vscodeApi?.postMessage({ command: 'setTabTitle', title: 'Discover Models' });
+                    if (liveModelsList.length === 0) {
+                      fetchLiveModels(hubSortMode, hubSearchQuery, selectedModality);
+                    }
+                  }}
+                  className={`w-full text-left px-3 py-2 rounded-xl text-xs font-medium flex items-center justify-between transition-colors cursor-pointer ${
+                    activeTab === 'Discover'
+                      ? 'bg-white/10 text-white font-semibold shadow-sm border border-white/15'
+                      : 'text-zinc-300 hover:text-white hover:bg-white/5 border border-white/5'
+                  }`}
                 >
                   <span className="flex items-center gap-2">
                     <svg className="w-3.5 h-3.5 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1118,7 +1146,9 @@ export default function SettingsApp() {
                     </svg>
                     <span>Discover Models</span>
                   </span>
-                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400 font-mono">Hub</span>
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded font-mono ${
+                    activeTab === 'Discover' ? 'bg-white/20 text-white font-bold' : 'bg-zinc-800 text-zinc-400'
+                  }`}>Hub</span>
                 </button>
               </div>
 
@@ -1187,14 +1217,21 @@ export default function SettingsApp() {
             >
               <div className="pointer-events-none">
                 <h2 className="text-lg font-bold text-white tracking-wide">
-                  {activeTab === 'System' ? 'System & Engine' : activeTab === 'Customizations' ? 'Appearance' : activeTab}
+                  {activeTab === 'Discover' ? 'Discover Models' : activeTab === 'System' ? 'System & Engine' : activeTab === 'Customizations' ? 'Appearance' : activeTab}
                 </h2>
                 <p className="text-xs text-zinc-400 mt-0.5">{getTabDescription(activeTab)}</p>
               </div>
               
               <div className="window-no-drag flex items-center gap-1.5">
                 <button 
-                  onClick={() => vscodeApi?.postMessage({ command: 'getWorkspaceInfo' })}
+                  onClick={() => {
+                    if (activeTab === 'Discover') {
+                      fetchLiveModels(hubSortMode, hubSearchQuery, selectedModality);
+                    } else {
+                      vscodeApi?.postMessage({ command: 'getWorkspaceInfo' });
+                      vscodeApi?.postMessage({ command: 'getLocalModels' });
+                    }
+                  }}
                   className="px-3 py-1.5 rounded-lg text-xs font-medium text-zinc-300 hover:text-white bg-white/5 hover:bg-white/10 border border-white/10 transition-colors cursor-pointer mr-1"
                 >
                   Refresh
@@ -1241,8 +1278,622 @@ export default function SettingsApp() {
               </div>
             </div>
 
-            {/* Scrollable Tab Body */}
-            <div className="flex-1 overflow-y-auto p-6 md:p-8 w-full min-w-0">
+            {/* Main Content Area: Full Discover Models View OR Standard Scrollable Container */}
+            {activeTab === 'Discover' ? (() => {
+              const selectedQuant = availableQuants[selectedQuantIndex] || availableQuants[0];
+              const isDownloaded = selectedQuant && localModels.some(m => m.id.toLowerCase().includes(selectedQuant.filename.toLowerCase()));
+              const activeDownloadItem = selectedQuant && activeDownloads.find(d => d.model_name.toLowerCase().includes(selectedQuant.filename.toLowerCase()));
+              const speedInfo = activeDownloadItem ? getSpeedAndEta(activeDownloadItem) : { speed: '', eta: '' };
+
+              return (
+                <div className="flex-1 flex min-h-0 w-full overflow-hidden bg-[#121214] text-zinc-100">
+                  {/* Left Column: Search & Live Model List */}
+                  <div className="w-[360px] md:w-[390px] xl:w-[420px] border-r border-white/10 flex flex-col bg-[#141417] shrink-0 h-full overflow-hidden">
+                    {/* Search & Filters Header */}
+                    <div className="p-4 border-b border-white/10 space-y-3 bg-[#131316]">
+                      {/* Search Bar */}
+                      <div className="relative">
+                        <svg className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                        </svg>
+                        <input 
+                          type="text"
+                          placeholder="Search Hugging Face models..."
+                          value={hubSearchQuery}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setHubSearchQuery(val);
+                            setSidebarModelSearch(val);
+                            fetchLiveModels(hubSortMode, val, selectedModality);
+                          }}
+                          className="w-full bg-zinc-950/80 border border-white/10 rounded-xl pl-9 pr-8 py-2 text-xs text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-white/30 transition-all font-sans"
+                        />
+                        {hubSearchQuery && (
+                          <button 
+                            type="button"
+                            onClick={() => {
+                              setHubSearchQuery('');
+                              setSidebarModelSearch('');
+                              fetchLiveModels(hubSortMode, '', selectedModality);
+                            }}
+                            className="absolute right-2.5 top-1/2 -translate-y-1/2 p-0.5 rounded text-zinc-500 hover:text-zinc-300"
+                            title="Clear search"
+                          >
+                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Modality Filter Pills */}
+                      <div className="grid grid-cols-6 gap-1 bg-zinc-950/70 p-1 rounded-xl border border-white/5 text-[11px] font-mono">
+                        {[
+                          { id: 'all', label: 'All' },
+                          { id: 'llm', label: 'LLM' },
+                          { id: 'image', label: 'Image' },
+                          { id: 'video', label: 'Video' },
+                          { id: 'voice', label: 'Voice' },
+                          { id: 'audio', label: 'Music' }
+                        ].map((mod) => (
+                          <button
+                            key={mod.id}
+                            type="button"
+                            onClick={() => {
+                              const newMod = mod.id as ModelModality;
+                              setSelectedModality(newMod);
+                              fetchLiveModels(hubSortMode, hubSearchQuery, newMod);
+                            }}
+                            className={`py-1 px-1 rounded-lg text-center transition-all font-medium ${
+                              selectedModality === mod.id
+                                ? 'bg-zinc-800 text-white border border-white/15 shadow-sm font-semibold'
+                                : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/5'
+                            }`}
+                          >
+                            {mod.label}
+                          </button>
+                        ))}
+                      </div>
+
+                      {/* Filter / Sort Mode */}
+                      <div className="flex items-center gap-1 bg-zinc-950/50 p-1 rounded-xl border border-white/5 text-xs font-mono">
+                        {[
+                          { id: 'trendingScore', label: 'Trending' },
+                          { id: 'lastModified', label: 'Recent' },
+                          { id: 'downloads', label: 'Downloads' }
+                        ].map((sort) => (
+                          <button 
+                            key={sort.id}
+                            type="button"
+                            onClick={() => {
+                              const s = sort.id as any;
+                              setHubSortMode(s);
+                              fetchLiveModels(s, hubSearchQuery, selectedModality);
+                            }}
+                            className={`flex-1 py-1 px-2 rounded-lg text-[11px] font-medium text-center transition-all ${
+                              hubSortMode === sort.id 
+                                ? 'bg-zinc-800 text-white font-semibold border border-white/10 shadow-sm' 
+                                : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/5'
+                            }`}
+                          >
+                            {sort.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Model Cards Scroll List */}
+                    <div className="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-2">
+                      {isLoadingModelsList ? (
+                        <div className="flex flex-col items-center justify-center py-20 text-zinc-400 text-xs space-y-3">
+                          <svg className="animate-spin w-5 h-5 text-zinc-300" viewBox="0 0 24 24" fill="none">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                          </svg>
+                          <span>Connecting to Hugging Face Hub...</span>
+                        </div>
+                      ) : liveModelsList.length === 0 ? (
+                        <div className="text-center py-20 text-zinc-500 text-xs font-sans">
+                          No models found matching query.
+                        </div>
+                      ) : (
+                        liveModelsList.map((m) => {
+                          const isSelected = selectedHubModelId === m.id;
+                          const parts = m.id.split('/');
+                          const author = parts.length > 1 ? parts[0] : '';
+                          const modelName = parts.length > 1 ? parts[1] : m.id;
+                          const isModelPresent = localModels.some(lm => lm.id.toLowerCase().includes(modelName.toLowerCase()));
+
+                          return (
+                            <div 
+                              key={m.id}
+                              onClick={() => fetchModelDetails(m.id)}
+                              className={`p-3 rounded-xl border transition-all cursor-pointer flex items-start gap-3 ${
+                                isSelected 
+                                  ? 'bg-zinc-800/90 border-white/20 text-white shadow-md ring-1 ring-white/10' 
+                                  : 'bg-zinc-900/30 border-white/5 hover:border-white/15 hover:bg-zinc-800/40 text-zinc-300'
+                              }`}
+                            >
+                              {renderProviderLogo(m.id)}
+
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center justify-between gap-1 mb-1">
+                                  <span className={`text-xs font-semibold truncate ${isSelected ? 'text-white font-bold' : 'text-zinc-100'}`}>
+                                    {modelName}
+                                  </span>
+                                  <span className="text-[10px] text-zinc-400 shrink-0 font-mono">
+                                    {formatRelativeTime(m.lastModified)}
+                                  </span>
+                                </div>
+
+                                {author && (
+                                  <p className="text-[11px] text-zinc-400 truncate mb-2 font-mono">
+                                    by {author}
+                                  </p>
+                                )}
+
+                                <div className="flex items-center gap-2.5 text-[10px] text-zinc-400 font-mono">
+                                  <span className="flex items-center gap-1">
+                                    <svg className="w-3 h-3 text-zinc-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                    </svg>
+                                    {(m.downloads || 0).toLocaleString()}
+                                  </span>
+                                  <span className="flex items-center gap-1">
+                                    <svg className="w-3 h-3 text-zinc-400 shrink-0" fill="currentColor" viewBox="0 0 24 24">
+                                      <path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z" />
+                                    </svg>
+                                    {m.likes || 0}
+                                  </span>
+                                  {isModelPresent && (
+                                    <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                                      ✓ Local
+                                    </span>
+                                  )}
+                                  {(() => {
+                                    const modInfo = getModelModalityInfo(m);
+                                    return (
+                                      <span className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-semibold border ml-auto ${modInfo.color}`}>
+                                        {modInfo.label}
+                                      </span>
+                                    );
+                                  })()}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Right Column: Model Details, Quantization Picker & Documentation */}
+                  <div className="flex-1 min-w-0 flex flex-col bg-[#161619] h-full overflow-y-auto custom-scrollbar">
+                    {isLoadingDetails ? (
+                      <div className="flex flex-col items-center justify-center h-full py-28 text-zinc-400 text-xs space-y-3">
+                        <svg className="animate-spin w-6 h-6 text-zinc-300" viewBox="0 0 24 24" fill="none">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        <span>Fetching model weights & repository README...</span>
+                      </div>
+                    ) : selectedModelDetails ? (
+                      <div className="p-6 md:p-8 space-y-6 max-w-5xl">
+                        {/* Header Bar */}
+                        <div className="flex items-start justify-between gap-4 pb-4 border-b border-white/10">
+                          <div className="flex items-center gap-3.5 min-w-0">
+                            {renderProviderLogo(selectedModelDetails.id)}
+                            <div className="min-w-0">
+                              <h2 className="text-base font-bold text-white tracking-tight truncate font-sans">
+                                {selectedModelDetails.id}
+                              </h2>
+                              <div className="flex items-center gap-2 mt-1">
+                                <button 
+                                  type="button"
+                                  onClick={() => {
+                                    navigator.clipboard.writeText(selectedModelDetails.id);
+                                    setCopiedRepoId(true);
+                                    setTimeout(() => setCopiedRepoId(false), 2000);
+                                  }}
+                                  className="px-2.5 py-1 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white border border-white/10 text-[11px] font-mono transition-colors flex items-center gap-1.5 cursor-pointer"
+                                  title="Copy Model ID"
+                                >
+                                  <svg className="w-3 h-3 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                                  </svg>
+                                  {copiedRepoId ? 'Copied' : 'Copy ID'}
+                                </button>
+                                <a
+                                  href={`https://huggingface.co/${selectedModelDetails.id}`}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="px-2.5 py-1 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white border border-white/10 text-[11px] font-mono transition-colors flex items-center gap-1.5"
+                                >
+                                  <span>Hugging Face</span>
+                                  <svg className="w-3 h-3 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                                  </svg>
+                                </a>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Stats & Tags Row */}
+                        <div className="flex flex-wrap items-center gap-2.5 text-xs text-zinc-300 font-mono">
+                          <span className="flex items-center gap-1.5 bg-zinc-900/90 px-3 py-1.5 rounded-xl border border-white/10">
+                            <svg className="w-3.5 h-3.5 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                            </svg>
+                            <span>{(selectedModelDetails.downloads || 0).toLocaleString()} downloads</span>
+                          </span>
+
+                          <span className="flex items-center gap-1.5 bg-zinc-900/90 px-3 py-1.5 rounded-xl border border-white/10">
+                            <svg className="w-3.5 h-3.5 text-zinc-400" fill="currentColor" viewBox="0 0 24 24">
+                              <path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z" />
+                            </svg>
+                            <span>{selectedModelDetails.likes || 0} likes</span>
+                          </span>
+
+                          <span className="bg-zinc-900/90 px-3 py-1.5 rounded-xl border border-white/10 text-zinc-400">
+                            Updated {formatRelativeTime(selectedModelDetails.lastModified)}
+                          </span>
+
+                          {selectedModelDetails.pipeline_tag && (
+                            <span className="bg-zinc-900/90 px-3 py-1.5 rounded-xl border border-white/10 text-zinc-300 font-mono">
+                              {selectedModelDetails.pipeline_tag}
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Specifications Grid */}
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                          <div className="bg-zinc-900/70 border border-white/10 rounded-xl p-3.5">
+                            <span className="text-[10px] text-zinc-400 uppercase tracking-widest block mb-1 font-mono">Architecture</span>
+                            <span className="text-xs font-mono font-semibold text-white">
+                              {selectedModelDetails.gguf?.architecture || 'GGUF / Llama'}
+                            </span>
+                          </div>
+
+                          <div className="bg-zinc-900/70 border border-white/10 rounded-xl p-3.5">
+                            <span className="text-[10px] text-zinc-400 uppercase tracking-widest block mb-1 font-mono">Context Length</span>
+                            <span className="text-xs font-mono font-semibold text-white">
+                              {selectedModelDetails.gguf?.context_length ? `${selectedModelDetails.gguf.context_length.toLocaleString()} tokens` : '131,072 tokens'}
+                            </span>
+                          </div>
+
+                          <div className="bg-zinc-900/70 border border-white/10 rounded-xl p-3.5">
+                            <span className="text-[10px] text-zinc-400 uppercase tracking-widest block mb-1 font-mono">License</span>
+                            <span className="text-xs font-mono font-semibold text-white truncate block">
+                              {selectedModelDetails.cardData?.license || 'Open Weights'}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Download & Quantization Box (Hero Component) */}
+                        <div className="bg-zinc-900/90 border border-white/15 rounded-2xl p-5 space-y-4 shadow-xl">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <svg className="w-4 h-4 text-zinc-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                              </svg>
+                              <h4 className="text-xs font-bold text-white uppercase tracking-wider font-mono">
+                                Download Quantization ({availableQuants.length} files available)
+                              </h4>
+                            </div>
+                            <span className="text-[10px] font-mono text-zinc-400">16-Stream Parallel Acceleration</span>
+                          </div>
+
+                          {/* Dropdown Selector */}
+                          <div className="relative">
+                            <select 
+                              value={selectedQuantIndex}
+                              onChange={(e) => setSelectedQuantIndex(Number(e.target.value))}
+                              className="w-full bg-zinc-950 border border-white/15 rounded-xl px-4 py-2.5 text-xs text-white font-mono appearance-none focus:outline-none focus:border-white/40 cursor-pointer shadow-inner"
+                            >
+                              {availableQuants.map((q, idx) => (
+                                <option key={idx} value={idx}>
+                                  [{q.quant}] {q.filename} - {q.sizeDisplay}
+                                </option>
+                              ))}
+                            </select>
+                            <div className="absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none text-zinc-400">
+                              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 9l4-4 4 4m0 6l-4 4-4-4" />
+                              </svg>
+                            </div>
+                          </div>
+
+                          {/* Active Download Progress Details if currently running */}
+                          {activeDownloadItem && (
+                            <div className="bg-zinc-950/80 border border-white/10 rounded-xl p-3.5 space-y-2 font-mono">
+                              <div className="flex items-center justify-between text-xs">
+                                <span className="text-zinc-300 font-semibold flex items-center gap-2">
+                                  <span className="w-2 h-2 rounded-full bg-sky-400 animate-pulse"></span>
+                                  Downloading {activeDownloadItem.model_name}
+                                </span>
+                                <span className="text-white font-bold">{activeDownloadItem.percent.toFixed(1)}%</span>
+                              </div>
+                              {/* Progress Bar */}
+                              <div className="w-full h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+                                <div 
+                                  className="h-full bg-white transition-all duration-300 rounded-full" 
+                                  style={{ width: `${activeDownloadItem.percent}%` }}
+                                />
+                              </div>
+                              <div className="flex items-center justify-between text-[11px] text-zinc-400 pt-1">
+                                <span>
+                                  {((activeDownloadItem.downloaded_bytes || 0) / (1024 * 1024 * 1024)).toFixed(2)} GB / {((activeDownloadItem.total_bytes || 0) / (1024 * 1024 * 1024)).toFixed(2)} GB
+                                </span>
+                                <span>
+                                  {speedInfo.speed ? `${speedInfo.speed} • ETA: ${speedInfo.eta || '--'}` : 'Connecting...'}
+                                </span>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Hardware Check & Action CTA */}
+                          <div className="flex items-center justify-between pt-2">
+                            <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-mono bg-zinc-800/90 text-zinc-200 border border-white/10">
+                              <svg className="w-3.5 h-3.5 text-amber-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                              </svg>
+                              <span>Estimated Memory: ~{selectedQuant?.sizeDisplay || '4.5 GB'} RAM/VRAM</span>
+                            </span>
+
+                            {isDownloaded ? (
+                              <div className="flex items-center gap-2">
+                                <span className="px-3.5 py-2 rounded-xl text-xs font-semibold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 flex items-center gap-1.5">
+                                  <svg className="w-3.5 h-3.5 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                  </svg>
+                                  <span>Downloaded</span>
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const match = localModels.find(m => m.id.toLowerCase().includes(selectedQuant.filename.toLowerCase()));
+                                    if (match) {
+                                      setSelectedModelToLoad(match.id);
+                                      setLoadTarget('primary');
+                                      setLoadBackend('llama.cpp');
+                                      setLoadModelModalOpen(true);
+                                    }
+                                  }}
+                                  className="px-4 py-2 rounded-xl text-xs font-bold text-zinc-950 bg-white hover:bg-zinc-200 transition-all shadow-md cursor-pointer"
+                                >
+                                  Load in Engine →
+                                </button>
+                              </div>
+                            ) : activeDownloadItem ? (
+                              <div className="flex items-center gap-2">
+                                <button 
+                                  type="button"
+                                  onClick={() => {
+                                    vscodeApi?.postMessage({
+                                      command: 'controlDownload',
+                                      filename: activeDownloadItem.model_name,
+                                      action: activeDownloadItem.status === 'paused' ? 'resume' : 'pause'
+                                    });
+                                  }}
+                                  className="px-3 py-2 rounded-xl text-xs font-semibold bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-white/10 transition-colors cursor-pointer"
+                                >
+                                  {activeDownloadItem.status === 'paused' ? 'Resume' : 'Pause'}
+                                </button>
+                                <button 
+                                  type="button"
+                                  onClick={() => setDownloadConfirmDelete(activeDownloadItem)}
+                                  className="px-3 py-2 rounded-xl text-xs font-semibold bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/30 transition-colors cursor-pointer"
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            ) : (
+                              <button 
+                                type="button"
+                                onClick={() => {
+                                  if (selectedQuant) {
+                                    vscodeApi?.postMessage({ command: 'downloadLocalModel', url: selectedQuant.directUrl, filename: selectedQuant.filename });
+                                    vscodeApi?.postMessage({ command: 'showNotification', message: `Started accelerated download for ${selectedQuant.filename}` });
+                                  }
+                                }}
+                                className="px-6 py-2.5 rounded-xl text-xs font-bold text-zinc-950 bg-white hover:bg-zinc-200 active:scale-[0.98] shadow-lg flex items-center gap-2 transition-all cursor-pointer"
+                              >
+                                <svg className="w-4 h-4 text-zinc-950" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                </svg>
+                                <span>Download {selectedQuant?.sizeDisplay || ''}</span>
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Repository Documentation / README */}
+                        <div className="space-y-3 pt-2">
+                          <div className="flex items-center justify-between">
+                            <h4 className="text-xs font-bold text-zinc-300 uppercase tracking-widest flex items-center gap-2 font-mono">
+                              <svg className="w-4 h-4 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                              </svg>
+                              <span>Repository Model Card</span>
+                            </h4>
+                          </div>
+
+                          <div className="bg-zinc-900/60 border border-white/10 rounded-2xl p-6 text-xs text-zinc-200 leading-relaxed font-sans max-h-[600px] overflow-y-auto custom-scrollbar">
+                            {modelReadme ? (
+                              <ReactMarkdown
+                                remarkPlugins={[remarkGfm]}
+                                rehypePlugins={[rehypeRaw, rehypeHighlight]}
+                                components={{
+                                  h1: ({ node, ...props }) => <h1 className="text-lg font-bold text-white mt-4 mb-2 pb-1 border-b border-white/10" {...props} />,
+                                  h2: ({ node, ...props }) => <h2 className="text-base font-bold text-white mt-4 mb-2" {...props} />,
+                                  h3: ({ node, ...props }) => <h3 className="text-sm font-semibold text-zinc-100 mt-3 mb-1" {...props} />,
+                                  p: ({ node, ...props }) => <p className="mb-3 text-zinc-300 leading-relaxed" {...props} />,
+                                  a: ({ node, ...props }) => <a className="text-zinc-100 underline hover:text-white" target="_blank" rel="noreferrer" {...props} />,
+                                  ul: ({ node, ...props }) => <ul className="list-disc pl-5 mb-3 space-y-1 text-zinc-300" {...props} />,
+                                  ol: ({ node, ...props }) => <ol className="list-decimal pl-5 mb-3 space-y-1 text-zinc-300" {...props} />,
+                                  li: ({ node, ...props }) => <li className="text-zinc-300" {...props} />,
+                                  code: ({ node, className, children, ...props }: any) => {
+                                    const match = /language-(\w+)/.exec(className || '');
+                                    return match ? (
+                                      <div className="my-3 rounded-xl overflow-hidden bg-zinc-950 border border-white/10">
+                                        <pre className="p-3.5 text-[11px] font-mono text-zinc-200 overflow-x-auto custom-scrollbar">
+                                          <code className={className} {...props}>{children}</code>
+                                        </pre>
+                                      </div>
+                                    ) : (
+                                      <code className="px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-200 font-mono text-[11px] border border-white/5" {...props}>
+                                        {children}
+                                      </code>
+                                    );
+                                  }
+                                }}
+                              >
+                                {modelReadme.replace(/^---[\s\S]*?---\s*/, '')}
+                              </ReactMarkdown>
+                            ) : (
+                              <span className="text-zinc-500 italic">No README content available for this model repository.</span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      /* Curated 1-Click Packs Fallback View */
+                      <div className="p-6 md:p-8 space-y-6 max-w-5xl">
+                        <div className="flex items-center justify-between border-b border-white/10 pb-4">
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+                              <h3 className="text-sm font-bold text-white uppercase tracking-wider font-mono">
+                                Verified 1-Click Complete Packs
+                              </h3>
+                            </div>
+                            <p className="text-xs text-zinc-400 mt-1">
+                              Unified bundles that automatically package Core weights, Projectors, and VAEs without manual file management.
+                            </p>
+                          </div>
+                          <span className="text-[11px] font-mono px-2.5 py-1 rounded-lg bg-zinc-800 text-zinc-300 border border-white/10">
+                            Plug & Play
+                          </span>
+                        </div>
+
+                        <div className="space-y-4">
+                          {VERIFIED_IMAGE_PACKS.map(pack => {
+                            const filesStatus = pack.files.map(f => {
+                              const isPresent = localModels.some(m => m.id.toLowerCase().includes(f.filename.toLowerCase()));
+                              const isDownloading = activeDownloads.some(d => d.model_name.toLowerCase().includes(f.filename.toLowerCase()));
+                              return { ...f, isPresent, isDownloading };
+                            });
+                            const allPresent = filesStatus.every(f => f.isPresent);
+                            const anyDownloading = filesStatus.some(f => f.isDownloading);
+
+                            return (
+                              <div key={pack.id} className="bg-zinc-900/60 border border-white/10 rounded-2xl p-5 space-y-4 hover:border-white/20 transition-all">
+                                <div className="flex items-start justify-between gap-4">
+                                  <div>
+                                    <div className="flex items-center gap-2.5">
+                                      <h4 className="text-sm font-bold text-white font-mono">{pack.title}</h4>
+                                      <span className={`text-[10px] font-mono px-2 py-0.5 rounded-md border font-semibold ${pack.badgeColor}`}>
+                                        {pack.badge}
+                                      </span>
+                                    </div>
+                                    <p className="text-xs text-zinc-400 mt-1.5 leading-relaxed">{pack.description}</p>
+                                  </div>
+                                  <div className="text-right shrink-0">
+                                    <span className="text-xs font-mono font-bold text-zinc-200 block">{pack.totalSize}</span>
+                                    <span className="text-[10px] font-mono text-zinc-500 block">{pack.targetVram}</span>
+                                  </div>
+                                </div>
+
+                                {/* Files bundled list */}
+                                <div className="bg-zinc-950/80 rounded-xl p-3 border border-white/5 space-y-2">
+                                  <span className="text-[10px] uppercase font-bold text-zinc-400 tracking-wider block font-mono">
+                                    Included Components ({pack.files.length} Files):
+                                  </span>
+                                  {filesStatus.map((f, i) => (
+                                    <div key={i} className="flex items-center justify-between text-xs font-mono">
+                                      <div className="flex items-center gap-2.5 min-w-0">
+                                        <span className="text-zinc-500">{i + 1}.</span>
+                                        <span className="text-zinc-200 font-semibold truncate">{f.name}</span>
+                                        <span className="text-[11px] text-zinc-500 truncate">({f.role})</span>
+                                      </div>
+                                      <div className="flex items-center gap-2.5 shrink-0">
+                                        <span className="text-zinc-400">{f.size}</span>
+                                        {f.isPresent ? (
+                                          <span className="text-emerald-400 text-[11px] font-semibold">✓ Ready</span>
+                                        ) : f.isDownloading ? (
+                                          <span className="text-sky-400 text-[11px] font-semibold animate-pulse">Downloading...</span>
+                                        ) : (
+                                          <span className="text-zinc-500 text-[11px]">Pending</span>
+                                        )}
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+
+                                {/* Action Button */}
+                                <div className="flex items-center justify-between pt-1">
+                                  <span className="text-[11px] font-mono text-zinc-400">
+                                    {allPresent ? 'All components present in local models' : `${filesStatus.filter(f => !f.isPresent).length} components to download`}
+                                  </span>
+
+                                  {allPresent ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const coreFile = pack.files[0];
+                                        const match = localModels.find(m => m.id.toLowerCase().includes(coreFile.filename.toLowerCase()));
+                                        if (match) {
+                                          setSelectedModelToLoad(match.id);
+                                          setLoadTarget('diffusion');
+                                          setLoadBackend('stable-diffusion.cpp');
+                                          setLoadModelModalOpen(true);
+                                        }
+                                      }}
+                                      className="px-5 py-2 rounded-xl text-xs font-bold text-zinc-950 bg-white hover:bg-zinc-200 transition-all shadow-md flex items-center gap-2 cursor-pointer"
+                                    >
+                                      <span>Configure & Load Engine</span>
+                                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" />
+                                      </svg>
+                                    </button>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      disabled={anyDownloading}
+                                      onClick={() => {
+                                        filesStatus.filter(f => !f.isPresent).forEach(f => {
+                                          vscodeApi?.postMessage({
+                                            command: 'downloadLocalModel',
+                                            url: f.url,
+                                            filename: f.filename
+                                          });
+                                        });
+                                        vscodeApi?.postMessage({
+                                          command: 'showNotification',
+                                          message: `Queued 1-Click download for ${pack.title} components`
+                                        });
+                                      }}
+                                      className="px-5 py-2 rounded-xl text-xs font-bold text-zinc-950 bg-white hover:bg-zinc-200 transition-all shadow-md disabled:opacity-50 flex items-center gap-2 cursor-pointer"
+                                    >
+                                      <svg className="w-3.5 h-3.5 text-zinc-950" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                      </svg>
+                                      <span>{anyDownloading ? 'Downloading Pack...' : `Download Complete Pack (${pack.totalSize})`}</span>
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })() : (
+              <div className="flex-1 overflow-y-auto p-6 md:p-8 w-full min-w-0">
 
         {activeTab === 'Quota' && (
           <div className="space-y-10 animate-in fade-in duration-300">
@@ -2571,7 +3222,7 @@ export default function SettingsApp() {
                     </button>
                     <button
                       onClick={() => openModelHubWithQuery('')}
-                      className="px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-blue-600 hover:bg-blue-500 transition-colors"
+                      className="px-3.5 py-1.5 rounded-lg text-xs font-bold text-zinc-950 bg-white hover:bg-zinc-200 transition-all shadow-sm cursor-pointer"
                     >
                       Discover Models on Hub
                     </button>
@@ -2998,602 +3649,8 @@ export default function SettingsApp() {
           </div>
         )}
             </div>
-          </div>
-      {/* Live Hugging Face Model Explorer Sub-Window Modal */}
-      {isModelHubOpen && (() => {
-        const selectedQuant = availableQuants[selectedQuantIndex] || availableQuants[0];
-        const isDownloaded = selectedQuant && localModels.some(m => m.id.toLowerCase().includes(selectedQuant.filename.toLowerCase()));
-        const activeDownloadItem = selectedQuant && activeDownloads.find(d => d.model_name.toLowerCase().includes(selectedQuant.filename.toLowerCase()));
-
-        return (
-          <div 
-            className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/80 animate-in fade-in duration-150"
-            onClick={() => setIsModelHubOpen(false)}
-          >
-            <div 
-              className="bg-[#18181b] border border-white/10 rounded-xl shadow-2xl w-full max-w-5xl h-[85vh] flex overflow-hidden text-zinc-200 animate-in zoom-in-95 duration-150"
-              onClick={(e) => e.stopPropagation()}
-            >
-              
-              {/* Left Column: Search & Live Model List */}
-              <div className="w-[360px] border-r border-white/10 flex flex-col bg-[#141416]">
-                {/* Search Bar */}
-                <div className="p-3.5 border-b border-white/5 space-y-2.5">
-                  <div className="flex items-center justify-between pb-1">
-                    <span className="text-xs font-bold text-white uppercase tracking-wider font-mono flex items-center gap-2">
-                      <span className="w-2 h-2 rounded-full bg-blue-400"></span>
-                      Model Hub
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setIsModelHubOpen(false)}
-                      className="text-xs text-zinc-400 hover:text-white flex items-center gap-1 px-2 py-0.5 rounded bg-zinc-800 hover:bg-zinc-700 transition-colors cursor-pointer"
-                      title="Close Hub (Esc)"
-                    >
-                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                      Close
-                    </button>
-                  </div>
-                  <div className="relative">
-                    <svg className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                    </svg>
-                    <input 
-                      type="text"
-                      placeholder="Search Hugging Face models..."
-                      value={hubSearchQuery}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        setHubSearchQuery(val);
-                        fetchLiveModels(hubSortMode, val, selectedModality);
-                      }}
-                      className="w-full bg-zinc-900 border border-white/10 rounded-lg pl-8 pr-3 py-1.5 text-xs text-zinc-200 placeholder:text-zinc-500 focus:outline-none focus:border-zinc-500 transition-colors"
-                    />
-                  </div>
-
-                  {/* Modality Filter Pills */}
-                  <div className="grid grid-cols-3 gap-1 bg-zinc-950/60 p-1 rounded-lg border border-white/5 text-[11px] font-mono">
-                    {[
-                      { id: 'all', label: 'All' },
-                      { id: 'llm', label: 'LLM' },
-                      { id: 'image', label: 'Image' },
-                      { id: 'video', label: 'Video' },
-                      { id: 'voice', label: 'Voice' },
-                      { id: 'audio', label: 'Music' }
-                    ].map((mod) => (
-                      <button
-                        key={mod.id}
-                        type="button"
-                        onClick={() => {
-                          const newMod = mod.id as ModelModality;
-                          setSelectedModality(newMod);
-                          fetchLiveModels(hubSortMode, hubSearchQuery, newMod);
-                        }}
-                        className={`py-1 px-1.5 rounded text-center transition-colors font-medium ${
-                          selectedModality === mod.id
-                            ? 'bg-zinc-800 text-white border border-white/10 shadow-sm'
-                            : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/5'
-                        }`}
-                      >
-                        {mod.label}
-                      </button>
-                    ))}
-                  </div>
-
-                  {/* Filter / Sort Tabs */}
-                  <div className="flex items-center gap-1 bg-zinc-900/60 p-1 rounded-lg border border-white/5 text-xs">
-                    <button 
-                      onClick={() => {
-                        setHubSortMode('lastModified');
-                        fetchLiveModels('lastModified', hubSearchQuery, selectedModality);
-                      }}
-                      className={`flex-1 py-1 px-1.5 rounded-md text-[11px] font-medium text-center transition-colors ${hubSortMode === 'lastModified' ? 'bg-zinc-800 text-white shadow-sm border border-zinc-700' : 'text-zinc-400 hover:text-zinc-200'}`}
-                    >
-                      Recent
-                    </button>
-                    <button 
-                      onClick={() => {
-                        setHubSortMode('trendingScore');
-                        fetchLiveModels('trendingScore', hubSearchQuery, selectedModality);
-                      }}
-                      className={`flex-1 py-1 px-1.5 rounded-md text-[11px] font-medium text-center transition-colors ${hubSortMode === 'trendingScore' ? 'bg-zinc-800 text-white shadow-sm border border-zinc-700' : 'text-zinc-400 hover:text-zinc-200'}`}
-                    >
-                      Trending
-                    </button>
-                    <button 
-                      onClick={() => {
-                        setHubSortMode('downloads');
-                        fetchLiveModels('downloads', hubSearchQuery, selectedModality);
-                      }}
-                      className={`flex-1 py-1 px-1.5 rounded-md text-[11px] font-medium text-center transition-colors ${hubSortMode === 'downloads' ? 'bg-zinc-800 text-white shadow-sm border border-zinc-700' : 'text-zinc-400 hover:text-zinc-200'}`}
-                    >
-                      Downloads
-                    </button>
-                  </div>
-                </div>
-
-                {/* Live Model Cards List */}
-                <div className="flex-1 overflow-y-auto custom-scrollbar p-2.5 space-y-1.5">
-                  {isLoadingModelsList ? (
-                    <div className="flex flex-col items-center justify-center py-16 text-zinc-500 text-xs space-y-2">
-                      <svg className="animate-spin w-5 h-5 text-zinc-400" viewBox="0 0 24 24" fill="none">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                      </svg>
-                      <span>Fetching Hugging Face models...</span>
-                    </div>
-                  ) : liveModelsList.length === 0 ? (
-                    <div className="text-center py-16 text-zinc-500 text-xs">
-                      No models found.
-                    </div>
-                  ) : (
-                    liveModelsList.map((m) => {
-                      const isSelected = selectedHubModelId === m.id;
-                      const parts = m.id.split('/');
-                      const author = parts.length > 1 ? parts[0] : '';
-                      const modelName = parts.length > 1 ? parts[1] : m.id;
-
-                      return (
-                        <div 
-                          key={m.id}
-                          onClick={() => fetchModelDetails(m.id)}
-                          className={`p-2.5 rounded-lg border transition-all cursor-pointer flex items-start gap-2.5 ${
-                            isSelected 
-                              ? 'bg-zinc-800/90 border-zinc-600 text-white shadow-sm ring-1 ring-white/10' 
-                              : 'bg-zinc-900/40 border-white/5 hover:border-white/10 hover:bg-zinc-800/40 text-zinc-300'
-                          }`}
-                        >
-                          {renderProviderLogo(m.id)}
-
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center justify-between gap-1 mb-0.5">
-                              <span className={`text-xs font-semibold truncate ${isSelected ? 'text-white' : 'text-zinc-200'}`}>
-                                {modelName}
-                              </span>
-                              <span className="text-[10px] text-zinc-500 flex-shrink-0 font-mono">
-                                {formatRelativeTime(m.lastModified)}
-                              </span>
-                            </div>
-
-                            {author && (
-                              <p className="text-[10px] text-zinc-400 truncate mb-1.5 font-mono">
-                                by {author}
-                              </p>
-                            )}
-
-                            <div className="flex items-center gap-2 text-[10px] text-zinc-500 font-mono">
-                              <span className="flex items-center gap-1">
-                                <svg className="w-2.5 h-2.5 text-zinc-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                                </svg>
-                                {(m.downloads || 0).toLocaleString()}
-                              </span>
-                              <span className="flex items-center gap-1">
-                                <svg className="w-2.5 h-2.5 text-zinc-500 flex-shrink-0" fill="currentColor" viewBox="0 0 24 24">
-                                  <path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z" />
-                                </svg>
-                                {m.likes || 0}
-                              </span>
-                              {(() => {
-                                const modInfo = getModelModalityInfo(m);
-                                return (
-                                  <span className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-semibold border ml-auto ${modInfo.color}`}>
-                                    {modInfo.label}
-                                  </span>
-                                );
-                              })()}
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })
-                  )}
-                </div>
-              </div>
-
-              {/* Right Column: Model Details & Download Panel */}
-              <div className="flex-1 flex flex-col bg-[#18181b] overflow-y-auto custom-scrollbar">
-                {isLoadingDetails ? (
-                  <div className="flex flex-col items-center justify-center h-full py-24 text-zinc-500 text-xs space-y-3">
-                    <svg className="animate-spin w-6 h-6 text-zinc-400" viewBox="0 0 24 24" fill="none">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                    </svg>
-                    <span>Loading repository details and files...</span>
-                  </div>
-                ) : selectedModelDetails ? (
-                  <>
-                    {/* Header Bar */}
-                    <div className="px-6 py-4 border-b border-white/5 flex items-center justify-between sticky top-0 bg-[#18181b] z-10">
-                      <div className="flex items-center gap-3 min-w-0">
-                        {renderProviderLogo(selectedModelDetails.id)}
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-2">
-                            <h2 className="text-sm font-bold text-white tracking-wide truncate">
-                              {selectedModelDetails.id}
-                            </h2>
-                            <button 
-                              onClick={() => {
-                                navigator.clipboard.writeText(selectedModelDetails.id);
-                                setCopiedRepoId(true);
-                                setTimeout(() => setCopiedRepoId(false), 2000);
-                              }}
-                              className="px-2 py-0.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-zinc-200 border border-white/10 text-[11px] transition-colors"
-                              title="Copy Model ID"
-                            >
-                              {copiedRepoId ? 'Copied' : 'Copy ID'}
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-
-                      <button 
-                        onClick={() => setIsModelHubOpen(false)}
-                        className="p-1.5 text-zinc-400 hover:text-white bg-zinc-800/60 hover:bg-zinc-800 rounded-lg transition-colors"
-                        title="Close"
-                      >
-                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                      </button>
-                    </div>
-
-                    <div className="p-6 space-y-5">
-                      {/* Metric Stats */}
-                      <div className="flex flex-wrap items-center gap-3 text-xs text-zinc-400 font-mono">
-                        <span className="flex items-center gap-1.5 bg-zinc-900 px-3 py-1 rounded-lg border border-white/5">
-                          <svg className="w-3.5 h-3.5 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
-                          <span>{(selectedModelDetails.downloads || 0).toLocaleString()} downloads</span>
-                        </span>
-
-                        <span className="flex items-center gap-1.5 bg-zinc-900 px-3 py-1 rounded-lg border border-white/5">
-                          <svg className="w-3.5 h-3.5 text-zinc-400" fill="currentColor" viewBox="0 0 24 24">
-                            <path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z" />
-                          </svg>
-                          <span>{selectedModelDetails.likes || 0} likes</span>
-                        </span>
-
-                        <span className="text-zinc-500">
-                          Updated {formatRelativeTime(selectedModelDetails.lastModified)}
-                        </span>
-
-                        {selectedModelDetails.pipeline_tag && (
-                          <span className="px-2 py-0.5 rounded bg-zinc-900 text-zinc-300 border border-white/10 text-[11px] font-mono ml-auto">
-                            {selectedModelDetails.pipeline_tag}
-                          </span>
-                        )}
-                      </div>
-
-                      {/* Specifications Grid */}
-                      <div className="grid grid-cols-3 gap-3">
-                        <div className="bg-zinc-900/60 border border-white/5 rounded-lg p-3">
-                          <span className="text-[10px] text-zinc-500 uppercase tracking-widest block mb-1">Architecture</span>
-                          <span className="text-xs font-mono font-medium text-zinc-200">
-                            {selectedModelDetails.gguf?.architecture || 'GGUF / Llama'}
-                          </span>
-                        </div>
-
-                        <div className="bg-zinc-900/60 border border-white/5 rounded-lg p-3">
-                          <span className="text-[10px] text-zinc-500 uppercase tracking-widest block mb-1">Context Length</span>
-                          <span className="text-xs font-mono font-medium text-zinc-200">
-                            {selectedModelDetails.gguf?.context_length ? `${selectedModelDetails.gguf.context_length.toLocaleString()} tokens` : '131,072 tokens'}
-                          </span>
-                        </div>
-
-                        <div className="bg-zinc-900/60 border border-white/5 rounded-lg p-3">
-                          <span className="text-[10px] text-zinc-500 uppercase tracking-widest block mb-1">License</span>
-                          <span className="text-xs font-mono font-medium text-zinc-200 truncate block">
-                            {selectedModelDetails.cardData?.license || 'Open Weights'}
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* Download Options Box */}
-                      <div className="bg-zinc-900/80 border border-white/10 rounded-xl p-4 space-y-3.5 shadow-lg">
-                        <div className="flex items-center justify-between">
-                          <h4 className="text-xs font-bold text-zinc-300 uppercase tracking-wider flex items-center gap-2">
-                            <svg className="w-3.5 h-3.5 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
-                            Download Quantization ({availableQuants.length} files found)
-                          </h4>
-                        </div>
-
-                        {/* Quantization Dropdown Selector */}
-                        <div className="space-y-3">
-                          <div className="relative">
-                            <select 
-                              value={selectedQuantIndex}
-                              onChange={(e) => setSelectedQuantIndex(Number(e.target.value))}
-                              className="w-full bg-zinc-950 border border-white/10 rounded-lg px-3.5 py-2 text-xs text-zinc-200 font-mono appearance-none focus:outline-none focus:border-zinc-500 cursor-pointer"
-                            >
-                              {availableQuants.map((q, idx) => (
-                                <option key={idx} value={idx}>
-                                  [{q.quant}] {q.filename} - {q.sizeDisplay}
-                                </option>
-                              ))}
-                            </select>
-                            <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-zinc-400">
-                              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 9l4-4 4 4m0 6l-4 4-4-4" />
-                              </svg>
-                            </div>
-                          </div>
-
-                          {/* Hardware Check & Action */}
-                          <div className="flex items-center justify-between pt-1">
-                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-mono bg-zinc-800 text-zinc-300 border border-white/5">
-                              <svg className="w-3 h-3 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                              </svg>
-                              <span>Estimated VRAM: ~{selectedQuant?.sizeDisplay || '4.5 GB'}</span>
-                            </span>
-
-                            {isDownloaded ? (
-                              <button 
-                                disabled
-                                className="px-4 py-2 rounded-lg text-xs font-semibold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center gap-1.5"
-                              >
-                                <svg className="w-3.5 h-3.5 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                                </svg>
-                                <span>Downloaded</span>
-                              </button>
-                            ) : activeDownloadItem ? (
-                              <button 
-                                disabled
-                                className="px-4 py-2 rounded-lg text-xs font-semibold bg-sky-500/20 text-sky-400 border border-sky-500/30 flex items-center gap-2"
-                              >
-                                <svg className="animate-spin w-3.5 h-3.5 text-sky-400" viewBox="0 0 24 24" fill="none">
-                                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                </svg>
-                                <span>Downloading {activeDownloadItem.percent.toFixed(1)}%</span>
-                              </button>
-                            ) : (
-                              <button 
-                                onClick={() => {
-                                  if (selectedQuant) {
-                                    vscodeApi?.postMessage({ command: 'downloadLocalModel', url: selectedQuant.directUrl, filename: selectedQuant.filename });
-                                    vscodeApi?.postMessage({ command: 'showNotification', message: `Started download for ${selectedQuant.filename}` });
-                                  }
-                                }}
-                                className="px-5 py-2 rounded-lg text-xs font-semibold text-white bg-sky-600 hover:bg-sky-500 shadow-md flex items-center gap-2 transition-colors"
-                              >
-                                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
-                                <span>Download {selectedQuant?.sizeDisplay || ''}</span>
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Real Live Rendered README Section */}
-                      <div className="space-y-2 pt-2">
-                        <h4 className="text-xs font-bold text-zinc-400 uppercase tracking-widest flex items-center gap-2">
-                          <svg className="w-3.5 h-3.5 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                          </svg>
-                          <span>Repository README</span>
-                        </h4>
-
-                        <div className="bg-zinc-900/60 border border-white/5 rounded-xl p-6 text-xs text-zinc-300 max-h-[500px] overflow-y-auto custom-scrollbar">
-                          {modelReadme ? (
-                            <ReactMarkdown
-                              remarkPlugins={[remarkGfm]}
-                              rehypePlugins={[rehypeRaw, rehypeHighlight]}
-                              components={{
-                                h1: ({ children }) => <h1 className="text-base font-bold text-white mt-4 mb-2 pb-1.5 border-b border-white/10">{children}</h1>,
-                                h2: ({ children }) => <h2 className="text-sm font-bold text-zinc-100 mt-4 mb-2 pb-1 border-b border-white/5">{children}</h2>,
-                                h3: ({ children }) => <h3 className="text-xs font-semibold text-zinc-200 mt-3 mb-1.5">{children}</h3>,
-                                h4: ({ children }) => <h4 className="text-xs font-semibold text-zinc-300 mt-2 mb-1">{children}</h4>,
-                                p: ({ children }) => <p className="text-xs leading-relaxed mb-3 last:mb-0 text-zinc-300 font-sans">{children}</p>,
-                                a: ({ href, children }) => (
-                                  <a 
-                                    href={href} 
-                                    target="_blank" 
-                                    rel="noreferrer" 
-                                    className="text-sky-400 hover:text-sky-300 underline underline-offset-2 transition-colors break-all"
-                                  >
-                                    {children}
-                                  </a>
-                                ),
-                                ul: ({ children }) => <ul className="list-disc list-inside space-y-1 my-2 text-xs text-zinc-300 pl-1">{children}</ul>,
-                                ol: ({ children }) => <ol className="list-decimal list-inside space-y-1 my-2 text-xs text-zinc-300 pl-1">{children}</ol>,
-                                li: ({ children }) => <li className="text-xs leading-relaxed text-zinc-300">{children}</li>,
-                                blockquote: ({ children }) => <blockquote className="my-3 border-l-2 border-sky-500/60 bg-zinc-950/60 py-2 px-3 rounded-r-md text-zinc-400 text-xs italic">{children}</blockquote>,
-                                img: ({ src, alt, ...props }) => <img src={src} alt={alt || 'Image'} className="max-w-full rounded-lg border border-white/10 my-3 shadow-md object-contain" {...props} />,
-                                table: ({ children }) => (
-                                  <div className="my-3 overflow-x-auto rounded-lg border border-white/10 bg-zinc-950/80">
-                                    <table className="w-full text-left text-xs border-collapse font-sans">{children}</table>
-                                  </div>
-                                ),
-                                thead: ({ children }) => <thead className="bg-zinc-900 border-b border-white/10 text-zinc-200 font-semibold uppercase text-[10px]">{children}</thead>,
-                                tbody: ({ children }) => <tbody className="divide-y divide-white/5 text-zinc-300">{children}</tbody>,
-                                tr: ({ children }) => <tr className="hover:bg-white/5 transition-colors">{children}</tr>,
-                                th: ({ children }) => <th className="px-3 py-2 font-medium border-r border-white/5 last:border-r-0">{children}</th>,
-                                td: ({ children }) => <td className="px-3 py-2 text-zinc-300 border-r border-white/5 last:border-r-0">{children}</td>,
-                                hr: () => <hr className="my-4 border-white/10" />,
-                                code({ inline, className, children, ...props }: React.ComponentPropsWithoutRef<'code'> & { inline?: boolean; node?: unknown }) {
-                                  const match = /language-(\w+)/.exec(className || '');
-                                  return !inline && match ? (
-                                    <div className="relative group my-3 border border-white/10 rounded-lg overflow-hidden bg-zinc-950 shadow-md">
-                                      <div className="flex items-center justify-between bg-zinc-900 border-b border-white/5 px-3 py-1.5 select-none">
-                                        <span className="text-[10px] font-mono text-zinc-400 uppercase tracking-wider">{match[1]}</span>
-                                        <button
-                                          onClick={(e) => {
-                                            navigator.clipboard.writeText(String(children).replace(/\n$/, ''));
-                                            const btn = e.currentTarget;
-                                            btn.textContent = 'Copied!';
-                                            setTimeout(() => btn.textContent = 'Copy', 2000);
-                                          }}
-                                          className="text-[10px] text-zinc-500 hover:text-zinc-300 font-mono transition-colors cursor-pointer"
-                                        >
-                                          Copy
-                                        </button>
-                                      </div>
-                                      <div className="p-3 overflow-x-auto custom-scrollbar text-[11px] font-mono text-zinc-300 leading-normal">
-                                        <code className={className} {...props}>
-                                          {children}
-                                        </code>
-                                      </div>
-                                    </div>
-                                  ) : (
-                                    <code className="bg-zinc-800/80 px-1.5 py-0.5 rounded border border-white/10 text-sky-300 font-mono text-[11px]" {...props}>
-                                      {children}
-                                    </code>
-                                  );
-                                }
-                              }}
-                            >
-                              {modelReadme.replace(/^---[\s\S]*?---\s*/, '')}
-                            </ReactMarkdown>
-                          ) : (
-                            <span className="text-zinc-500 italic">No README content found for this repository.</span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  </>
-                ) : (
-                  <div className="p-6 space-y-5 overflow-y-auto custom-scrollbar flex-1">
-                    <div className="flex items-center justify-between border-b border-white/5 pb-3">
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
-                          <h3 className="text-xs font-bold text-white uppercase tracking-wider font-mono">
-                            Verified 1-Click Complete Packs
-                          </h3>
-                        </div>
-                        <p className="text-[11px] text-zinc-400 mt-0.5">
-                          Unified bundles that automatically package Core weights, Projectors, and VAEs. Zero manual plugging.
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-white/5 text-zinc-400 border border-white/10">
-                          Plug & Play
-                        </span>
-                        <button 
-                          onClick={() => setIsModelHubOpen(false)}
-                          className="p-1.5 text-zinc-400 hover:text-white bg-zinc-800/80 hover:bg-zinc-700 rounded-lg transition-colors cursor-pointer"
-                          title="Close Hub (Esc)"
-                        >
-                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="space-y-4">
-                      {VERIFIED_IMAGE_PACKS.map(pack => {
-                        // Check if all files in the pack are already downloaded
-                        const filesStatus = pack.files.map(f => {
-                          const isPresent = localModels.some(m => m.id.toLowerCase().includes(f.filename.toLowerCase()));
-                          const isDownloading = activeDownloads.some(d => d.model_name.toLowerCase().includes(f.filename.toLowerCase()));
-                          return { ...f, isPresent, isDownloading };
-                        });
-                        const allPresent = filesStatus.every(f => f.isPresent);
-                        const anyDownloading = filesStatus.some(f => f.isDownloading);
-
-                        return (
-                          <div key={pack.id} className="bg-[#141416] border border-white/10 rounded-xl p-4 space-y-3.5 hover:border-white/20 transition-all">
-                            <div className="flex items-start justify-between gap-3">
-                              <div>
-                                <div className="flex items-center gap-2">
-                                  <h4 className="text-xs font-bold text-zinc-100 font-mono">{pack.title}</h4>
-                                  <span className={`text-[9px] font-mono px-1.5 py-0.2 rounded border font-semibold ${pack.badgeColor}`}>
-                                    {pack.badge}
-                                  </span>
-                                </div>
-                                <p className="text-[11px] text-zinc-400 mt-1 leading-relaxed">{pack.description}</p>
-                              </div>
-                              <div className="text-right shrink-0">
-                                <span className="text-xs font-mono font-bold text-zinc-200 block">{pack.totalSize}</span>
-                                <span className="text-[10px] font-mono text-zinc-500 block">{pack.targetVram}</span>
-                              </div>
-                            </div>
-
-                            {/* Files bundled list */}
-                            <div className="bg-[#18181b] rounded-lg p-2.5 border border-white/5 space-y-1.5">
-                              <span className="text-[9px] uppercase font-bold text-zinc-500 tracking-wider block font-mono">
-                                Included Components ({pack.files.length} Files):
-                              </span>
-                              {filesStatus.map((f, i) => (
-                                <div key={i} className="flex items-center justify-between text-[11px] font-mono">
-                                  <div className="flex items-center gap-2 min-w-0">
-                                    <span className="text-zinc-500">{i + 1}.</span>
-                                    <span className="text-zinc-300 font-semibold truncate">{f.name}</span>
-                                    <span className="text-[10px] text-zinc-500 truncate">({f.role})</span>
-                                  </div>
-                                  <div className="flex items-center gap-2 shrink-0">
-                                    <span className="text-zinc-500">{f.size}</span>
-                                    {f.isPresent ? (
-                                      <span className="text-emerald-400 text-[10px] font-semibold">✓ Ready</span>
-                                    ) : f.isDownloading ? (
-                                      <span className="text-sky-400 text-[10px] font-semibold animate-pulse">Downloading...</span>
-                                    ) : (
-                                      <span className="text-zinc-600 text-[10px]">Pending</span>
-                                    )}
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-
-                            {/* Action Button */}
-                            <div className="flex items-center justify-between pt-1">
-                              <span className="text-[10px] font-mono text-zinc-500">
-                                {allPresent ? 'All components found in local models' : `${filesStatus.filter(f => !f.isPresent).length} components to download`}
-                              </span>
-
-                              {allPresent ? (
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setIsModelHubOpen(false);
-                                    const coreFile = pack.files[0];
-                                    const match = localModels.find(m => m.id.toLowerCase().includes(coreFile.filename.toLowerCase()));
-                                    if (match) {
-                                      setSelectedModelToLoad(match.id);
-                                      setLoadTarget('diffusion');
-                                      setLoadBackend('stable-diffusion.cpp');
-                                      setLoadModelModalOpen(true);
-                                    }
-                                  }}
-                                  className="px-4 py-1.5 rounded-lg text-xs font-semibold bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 border border-emerald-500/30 transition-colors flex items-center gap-1.5 cursor-pointer"
-                                >
-                                  <span>Configure & Load Engine</span>
-                                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" /></svg>
-                                </button>
-                              ) : (
-                                <button
-                                  type="button"
-                                  disabled={anyDownloading}
-                                  onClick={() => {
-                                    filesStatus.filter(f => !f.isPresent).forEach(f => {
-                                      vscodeApi?.postMessage({
-                                        command: 'downloadLocalModel',
-                                        url: f.url,
-                                        filename: f.filename
-                                      });
-                                    });
-                                    vscodeApi?.postMessage({
-                                      command: 'showNotification',
-                                      message: `Queued 1-Click download for ${pack.title} components`
-                                    });
-                                  }}
-                                  className="px-4 py-1.5 rounded-lg text-xs font-semibold bg-zinc-100 text-black hover:bg-zinc-200 transition-colors flex items-center gap-1.5 shadow-md disabled:opacity-50 cursor-pointer"
-                                >
-                                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
-                                  <span>{anyDownloading ? 'Downloading Pack...' : `Download Complete Pack (${pack.totalSize})`}</span>
-                                </button>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        );
-      })()}
+          )}
+        </div>
 
       {/* LM Studio-Style Model Hardware Configuration Sub-Window */}
       {loadModelModalOpen && (() => {
