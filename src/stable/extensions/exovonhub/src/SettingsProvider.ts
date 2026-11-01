@@ -13,19 +13,15 @@ export class SettingsProvider {
   private _disposables: vscode.Disposable[] = [];
 
   public static createOrShow(context: vscode.ExtensionContext) {
-    const column = vscode.window.activeTextEditor
-      ? vscode.window.activeTextEditor.viewColumn
-      : undefined;
-
     if (SettingsProvider.currentPanel) {
-      SettingsProvider.currentPanel._panel.reveal(column);
+      SettingsProvider.currentPanel._panel.reveal();
       return;
     }
 
     const panel = vscode.window.createWebviewPanel(
       SettingsProvider.viewType,
-      'Exovon Settings',
-      column || vscode.ViewColumn.One,
+      'Astrolabe Settings',
+      vscode.ViewColumn.Active,
       {
         enableScripts: true,
         localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'webview-ui', 'dist')],
@@ -34,6 +30,34 @@ export class SettingsProvider {
     );
 
     SettingsProvider.currentPanel = new SettingsProvider(panel, context);
+
+    // Detach into dedicated auxiliary window immediately so Settings opens in its own window
+    let moved = false;
+    const moveListener = panel.onDidChangeViewState((e) => {
+      if (e.webviewPanel.active && !moved) {
+        moved = true;
+        moveListener.dispose();
+        vscode.commands.executeCommand('workbench.action.moveEditorToNewWindow').then(
+          () => {},
+          (err) => console.warn('[SettingsProvider] moveEditorToNewWindow failed:', err)
+        );
+      }
+    });
+
+    const fallbackTimer = setTimeout(() => {
+      if (!moved) {
+        moved = true;
+        moveListener.dispose();
+        try {
+          vscode.commands.executeCommand('workbench.action.moveEditorToNewWindow');
+        } catch (_) {}
+      }
+    }, 150);
+
+    panel.onDidDispose(() => {
+      moveListener.dispose();
+      clearTimeout(fallbackTimer);
+    });
   }
 
   private constructor(panel: vscode.WebviewPanel, context: vscode.ExtensionContext) {
@@ -336,7 +360,8 @@ export class SettingsProvider {
                       'Retry'
                     ).then(action => {
                       if (action === 'View Logs') {
-                        vscode.commands.executeCommand('vscode.open', vscode.Uri.file('/tmp/exovon_daemon_spawn.log'));
+                        const logPath = path.join(os.tmpdir(), 'exovon_daemon_spawn.log');
+                        vscode.commands.executeCommand('vscode.open', vscode.Uri.file(logPath));
                       }
                     });
                   }
@@ -351,7 +376,8 @@ export class SettingsProvider {
                     if (action === 'Restart Engine') {
                       vscode.commands.executeCommand('exovon.restartDaemon');
                     } else if (action === 'View Logs') {
-                      vscode.commands.executeCommand('vscode.open', vscode.Uri.file('/tmp/exovon_daemon_spawn.log'));
+                      const logPath = path.join(os.tmpdir(), 'exovon_daemon_spawn.log');
+                      vscode.commands.executeCommand('vscode.open', vscode.Uri.file(logPath));
                     }
                   });
                 }
@@ -534,6 +560,70 @@ export class SettingsProvider {
             vscode.commands.executeCommand('workbench.action.showCommands');
             break;
           }
+          case 'closeSettings': {
+            this.dispose();
+            break;
+          }
+          case 'popOutWindow': {
+            try {
+              await vscode.commands.executeCommand('workbench.action.moveEditorToNewWindow');
+            } catch (err) {
+              console.warn('[SettingsProvider] popOutWindow failed:', err);
+            }
+            break;
+          }
+          case 'minimizeSettings': {
+            break;
+          }
+          case 'toggleMaximizeSettings':
+          case 'toggleFullScreen': {
+            try {
+              await vscode.commands.executeCommand('workbench.action.toggleFullScreen');
+            } catch (_) {}
+            break;
+          }
+          case 'setTabTitle': {
+            if (data.title) {
+              this._panel.title = `Settings - ${data.title}`;
+            }
+            break;
+          }
+          case 'controlDownload': {
+            try {
+              const fetch = (await import('node-fetch')).default;
+              await fetch('http://127.0.0.1:47990/v1/models/downloads/control', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  filename: data.filename,
+                  action: data.action,
+                  url: data.url
+                })
+              });
+            } catch (err) {
+              console.error('Failed to control download:', err);
+            }
+            break;
+          }
+          case 'clearKvCache': {
+            try {
+              const fetch = (await import('node-fetch')).default;
+              await fetch('http://127.0.0.1:47990/v1/models/clear_kv', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+              });
+              vscode.window.showInformationMessage('KV Cache cleared.');
+            } catch (err) {
+              console.error('Failed to clear KV cache:', err);
+            }
+            break;
+          }
+          case 'showNotification': {
+            if (data.message) {
+              vscode.window.showInformationMessage(data.message);
+            }
+            break;
+          }
           case 'checkSystemUpdates': {
             try {
               let currentVersion = 'v1.0.12';
@@ -681,7 +771,7 @@ export class SettingsProvider {
   }
 
   private _update() {
-    this._panel.title = "Settings - Models";
+    this._panel.title = "Astrolabe Settings";
     this._panel.webview.html = this._getHtmlForWebview(this._panel.webview);
   }
 
@@ -709,8 +799,8 @@ export class SettingsProvider {
     // Strip crossorigin attributes which can cause load blocks in Webviews due to protocol restrictions
     webviewHtml = webviewHtml.replace(/\scrossorigin(="")?/g, '');
 
-    // Inject __EXOVON_PAGE__ so React router mounts SettingsApp
-    webviewHtml = webviewHtml.replace('<head>', `<head>\n<script>window.__EXOVON_PAGE__ = "settings";</script>`);
+    // Inject __EXOVON_PAGE__ and window flags so React mounts SettingsApp full viewport
+    webviewHtml = webviewHtml.replace('<head>', `<head>\n<script>window.__EXOVON_PAGE__ = "settings"; window.__IS_SEPARATE_WINDOW__ = true;</script>`);
 
     const cspMeta = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; script-src ${webview.cspSource} 'unsafe-inline' https://sdk.cashfree.com; img-src ${webview.cspSource} https: data:; connect-src ${webview.cspSource} https: https://*.cashfree.com; frame-src ${webview.cspSource} https://*.cashfree.com;">`;
     webviewHtml = webviewHtml.replace('<head>', `<head>\n    ${cspMeta}`);

@@ -1053,27 +1053,9 @@ export default function SettingsApp() {
       }
     };
 
-    const isElectronWindow = typeof window !== 'undefined' && !!(window as any).__IS_ELECTRON__;
-
     return (
-      <div 
-        className={`w-screen h-screen flex items-center justify-center overflow-hidden font-sans select-none ${
-          isElectronWindow 
-            ? (isMaximized ? 'bg-transparent p-0' : 'bg-transparent p-2 sm:p-3') 
-            : 'fixed inset-0 z-50 bg-black/75 backdrop-blur-sm p-4 sm:p-6 md:p-8'
-        }`}
-        onClick={(e) => {
-          if (e.target === e.currentTarget && !isElectronWindow) {
-            vscodeApi?.postMessage({ command: 'closeSettings' });
-          }
-        }}
-      >
-        <div 
-          className={`w-full h-full bg-[#1a1a1c] shadow-2xl flex overflow-hidden relative text-zinc-100 transition-all duration-150 ${
-            isMaximized ? 'rounded-none border-none' : 'rounded-[28px] border border-white/10'
-          }`}
-          onClick={(e) => e.stopPropagation()}
-        >
+      <div className="w-screen h-screen flex overflow-hidden font-sans select-none bg-[#141416] text-zinc-100">
+        <div className="w-full h-full bg-[#1a1a1c] flex overflow-hidden relative text-zinc-100">
           {/* Left Navigation Sidebar */}
         <div className="w-56 sm:w-64 bg-[#141416] border-r border-white/10 flex flex-col justify-between shrink-0 overflow-y-auto">
           {/* Top Navigation Items */}
@@ -1092,7 +1074,10 @@ export default function SettingsApp() {
                         ? 'bg-white/10 text-white font-semibold shadow-sm border border-white/10' 
                         : 'text-zinc-400 hover:text-white hover:bg-white/5'
                     }`}
-                    onClick={() => setActiveTab(item.id)}
+                    onClick={() => {
+                      setActiveTab(item.id);
+                      vscodeApi?.postMessage({ command: 'setTabTitle', title: item.label });
+                    }}
                   >
                     <span>{item.label}</span>
                   </button>
@@ -1214,14 +1199,14 @@ export default function SettingsApp() {
                 >
                   Refresh
                 </button>
-                {/* Minimize Button */}
+                {/* Pop Out to Dedicated Window Button */}
                 <button
-                  onClick={() => vscodeApi?.postMessage({ command: 'minimizeSettings' })}
+                  onClick={() => vscodeApi?.postMessage({ command: 'popOutWindow' })}
                   className="p-1.5 text-zinc-400 hover:text-white rounded-lg hover:bg-white/10 transition-colors cursor-pointer"
-                  title="Minimize"
+                  title="Pop Out into Separate Window"
                 >
                   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 12H4" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
                   </svg>
                 </button>
                 {/* Maximize / Restore Button */}
@@ -1246,7 +1231,7 @@ export default function SettingsApp() {
                 {/* Close "X" Button */}
                 <button
                   onClick={() => vscodeApi?.postMessage({ command: 'closeSettings' })}
-                  className="p-1.5 text-zinc-400 hover:text-white rounded-lg hover:bg-white/10 transition-colors cursor-pointer"
+                  className="p-1.5 text-zinc-400 hover:text-rose-400 rounded-lg hover:bg-white/10 transition-colors cursor-pointer"
                   title="Close Settings (Esc)"
                 >
                   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
