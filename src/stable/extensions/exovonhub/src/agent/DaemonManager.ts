@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { spawn, ChildProcess } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
+import * as os from 'os';
 
 export class DaemonManager {
     private static instance: DaemonManager;
@@ -43,6 +44,7 @@ export class DaemonManager {
         try {
             const isWin = process.platform === 'win32';
             const binName = isWin ? 'exovon-daemon.exe' : 'exovon-daemon';
+            const home = os.homedir();
 
             const candidatePaths = [
                 process.env.ASTROLABE_DAEMON_PATH || '',
@@ -50,14 +52,14 @@ export class DaemonManager {
                 path.join(vscode.env.appRoot, '..', 'daemon', binName),
                 path.join(vscode.env.appRoot, 'resources', 'app', 'daemon', binName),
                 path.join(vscode.env.appRoot, 'bin', binName),
+                path.join(home, '.local', 'share', 'astrolabe', 'daemon', binName),
+                path.join(home, '.local', 'share', 'astrolabe', binName),
                 path.join(context.extensionPath, '..', '..', 'daemon', binName),
                 path.join(context.extensionPath, '..', '..', '..', 'daemon', binName),
                 path.join(context.extensionPath, 'daemon', binName),
                 path.join(context.extensionPath, 'bin', binName),
                 path.resolve(__dirname, '../../../daemon/target/release', binName),
-                path.resolve(__dirname, '../../../../daemon/target/release', binName),
-                '/run/media/maakstar/c/vscodium/daemon/target/release/' + binName,
-                '/home/maakstar/EXOVON_ECOSYSTEM/exovon-daemon/target/release/' + binName
+                path.resolve(__dirname, '../../../../daemon/target/release', binName)
             ].filter(Boolean);
 
             let daemonPath = candidatePaths.find(p => fs.existsSync(p));
@@ -174,16 +176,26 @@ export class DaemonManager {
 
     private startTrayIndicator() {
         if (this.trayProcess) return;
-        const trayScript = '/home/maakstar/EXOVON_ECOSYSTEM/exovon-daemon/tray.py';
-        if (fs.existsSync(trayScript)) {
+        const home = os.homedir();
+        const candidateTrayPaths = [
+            path.join(vscode.env.appRoot, 'daemon', 'tray.py'),
+            path.join(vscode.env.appRoot, '..', 'daemon', 'tray.py'),
+            path.join(home, '.local', 'share', 'astrolabe', 'daemon', 'tray.py'),
+            path.join(home, '.local', 'share', 'astrolabe', 'resources', 'app', 'daemon', 'tray.py'),
+            path.resolve(__dirname, '../../../daemon/tray.py'),
+            path.resolve(__dirname, '../../../../daemon/tray.py')
+        ];
+        const trayScript = candidateTrayPaths.find(p => fs.existsSync(p));
+        if (trayScript) {
             try {
+                const uid = typeof process.getuid === 'function' ? process.getuid() : 1000;
                 this.trayProcess = spawn('python3', [trayScript], {
                     env: {
                         ...process.env,
                         DISPLAY: process.env.DISPLAY || ':0',
                         WAYLAND_DISPLAY: process.env.WAYLAND_DISPLAY || 'wayland-0',
-                        XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR || '/run/user/1000',
-                        DBUS_SESSION_BUS_ADDRESS: process.env.DBUS_SESSION_BUS_ADDRESS || 'unix:path=/run/user/1000/bus'
+                        XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR || `/run/user/${uid}`,
+                        DBUS_SESSION_BUS_ADDRESS: process.env.DBUS_SESSION_BUS_ADDRESS || `unix:path=/run/user/${uid}/bus`
                     },
                     stdio: 'ignore'
                 });

@@ -12,7 +12,7 @@ use std::num::NonZeroU32;
 use std::sync::Arc;
 
 use llama_cpp_4::prelude::*;
-use llama_cpp_4::context::params::LlamaFlashAttnType;
+use llama_cpp_4::context::params::{LlamaAttentionType, LlamaFlashAttnType};
 
 /// The core inference engine that wraps llama.cpp.
 /// This struct owns the loaded model and context, running entirely in native
@@ -81,7 +81,7 @@ impl Default for EngineConfig {
             n_gpu_layers: -1,  // Offload everything to GPU by default
             n_threads: 0,      // 0 = auto-detect
             n_batch: 2048,
-            n_ubatch: 512,
+            n_ubatch: 2048,
             temperature: 0.7,
             top_p: 0.9,
             top_k: 40,
@@ -174,8 +174,8 @@ impl InferenceEngine {
         let model = Arc::clone(&self.model);
         let backend = Arc::clone(&self.backend);
         let ctx_size = self.ctx_size;
-        let n_batch = self.n_batch;
-        let n_ubatch = self.n_ubatch;
+        let n_batch = if self.n_batch > 0 { self.n_batch } else { 2048 };
+        let n_ubatch = if self.n_ubatch > 0 { self.n_ubatch } else { n_batch };
         let flash_attn = self.flash_attn;
         let prompt = prompt.to_string();
 
@@ -205,7 +205,8 @@ impl InferenceEngine {
                 .with_n_threads_batch(num_threads)
                 .with_n_batch(n_batch)
                 .with_n_ubatch(n_ubatch)
-                .with_flash_attn_type(flash_mode);
+                .with_flash_attn_type(flash_mode)
+                .with_attention_type(LlamaAttentionType::Causal);
 
             let mut ctx = match model.new_context(&backend, ctx_params) {
                 Ok(ctx) => ctx,

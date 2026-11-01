@@ -45,12 +45,12 @@ const vscode = __importStar(__webpack_require__(1));
 const fs = __importStar(__webpack_require__(2));
 const path = __importStar(__webpack_require__(3));
 const ExovonSidebarProvider_1 = __webpack_require__(4);
-const SettingsProvider_1 = __webpack_require__(283);
+const SettingsProvider_1 = __webpack_require__(284);
 const BrainCoordinator_1 = __webpack_require__(285);
 const LlamaEngine_1 = __webpack_require__(291);
 const CopilotProvider_1 = __webpack_require__(293);
 const AuthService_1 = __webpack_require__(295);
-const PlanReviewProvider_1 = __webpack_require__(279);
+const PlanReviewProvider_1 = __webpack_require__(280);
 const PlanCommentController_1 = __webpack_require__(296);
 const ProblemCodeActionProvider_1 = __webpack_require__(297);
 const ApiService_1 = __webpack_require__(298);
@@ -603,14 +603,14 @@ const vscode = __importStar(__webpack_require__(1));
 const fs = __importStar(__webpack_require__(2));
 const path = __importStar(__webpack_require__(3));
 const AgentOrchestrator_1 = __webpack_require__(5);
-const DiagnosticsWatchdog_1 = __webpack_require__(278);
+const DiagnosticsWatchdog_1 = __webpack_require__(279);
 const FileSystemTools_1 = __webpack_require__(26);
-const PlanReviewProvider_1 = __webpack_require__(279);
-const PlanViewerProvider_1 = __webpack_require__(280);
+const PlanReviewProvider_1 = __webpack_require__(280);
+const PlanViewerProvider_1 = __webpack_require__(281);
 const InspectorProxy_1 = __webpack_require__(34);
 const DaemonManager_1 = __webpack_require__(277);
-const WorkspacePreparer_1 = __webpack_require__(281);
-const DevServerManager_1 = __webpack_require__(282);
+const WorkspacePreparer_1 = __webpack_require__(282);
+const DevServerManager_1 = __webpack_require__(283);
 class ExovonSidebarProvider {
     _context;
     _authService;
@@ -849,7 +849,7 @@ class ExovonSidebarProvider {
             }
         }
         // We send this to the SettingsProvider's panel
-        const { SettingsProvider } = await Promise.resolve(/* import() */).then(__webpack_require__.t.bind(__webpack_require__, 283, 23));
+        const { SettingsProvider } = await Promise.resolve(/* import() */).then(__webpack_require__.t.bind(__webpack_require__, 284, 23));
         if (SettingsProvider.currentPanel) {
             SettingsProvider.currentPanel.postMessage({
                 type: 'workspaceInfo',
@@ -49006,7 +49006,7 @@ class EngineStatusBarManager {
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
                             model_path: selected.modelId,
-                            ctx_size: 8192,
+                            ctx_size: 131072,
                             n_gpu_layers: -1,
                             n_threads: 0,
                             n_batch: 2048,
@@ -49118,6 +49118,7 @@ const vscode = __importStar(__webpack_require__(1));
 const child_process_1 = __webpack_require__(31);
 const path = __importStar(__webpack_require__(3));
 const fs = __importStar(__webpack_require__(2));
+const os = __importStar(__webpack_require__(278));
 class DaemonManager {
     static instance;
     daemonProcess = null;
@@ -49150,20 +49151,21 @@ class DaemonManager {
         try {
             const isWin = process.platform === 'win32';
             const binName = isWin ? 'exovon-daemon.exe' : 'exovon-daemon';
+            const home = os.homedir();
             const candidatePaths = [
                 process.env.ASTROLABE_DAEMON_PATH || '',
                 path.join(vscode.env.appRoot, 'daemon', binName),
                 path.join(vscode.env.appRoot, '..', 'daemon', binName),
                 path.join(vscode.env.appRoot, 'resources', 'app', 'daemon', binName),
                 path.join(vscode.env.appRoot, 'bin', binName),
+                path.join(home, '.local', 'share', 'astrolabe', 'daemon', binName),
+                path.join(home, '.local', 'share', 'astrolabe', binName),
                 path.join(context.extensionPath, '..', '..', 'daemon', binName),
                 path.join(context.extensionPath, '..', '..', '..', 'daemon', binName),
                 path.join(context.extensionPath, 'daemon', binName),
                 path.join(context.extensionPath, 'bin', binName),
                 path.resolve(__dirname, '../../../daemon/target/release', binName),
-                path.resolve(__dirname, '../../../../daemon/target/release', binName),
-                '/run/media/maakstar/c/vscodium/daemon/target/release/' + binName,
-                '/home/maakstar/EXOVON_ECOSYSTEM/exovon-daemon/target/release/' + binName
+                path.resolve(__dirname, '../../../../daemon/target/release', binName)
             ].filter(Boolean);
             let daemonPath = candidatePaths.find(p => fs.existsSync(p));
             if (!daemonPath) {
@@ -49258,16 +49260,26 @@ class DaemonManager {
     startTrayIndicator() {
         if (this.trayProcess)
             return;
-        const trayScript = '/home/maakstar/EXOVON_ECOSYSTEM/exovon-daemon/tray.py';
-        if (fs.existsSync(trayScript)) {
+        const home = os.homedir();
+        const candidateTrayPaths = [
+            path.join(vscode.env.appRoot, 'daemon', 'tray.py'),
+            path.join(vscode.env.appRoot, '..', 'daemon', 'tray.py'),
+            path.join(home, '.local', 'share', 'astrolabe', 'daemon', 'tray.py'),
+            path.join(home, '.local', 'share', 'astrolabe', 'resources', 'app', 'daemon', 'tray.py'),
+            path.resolve(__dirname, '../../../daemon/tray.py'),
+            path.resolve(__dirname, '../../../../daemon/tray.py')
+        ];
+        const trayScript = candidateTrayPaths.find(p => fs.existsSync(p));
+        if (trayScript) {
             try {
+                const uid = typeof process.getuid === 'function' ? process.getuid() : 1000;
                 this.trayProcess = (0, child_process_1.spawn)('python3', [trayScript], {
                     env: {
                         ...process.env,
                         DISPLAY: process.env.DISPLAY || ':0',
                         WAYLAND_DISPLAY: process.env.WAYLAND_DISPLAY || 'wayland-0',
-                        XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR || '/run/user/1000',
-                        DBUS_SESSION_BUS_ADDRESS: process.env.DBUS_SESSION_BUS_ADDRESS || 'unix:path=/run/user/1000/bus'
+                        XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR || `/run/user/${uid}`,
+                        DBUS_SESSION_BUS_ADDRESS: process.env.DBUS_SESSION_BUS_ADDRESS || `unix:path=/run/user/${uid}/bus`
                     },
                     stdio: 'ignore'
                 });
@@ -49324,6 +49336,13 @@ exports.DaemonManager = DaemonManager;
 
 /***/ }),
 /* 278 */
+/***/ ((module) => {
+
+"use strict";
+module.exports = require("os");
+
+/***/ }),
+/* 279 */
 /***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 "use strict";
@@ -49443,7 +49462,7 @@ exports.DiagnosticsWatchdog = DiagnosticsWatchdog;
 
 
 /***/ }),
-/* 279 */
+/* 280 */
 /***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 "use strict";
@@ -49505,7 +49524,7 @@ exports.PlanReviewProvider = PlanReviewProvider;
 
 
 /***/ }),
-/* 280 */
+/* 281 */
 /***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 "use strict";
@@ -49674,7 +49693,7 @@ exports.PlanViewerProvider = PlanViewerProvider;
 
 
 /***/ }),
-/* 281 */
+/* 282 */
 /***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 "use strict";
@@ -49829,7 +49848,7 @@ exports.WorkspacePreparer = WorkspacePreparer;
 
 
 /***/ }),
-/* 282 */
+/* 283 */
 /***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 "use strict";
@@ -50014,7 +50033,7 @@ exports.DevServerManager = DevServerManager;
 
 
 /***/ }),
-/* 283 */
+/* 284 */
 /***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 "use strict";
@@ -50057,7 +50076,7 @@ exports.SettingsProvider = void 0;
 const vscode = __importStar(__webpack_require__(1));
 const fs = __importStar(__webpack_require__(2));
 const path = __importStar(__webpack_require__(3));
-const os = __importStar(__webpack_require__(284));
+const os = __importStar(__webpack_require__(278));
 const cp = __importStar(__webpack_require__(31));
 class SettingsProvider {
     static viewType = 'exovonhubSettings';
@@ -50758,13 +50777,6 @@ exports.SettingsProvider = SettingsProvider;
 
 
 /***/ }),
-/* 284 */
-/***/ ((module) => {
-
-"use strict";
-module.exports = require("os");
-
-/***/ }),
 /* 285 */
 /***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
@@ -50812,7 +50824,7 @@ const vscode = __importStar(__webpack_require__(1));
 const worker_threads_1 = __webpack_require__(286);
 const path = __importStar(__webpack_require__(3));
 const fs = __importStar(__webpack_require__(2));
-const os_1 = __importDefault(__webpack_require__(284));
+const os_1 = __importDefault(__webpack_require__(278));
 const crypto = __importStar(__webpack_require__(27));
 const GraphIndexer_1 = __webpack_require__(287);
 let DatabaseConstructor = null;
@@ -52097,12 +52109,7 @@ function getParseFile() {
         parseFileFn = eval('require')('../../../exovon-core/index.js').parseFile;
     }
     catch (e) {
-        try {
-            parseFileFn = eval('require')('/home/maakstar/EXOVON_ECOSYSTEM/exovon-core/index.js').parseFile;
-        }
-        catch (e2) {
-            parseFileFn = () => ({ symbols: [], edges: [] }); // Safe fallback
-        }
+        parseFileFn = () => ({ symbols: [], edges: [] }); // Safe fallback
     }
     return parseFileFn;
 }
@@ -54137,15 +54144,17 @@ class MotionStudioServer {
         const childProcess = __webpack_require__(31);
         const path = __webpack_require__(3);
         const fs = __webpack_require__(2);
+        const os = __webpack_require__(278);
+        const home = os.homedir();
         // Robust multi-tier dynamic resolution for Astrolabe Motion Studio root
         const candidateAmsPaths = [
             process.env.ASTROLABE_AMS_PATH || '',
             path.resolve(__dirname, '../../../apps/astrolabe-motion-studio'),
             path.resolve(__dirname, '../../../../apps/astrolabe-motion-studio'),
             path.join(vscode.env.appRoot, 'motion-studio'),
+            path.join(vscode.env.appRoot, '..', 'astrolabe-motion-studio'),
             path.join(vscode.env.appRoot, 'resources', 'app', 'motion-studio'),
-            '/run/media/maakstar/c/vscodium/apps/astrolabe-motion-studio',
-            '/home/maakstar/EXOVON_ECOSYSTEM/astrolabe-motion-studio'
+            path.join(home, '.local', 'share', 'astrolabe', 'astrolabe-motion-studio')
         ].filter(Boolean);
         const amsPath = candidateAmsPaths.find((p) => fs.existsSync(p)) || candidateAmsPaths[candidateAmsPaths.length - 1];
         const localElectronBin = path.join(amsPath, 'node_modules', '.bin', 'electron');

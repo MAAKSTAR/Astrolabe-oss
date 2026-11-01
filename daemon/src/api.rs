@@ -524,7 +524,7 @@ async fn load_model(
             tracing::info!("Using modern llama-server for model: {}", resolved_path);
             let server_engine = crate::llama_server::LlamaServerEngine::load(
                 &resolved_path,
-                47992,
+                47995,
                 req.ctx_size,
                 req.n_gpu_layers,
                 req.n_threads,
@@ -560,7 +560,7 @@ async fn load_model(
                     tracing::warn!("In-process engine load failed or architecture unsupported. Falling back to upstream llama-server...");
                     let server_engine = crate::llama_server::LlamaServerEngine::load(
                         &resolved_path,
-                        47992,
+                        47995,
                         req.ctx_size,
                         req.n_gpu_layers,
                         req.n_threads,

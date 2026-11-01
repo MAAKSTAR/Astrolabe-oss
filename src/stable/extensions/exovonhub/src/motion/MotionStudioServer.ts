@@ -43,6 +43,8 @@ export class MotionStudioServer {
     const childProcess = require('child_process');
     const path = require('path');
     const fs = require('fs');
+    const os = require('os');
+    const home = os.homedir();
 
     // Robust multi-tier dynamic resolution for Astrolabe Motion Studio root
     const candidateAmsPaths: string[] = [
@@ -50,9 +52,9 @@ export class MotionStudioServer {
       path.resolve(__dirname, '../../../apps/astrolabe-motion-studio'),
       path.resolve(__dirname, '../../../../apps/astrolabe-motion-studio'),
       path.join(vscode.env.appRoot, 'motion-studio'),
+      path.join(vscode.env.appRoot, '..', 'astrolabe-motion-studio'),
       path.join(vscode.env.appRoot, 'resources', 'app', 'motion-studio'),
-      '/run/media/maakstar/c/vscodium/apps/astrolabe-motion-studio',
-      '/home/maakstar/EXOVON_ECOSYSTEM/astrolabe-motion-studio'
+      path.join(home, '.local', 'share', 'astrolabe', 'astrolabe-motion-studio')
     ].filter(Boolean);
 
     const amsPath = candidateAmsPaths.find((p: string) => fs.existsSync(p)) || candidateAmsPaths[candidateAmsPaths.length - 1];

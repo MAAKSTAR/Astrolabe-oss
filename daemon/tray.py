@@ -22,7 +22,44 @@ from gi.repository import Gtk, GLib
 
 APPINDICATOR_ID = 'exovon-engine-indicator'
 DAEMON_URL = 'http://127.0.0.1:47990'
-ICON_PATH = '/home/maakstar/EXOVON_ECOSYSTEM/exovonhub/media/icon.png'
+HOME_DIR = os.path.expanduser("~")
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+
+def find_icon() -> str:
+    candidates = [
+        os.path.join(SCRIPT_DIR, "icon.png"),
+        os.path.join(SCRIPT_DIR, "media", "icon.png"),
+        os.path.join(SCRIPT_DIR, "..", "media", "icon.png"),
+        os.path.join(HOME_DIR, ".local", "share", "astrolabe", "astrolabe.png"),
+        os.path.join(HOME_DIR, ".local", "share", "astrolabe", "resources", "app", "media", "icon.png"),
+    ]
+    for c in candidates:
+        if os.path.isfile(c):
+            return c
+    return "utilities-terminal"
+
+def find_daemon_binary() -> str:
+    candidates = [
+        os.path.join(SCRIPT_DIR, "exovon-daemon"),
+        os.path.join(SCRIPT_DIR, "target", "release", "exovon-daemon"),
+        os.path.join(HOME_DIR, ".local", "share", "astrolabe", "daemon", "exovon-daemon"),
+        os.path.join(HOME_DIR, ".local", "share", "astrolabe", "resources", "app", "daemon", "exovon-daemon"),
+        os.path.join(HOME_DIR, ".local", "share", "astrolabe", "exovon-daemon"),
+    ]
+    for c in candidates:
+        if os.path.isfile(c) and os.access(c, os.X_OK):
+            return c
+    import shutil
+    return shutil.which("exovon-daemon") or os.path.join(SCRIPT_DIR, "exovon-daemon")
+
+def get_models_dir() -> str:
+    if "EXOVON_MODELS_DIR" in os.environ and os.path.isdir(os.environ["EXOVON_MODELS_DIR"]):
+        return os.environ["EXOVON_MODELS_DIR"]
+    default_dir = os.path.join(HOME_DIR, ".exovon", "models")
+    os.makedirs(default_dir, exist_ok=True)
+    return default_dir
+
+ICON_PATH = find_icon()
 
 class ExovonTrayApp:
     def __init__(self):
@@ -250,12 +287,13 @@ class ExovonTrayApp:
             self.on_start_daemon(widget)
 
     def on_start_daemon(self, widget):
-        daemon_bin = '/home/maakstar/EXOVON_ECOSYSTEM/exovon-daemon/target/release/exovon-daemon'
+        daemon_bin = find_daemon_binary()
         if os.path.exists(daemon_bin):
             daemon_dir = os.path.dirname(daemon_bin)
             env = os.environ.copy()
             env['LD_LIBRARY_PATH'] = f"{daemon_dir}:{os.path.join(daemon_dir, 'deps')}:{env.get('LD_LIBRARY_PATH', '')}"
-            subprocess.Popen([daemon_bin, '--models-dir', '/run/media/maakstar/c/AI MODELS'],
+            models_dir = get_models_dir()
+            subprocess.Popen([daemon_bin, '--models-dir', models_dir],
                              env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             GLib.timeout_add_seconds(1, lambda: (self._fetch_and_apply_state(), False)[1])
 

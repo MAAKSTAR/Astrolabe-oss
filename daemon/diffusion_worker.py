@@ -15,9 +15,35 @@ import subprocess
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 PORT = 47992
-SD_BIN_DIR = "/home/maakstar/EXOVON_ECOSYSTEM/exovon-daemon/bin"
-SD_CLI_PATH = os.path.join(SD_BIN_DIR, "sd-cli")
-MODELS_DIR = "/run/media/maakstar/c/AI MODELS"
+HOME_DIR = os.path.expanduser("~")
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+
+def find_sd_cli() -> str:
+    candidates = [
+        os.path.join(SCRIPT_DIR, "sd-cli"),
+        os.path.join(SCRIPT_DIR, "bin", "sd-cli"),
+        os.path.join(HOME_DIR, ".local", "share", "astrolabe", "daemon", "sd-cli"),
+        os.path.join(HOME_DIR, ".local", "share", "astrolabe", "resources", "app", "daemon", "sd-cli"),
+        os.path.join(HOME_DIR, ".local", "share", "astrolabe", "bin", "sd-cli"),
+    ]
+    for c in candidates:
+        if os.path.isfile(c) and os.access(c, os.X_OK):
+            return c
+    import shutil
+    return shutil.which("sd-cli") or os.path.join(SCRIPT_DIR, "sd-cli")
+
+def get_models_dir() -> str:
+    for i, arg in enumerate(sys.argv):
+        if arg == "--models-dir" and i + 1 < len(sys.argv):
+            return sys.argv[i + 1]
+    if "EXOVON_MODELS_DIR" in os.environ and os.path.isdir(os.environ["EXOVON_MODELS_DIR"]):
+        return os.environ["EXOVON_MODELS_DIR"]
+    default_dir = os.path.join(HOME_DIR, ".exovon", "models")
+    os.makedirs(default_dir, exist_ok=True)
+    return default_dir
+
+SD_CLI_PATH = find_sd_cli()
+MODELS_DIR = get_models_dir()
 
 ACTIVE_CONFIG = {
     "model_path": None,

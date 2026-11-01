@@ -9,11 +9,7 @@ function getParseFile() {
   try {
     parseFileFn = eval('require')('../../../exovon-core/index.js').parseFile;
   } catch (e) {
-    try {
-      parseFileFn = eval('require')('/home/maakstar/EXOVON_ECOSYSTEM/exovon-core/index.js').parseFile;
-    } catch (e2) {
-      parseFileFn = () => ({ symbols: [], edges: [] }); // Safe fallback
-    }
+    parseFileFn = () => ({ symbols: [], edges: [] }); // Safe fallback
   }
   return parseFileFn;
 }

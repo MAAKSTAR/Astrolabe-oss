@@ -35,10 +35,14 @@ impl LlamaServerEngine {
         candidates.push(PathBuf::from("daemon/bin/llama-server"));
         candidates.push(PathBuf::from("bin/llama-server"));
 
-        // 3. User local share
-        if let Ok(home) = std::env::var("HOME") {
-            candidates.push(PathBuf::from(&home).join(".local/share/astrolabe/daemon/llama-server"));
-            candidates.push(PathBuf::from(&home).join(".local/share/astrolabe/resources/app/daemon/llama-server"));
+        // 3. User local share & application data paths
+        if let Ok(home) = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")) {
+            let home_path = PathBuf::from(&home);
+            candidates.push(home_path.join(".local/share/astrolabe/daemon/llama-server"));
+            candidates.push(home_path.join(".local/share/astrolabe/resources/app/daemon/llama-server"));
+            candidates.push(home_path.join(".local/share/astrolabe/llama-server"));
+            candidates.push(home_path.join(".local/share/astrolabe/bin/llama-server"));
+            candidates.push(home_path.join("AppData/Local/astrolabe/daemon/llama-server.exe"));
         }
 
         // 4. System PATH
