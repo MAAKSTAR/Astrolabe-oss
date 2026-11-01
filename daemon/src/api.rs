@@ -939,6 +939,7 @@ async fn health_check(
     let engine_guard = state.engine.read().await;
     let ctx_size = match engine_guard.as_ref() {
         Some(crate::ActiveEngine::Llama(l)) => Some(l.ctx_size),
+        Some(crate::ActiveEngine::LlamaServer(s)) => Some(s.ctx_size),
         _ => None,
     };
     drop(engine_guard);

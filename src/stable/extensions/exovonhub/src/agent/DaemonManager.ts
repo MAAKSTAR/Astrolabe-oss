@@ -23,15 +23,13 @@ export class DaemonManager {
      * Start the exovon-daemon if it isn't already running.
      */
     public async startDaemon(context: vscode.ExtensionContext): Promise<boolean> {
-        
-        if (this.daemonProcess) {
-            vscode.window.showInformationMessage('Astrolabe Local Daemon is already running.');
-            return true;
-        }
-
-        // Avoid address collision if daemon is already running independently on port 47990
+        // If already responding and healthy on port 47990, sync status and return true
         if (await this.isAlive()) {
             console.log('[DaemonManager] Daemon is already healthy on port 47990.');
+            try {
+                const { EngineStatusBarManager } = require('./EngineStatusBarManager');
+                EngineStatusBarManager.getInstance()?.checkHealth();
+            } catch {}
             return true;
         }
 
@@ -42,6 +40,21 @@ export class DaemonManager {
         this.isStarting = true;
 
         try {
+            // Clean up any stale or orphaned daemon processes holding port 47990
+            if (this.daemonProcess) {
+                try { this.daemonProcess.kill('SIGKILL'); } catch {}
+                this.daemonProcess = null;
+            }
+            try {
+                const cp = require('child_process');
+                if (process.platform === 'win32') {
+                    cp.execSync('taskkill /F /IM exovon-daemon.exe 2>nul || exit 0', { stdio: 'ignore' });
+                } else {
+                    cp.execSync('pkill -9 -f "exovon-daemon" 2>/dev/null || true', { stdio: 'ignore' });
+                }
+            } catch {}
+            await new Promise(r => setTimeout(r, 200));
+
             const isWin = process.platform === 'win32';
             const binName = isWin ? 'exovon-daemon.exe' : 'exovon-daemon';
             const home = os.homedir();
@@ -75,7 +88,6 @@ export class DaemonManager {
             const args = customModelsDir && customModelsDir.trim() !== '' ? ['--models-dir', customModelsDir.trim()] : [];
 
             // Add LD_LIBRARY_PATH so it can find libllama.so, libggml-vulkan.so, etc.
-            // The Vulkan GPU libraries live in the cmake cache under the daemon's target dir
             const daemonDir = path.dirname(daemonPath);
             const daemonRoot = path.resolve(daemonDir, '..', '..');
             const cmakeCacheBase = path.join(daemonRoot, 'target', 'llama-cmake-cache');
@@ -92,12 +104,13 @@ export class DaemonManager {
                 LD_LIBRARY_PATH: `${daemonDir}:${path.join(daemonDir, 'deps')}:${cmakeLibDirs}:${process.env.LD_LIBRARY_PATH || ''}`
             };
 
-            const logStream = fs.createWriteStream('/tmp/exovon_daemon_spawn.log', { flags: 'a' });
+            const logPath = path.join(os.tmpdir(), 'exovon_daemon_spawn.log');
+            const logStream = fs.createWriteStream(logPath, { flags: 'a' });
 
             this.daemonProcess = spawn(daemonPath, args, {
                 cwd: path.dirname(daemonPath),
                 env: daemonEnv,
-                stdio: ['ignore', 'pipe', 'pipe'] // Capture output
+                stdio: ['ignore', 'pipe', 'pipe']
             });
 
             this.daemonProcess.stdout?.pipe(logStream);
@@ -110,7 +123,7 @@ export class DaemonManager {
                     'Open Settings'
                 ).then(action => {
                     if (action === 'View Logs') {
-                        vscode.commands.executeCommand('vscode.open', vscode.Uri.file('/tmp/exovon_daemon_spawn.log'));
+                        vscode.commands.executeCommand('vscode.open', vscode.Uri.file(logPath));
                     } else if (action === 'Open Settings') {
                         vscode.commands.executeCommand('exovon.openSettings');
                     }
@@ -129,23 +142,40 @@ export class DaemonManager {
                         if (action === 'Restart Engine') {
                             this.startDaemon(context);
                         } else if (action === 'View Logs') {
-                            vscode.commands.executeCommand('vscode.open', vscode.Uri.file('/tmp/exovon_daemon_spawn.log'));
+                            vscode.commands.executeCommand('vscode.open', vscode.Uri.file(logPath));
                         }
                     });
                 }
                 this.daemonProcess = null;
             });
 
-            // Wait a brief moment to assume it started successfully
-            await new Promise(resolve => setTimeout(resolve, 1000));
-            
-            if (!this.daemonProcess) {
+            // Actively poll /v1/health until ready (up to 6 seconds)
+            let healthy = false;
+            for (let attempt = 0; attempt < 24; attempt++) {
+                await new Promise(r => setTimeout(r, 250));
+                if (!this.daemonProcess || this.daemonProcess.exitCode !== null) {
+                    break;
+                }
+                if (await this.isAlive()) {
+                    healthy = true;
+                    break;
+                }
+            }
+
+            if (!healthy) {
+                if (this.daemonProcess) {
+                    try { this.daemonProcess.kill('SIGKILL'); } catch {}
+                    this.daemonProcess = null;
+                }
                 vscode.window.showErrorMessage(
-                    'Exovon Local Engine failed to spawn. Check permissions and binary path.',
-                    'View Logs'
+                    'Exovon Local Engine failed to respond on port 47990.',
+                    'View Logs',
+                    'Retry'
                 ).then(action => {
-                    if (action === 'View Logs') {
-                        vscode.commands.executeCommand('vscode.open', vscode.Uri.file('/tmp/exovon_daemon_spawn.log'));
+                    if (action === 'Retry') {
+                        this.startDaemon(context);
+                    } else if (action === 'View Logs') {
+                        vscode.commands.executeCommand('vscode.open', vscode.Uri.file(logPath));
                     }
                 });
                 return false;
@@ -154,9 +184,16 @@ export class DaemonManager {
             // Launch top panel System Tray indicator (AppIndicator)
             this.startTrayIndicator();
 
+            // Trigger immediate status bar update to remove "Offline"
+            try {
+                const { EngineStatusBarManager } = require('./EngineStatusBarManager');
+                EngineStatusBarManager.getInstance()?.checkHealth();
+            } catch {}
+
             vscode.window.showInformationMessage('Exovon Local Engine initialized successfully.');
             return true;
         } catch (error: any) {
+            const logPath = path.join(os.tmpdir(), 'exovon_daemon_spawn.log');
             vscode.window.showErrorMessage(
                 `Failed to initialize Exovon Local Engine: ${error.message}`,
                 'View Logs',
@@ -165,7 +202,7 @@ export class DaemonManager {
                 if (action === 'Retry') {
                     this.startDaemon(context);
                 } else if (action === 'View Logs') {
-                    vscode.commands.executeCommand('vscode.open', vscode.Uri.file('/tmp/exovon_daemon_spawn.log'));
+                    vscode.commands.executeCommand('vscode.open', vscode.Uri.file(logPath));
                 }
             });
             return false;
@@ -213,25 +250,36 @@ export class DaemonManager {
      */
     public stopDaemon() {
         if (this.daemonProcess) {
-            this.daemonProcess.kill();
+            try { this.daemonProcess.kill('SIGTERM'); } catch {}
             this.daemonProcess = null;
         }
         if (this.trayProcess) {
-            this.trayProcess.kill();
+            try { this.trayProcess.kill('SIGTERM'); } catch {}
             this.trayProcess = null;
         }
+        try {
+            const cp = require('child_process');
+            if (process.platform === 'win32') {
+                cp.execSync('taskkill /F /IM exovon-daemon.exe 2>nul || exit 0', { stdio: 'ignore' });
+            } else {
+                cp.execSync('pkill -9 -f "exovon-daemon" 2>/dev/null || true', { stdio: 'ignore' });
+            }
+        } catch {}
+        try {
+            const { EngineStatusBarManager } = require('./EngineStatusBarManager');
+            EngineStatusBarManager.getInstance()?.checkHealth();
+        } catch {}
         vscode.window.showInformationMessage('Exovon Local Engine stopped.');
     }
 
     /**
-     * Check if the daemon is currently responding on port 47990 or running as child process
+     * Check if the daemon is currently responding on port 47990
      */
     public async isAlive(): Promise<boolean> {
-        if (this.daemonProcess !== null) return true;
         try {
             const fetch = (await import('node-fetch')).default;
             const controller = new AbortController();
-            const timeout = setTimeout(() => controller.abort(), 1500);
+            const timeout = setTimeout(() => controller.abort(), 1200);
             const res = await fetch('http://127.0.0.1:47990/v1/health', { signal: controller.signal as any });
             clearTimeout(timeout);
             return res.ok;
@@ -241,9 +289,9 @@ export class DaemonManager {
     }
 
     /**
-     * Check if the daemon process was spawned by this manager
+     * Check if the daemon process was spawned by this manager and is alive
      */
     public isRunning(): boolean {
-        return this.daemonProcess !== null;
+        return this.daemonProcess !== null && this.daemonProcess.exitCode === null;
     }
 }

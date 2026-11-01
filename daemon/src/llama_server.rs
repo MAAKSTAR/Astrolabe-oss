@@ -15,6 +15,7 @@ pub struct LlamaServerEngine {
     pub model_path: String,
     pub model_name: String,
     pub port: u16,
+    pub ctx_size: u32,
     child: Child,
 }
 
@@ -131,11 +132,12 @@ impl LlamaServerEngine {
             cmd.arg("--load-mode").arg("none");
         }
 
+        let log_path = std::env::temp_dir().join("llama_server.log");
         let log_file = std::fs::OpenOptions::new()
             .create(true)
             .write(true)
             .truncate(true)
-            .open("/tmp/llama_server.log")
+            .open(&log_path)
             .map_err(|e| format!("Failed to open log file: {}", e))?;
         let err_file = log_file.try_clone()
             .map_err(|e| format!("Failed to clone log file handle: {}", e))?;
@@ -152,6 +154,7 @@ impl LlamaServerEngine {
             model_path: model_path.to_string(),
             model_name: model_name.clone(),
             port,
+            ctx_size,
             child,
         };
 
@@ -189,9 +192,10 @@ impl LlamaServerEngine {
         Err("Timeout waiting for llama-server to become healthy".to_string())
     }
 
-    /// Kill the llama-server child process.
+    /// Kill the llama-server child process and reap it cleanly.
     pub async fn unload(&mut self) {
         tracing::info!("🗑️  Killing llama-server process for: {}", self.model_name);
         let _ = self.child.kill().await;
+        let _ = self.child.wait().await;
     }
 }
