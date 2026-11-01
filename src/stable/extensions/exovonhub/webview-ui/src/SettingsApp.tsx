@@ -1,8 +1,59 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, memo, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import rehypeHighlight from 'rehype-highlight';
-import rehypeRaw from 'rehype-raw';
 import remarkGfm from 'remark-gfm';
+
+const REMARK_PLUGINS = [remarkGfm];
+const REHYPE_PLUGINS = [rehypeHighlight];
+
+const MARKDOWN_COMPONENTS = {
+  h1: ({ node, ...props }: any) => <h1 className="text-base font-bold text-white mt-5 mb-2 pb-1 border-b border-white/10" {...props} />,
+  h2: ({ node, ...props }: any) => <h2 className="text-sm font-bold text-white mt-4 mb-2" {...props} />,
+  h3: ({ node, ...props }: any) => <h3 className="text-xs font-bold text-zinc-100 mt-3 mb-1" {...props} />,
+  p: ({ node, ...props }: any) => <p className="mb-2.5 text-zinc-300 leading-relaxed text-xs" {...props} />,
+  a: ({ node, ...props }: any) => <a className="text-zinc-100 underline hover:text-white" target="_blank" rel="noreferrer" {...props} />,
+  ul: ({ node, ...props }: any) => <ul className="list-disc pl-5 mb-2.5 space-y-1 text-zinc-300 text-xs" {...props} />,
+  ol: ({ node, ...props }: any) => <ol className="list-decimal pl-5 mb-2.5 space-y-1 text-zinc-300 text-xs" {...props} />,
+  li: ({ node, ...props }: any) => <li className="text-zinc-300 text-xs" {...props} />,
+  blockquote: ({ node, ...props }: any) => <blockquote className="border-l-2 border-white/20 pl-3 my-2 text-zinc-400 italic text-xs" {...props} />,
+  table: ({ node, ...props }: any) => (
+    <div className="my-3 overflow-x-auto rounded-xl border border-white/10">
+      <table className="w-full text-xs text-left text-zinc-300 border-collapse" {...props} />
+    </div>
+  ),
+  th: ({ node, ...props }: any) => <th className="p-2 bg-zinc-800/80 font-bold border-b border-white/10 text-white font-mono text-[11px]" {...props} />,
+  td: ({ node, ...props }: any) => <td className="p-2 border-b border-white/5 font-mono text-[11px]" {...props} />,
+  code: ({ node, className, children, ...props }: any) => {
+    const match = /language-(\w+)/.exec(className || '');
+    return match ? (
+      <div className="my-2.5 rounded-xl overflow-hidden bg-zinc-950 border border-white/10">
+        <pre className="p-3 text-[11px] font-mono text-zinc-200 overflow-x-auto custom-scrollbar">
+          <code className={className} {...props}>{children}</code>
+        </pre>
+      </div>
+    ) : (
+      <code className="px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-200 font-mono text-[11px] border border-white/5" {...props}>
+        {children}
+      </code>
+    );
+  }
+};
+
+const ModelReadmeViewer = memo(function ModelReadmeViewer({ content }: { content: string }) {
+  const sanitized = useMemo(() => {
+    return content.replace(/^---[\s\S]*?---\s*/, '');
+  }, [content]);
+
+  return (
+    <ReactMarkdown
+      remarkPlugins={REMARK_PLUGINS}
+      rehypePlugins={REHYPE_PLUGINS}
+      components={MARKDOWN_COMPONENTS}
+    >
+      {sanitized}
+    </ReactMarkdown>
+  );
+});
 
 import { getVsCodeApi } from './vscodeApi';
 
@@ -539,7 +590,7 @@ export function ModelOrgAvatar({ modelId, author, className = 'w-8 h-8' }: { mod
   const lowerId = modelId.toLowerCase();
   const combined = `${lowerId} ${resolvedAuthor}`;
 
-  // 1. Foundation Lab / Family Detection (exact 1:1 match with official designs)
+  // 1. Foundation Lab / Family Detection (exact 1:1 match with official designs - clean floating brand marks without frames)
   // NVIDIA / Nemotron
   if (combined.includes('nemotron') || combined.includes('nvidia') || combined.includes('megatron')) {
     return (
@@ -551,11 +602,11 @@ export function ModelOrgAvatar({ modelId, author, className = 'w-8 h-8' }: { mod
     );
   }
 
-  // Qwen / Alibaba
+  // Qwen / Alibaba - Pure floating purple star logo
   if (combined.includes('qwen') || combined.includes('alibaba') || combined.includes('tongyi')) {
     return (
-      <div className={`${className} rounded-lg bg-[#14141c] border border-indigo-500/20 flex items-center justify-center p-1 shrink-0 shadow-sm`} title="Qwen / Alibaba">
-        <svg viewBox="0 0 48 48" className="w-full h-full" fill="none">
+      <div className={`${className} flex items-center justify-center shrink-0`} title="Qwen / Alibaba">
+        <svg viewBox="0 0 48 48" className="w-7 h-7" fill="none">
           <defs>
             <linearGradient id="qwenGrad" x1="0%" y1="0%" x2="100%" y2="100%">
               <stop offset="0%" stopColor="#7F56D9" />
@@ -573,11 +624,11 @@ export function ModelOrgAvatar({ modelId, author, className = 'w-8 h-8' }: { mod
     );
   }
 
-  // Meta / Llama / Muse
+  // Meta / Llama / Muse - Pure floating blue infinity logo
   if (combined.includes('llama') || combined.includes('meta-llama') || combined.includes('muse-') || combined.includes('muse_') || combined.includes('opt-') || combined.includes('facebook') || (resolvedAuthor === 'meta')) {
     return (
-      <div className={`${className} rounded-lg bg-zinc-900 border border-blue-500/20 flex items-center justify-center p-1.5 shrink-0 shadow-sm`} title="Meta / Llama">
-        <svg viewBox="0 0 24 24" className="w-full h-full" fill="none">
+      <div className={`${className} flex items-center justify-center shrink-0`} title="Meta / Llama">
+        <svg viewBox="0 0 24 24" className="w-7 h-7" fill="none">
           <path
             d="M16.994 6.002c-1.892 0-3.32 1.058-4.994 3.013C10.326 7.06 8.898 6.002 7.006 6.002 3.864 6.002 1.5 8.536 1.5 12c0 3.464 2.364 5.998 5.506 5.998 2.052 0 3.593-1.185 4.994-3.09 1.401 1.905 2.942 3.09 4.994 3.09 3.142 0 5.506-2.534 5.506-5.998 0-3.464-2.364-5.998-5.506-5.998zm0 9.77c-1.884 0-3.308-1.745-4.494-3.772 1.186-2.027 2.61-3.772 4.494-3.772 1.884 0 3.28 1.574 3.28 3.772 0 2.198-1.396 3.772-3.28 3.772zm-9.988 0c-1.884 0-3.28-1.574-3.28-3.772 0-2.198 1.396-3.772 3.28-3.772 1.884 0 3.308 1.745 4.494 3.772-1.186 2.027-2.61 3.772-4.494 3.772z"
             fill="#0866FF"
@@ -587,24 +638,24 @@ export function ModelOrgAvatar({ modelId, author, className = 'w-8 h-8' }: { mod
     );
   }
 
-  // DeepSeek (Blue Whale Mascot)
+  // DeepSeek - Pure floating blue whale mascot
   if (combined.includes('deepseek') || combined.includes('deep-seek')) {
     return (
-      <div className={`${className} rounded-lg bg-[#0e1726] border border-blue-500/20 flex items-center justify-center p-0.5 shrink-0 shadow-sm overflow-hidden`} title="DeepSeek">
+      <div className={`${className} flex items-center justify-center shrink-0`} title="DeepSeek">
         <img 
           src={KNOWN_ORG_LOGOS['deepseek']} 
           alt="DeepSeek" 
-          className="w-full h-full object-contain"
+          className="w-7 h-7 object-contain"
         />
       </div>
     );
   }
 
-  // Google / Gemma
+  // Google / Gemma - Pure floating 4-color "G"
   if (combined.includes('gemma') || combined.includes('google') || combined.includes('paligemma') || combined.includes('gecko')) {
     return (
-      <div className={`${className} rounded-lg bg-zinc-900 border border-white/10 flex items-center justify-center p-1.5 shrink-0 shadow-sm`} title="Google / Gemma">
-        <svg viewBox="0 0 24 24" className="w-full h-full">
+      <div className={`${className} flex items-center justify-center shrink-0`} title="Google / Gemma">
+        <svg viewBox="0 0 24 24" className="w-7 h-7">
           <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
           <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
           <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
@@ -614,29 +665,29 @@ export function ModelOrgAvatar({ modelId, author, className = 'w-8 h-8' }: { mod
     );
   }
 
-  // Poolside / Laguna
+  // Poolside / Laguna - Pure floating blue circular badge
   if (combined.includes('laguna') || combined.includes('poolside')) {
     return (
-      <div className={`${className} rounded-lg bg-zinc-900 border border-blue-500/20 flex items-center justify-center p-0.5 shrink-0 shadow-sm overflow-hidden`} title="Poolside">
-        <img src={KNOWN_ORG_LOGOS['poolside']} alt="Poolside" className="w-full h-full object-contain" />
+      <div className={`${className} flex items-center justify-center shrink-0`} title="Poolside">
+        <img src={KNOWN_ORG_LOGOS['poolside']} alt="Poolside" className="w-7 h-7 object-contain" />
       </div>
     );
   }
 
-  // Bonsai / Prism / Liquid AI
+  // Bonsai / Prism / Liquid AI - Pure floating logo
   if (combined.includes('bonsai') || combined.includes('prism-ml') || combined.includes('liquid') || combined.includes('lfm')) {
     return (
-      <div className={`${className} rounded-lg bg-zinc-900 border border-white/10 flex items-center justify-center p-0.5 shrink-0 shadow-sm overflow-hidden`} title="Bonsai / Liquid AI">
-        <img src={KNOWN_ORG_LOGOS['prism-ml']} alt="Bonsai" className="w-full h-full object-contain" />
+      <div className={`${className} flex items-center justify-center shrink-0`} title="Bonsai / Liquid AI">
+        <img src={KNOWN_ORG_LOGOS['prism-ml']} alt="Bonsai" className="w-7 h-7 object-contain" />
       </div>
     );
   }
 
-  // Mistral AI
+  // Mistral AI - Pure floating orange chevron stairs
   if (combined.includes('mistral') || combined.includes('mixtral') || combined.includes('ministral') || combined.includes('codestral') || combined.includes('pixtral')) {
     return (
-      <div className={`${className} rounded-lg bg-zinc-900 border border-orange-500/20 flex items-center justify-center p-1.5 shrink-0 shadow-sm`} title="Mistral AI">
-        <svg viewBox="0 0 24 24" className="w-full h-full" fill="none">
+      <div className={`${className} flex items-center justify-center shrink-0`} title="Mistral AI">
+        <svg viewBox="0 0 24 24" className="w-7 h-7" fill="none">
           <rect x="2" y="3" width="4" height="3" fill="#FF5E00" />
           <rect x="18" y="3" width="4" height="3" fill="#FF5E00" />
           <rect x="2" y="7" width="8" height="3" fill="#FF7700" />
@@ -652,11 +703,11 @@ export function ModelOrgAvatar({ modelId, author, className = 'w-8 h-8' }: { mod
     );
   }
 
-  // Microsoft / Phi
+  // Microsoft / Phi - Pure floating 4-color tiles
   if (combined.includes('phi-') || combined.includes('phi3') || combined.includes('phi4') || combined.includes('microsoft') || combined.includes('wizardlm')) {
     return (
-      <div className={`${className} rounded-lg bg-zinc-900 border border-white/10 flex items-center justify-center p-2 shrink-0 shadow-sm`} title="Microsoft">
-        <svg viewBox="0 0 23 23" className="w-full h-full">
+      <div className={`${className} flex items-center justify-center shrink-0`} title="Microsoft">
+        <svg viewBox="0 0 23 23" className="w-6 h-6">
           <path fill="#f35325" d="M1 1h10v10H1z"/>
           <path fill="#81bc06" d="M12 1h10v10H12z"/>
           <path fill="#05a6f0" d="M1 12h10v10H1z"/>
@@ -666,33 +717,33 @@ export function ModelOrgAvatar({ modelId, author, className = 'w-8 h-8' }: { mod
     );
   }
 
-  // Black Forest Labs / FLUX
+  // Black Forest Labs / FLUX - Pure floating geometric cube
   if (combined.includes('flux') || combined.includes('black-forest-labs') || combined.includes('bfl')) {
     return (
-      <div className={`${className} rounded-lg bg-black border border-white/20 flex items-center justify-center p-1.5 shrink-0 shadow-sm`} title="Black Forest Labs">
-        <svg viewBox="0 0 24 24" className="w-full h-full" fill="none">
+      <div className={`${className} flex items-center justify-center shrink-0`} title="Black Forest Labs">
+        <svg viewBox="0 0 24 24" className="w-7 h-7" fill="none">
           <path d="M4 4h7v7H4V4zm9 0h7v7h-7V4zm-9 9h7v7H4v-7zm9 9l7-7v7h-7z" fill="#FFFFFF"/>
         </svg>
       </div>
     );
   }
 
-  // Stability AI
+  // Stability AI - Pure floating concentric hexagon
   if (combined.includes('stability') || combined.includes('stable-diffusion') || combined.includes('sdxl') || combined.includes('sd-') || combined.includes('sd_')) {
     return (
-      <div className={`${className} rounded-lg bg-zinc-900 border border-purple-500/20 flex items-center justify-center p-1.5 shrink-0 shadow-sm`} title="Stability AI">
-        <svg viewBox="0 0 24 24" className="w-full h-full" fill="none">
+      <div className={`${className} flex items-center justify-center shrink-0`} title="Stability AI">
+        <svg viewBox="0 0 24 24" className="w-7 h-7" fill="none">
           <path d="M12 2L4 6.5v9L12 20l8-4.5v-9L12 2zm0 3.5l5.5 3.1v6.2L12 18l-5.5-3.2V8.6L12 5.5zm0 3.5L8.5 11v2.5L12 15.5l3.5-2V11L12 9z" fill="#A855F7"/>
         </svg>
       </div>
     );
   }
 
-  // OpenAI / Whisper
+  // OpenAI / Whisper - Pure floating emerald spiral
   if (combined.includes('whisper') || combined.includes('openai') || combined.includes('gpt')) {
     return (
-      <div className={`${className} rounded-lg bg-zinc-900 border border-emerald-500/20 flex items-center justify-center p-1.5 shrink-0 shadow-sm`} title="OpenAI">
-        <svg viewBox="0 0 24 24" className="w-full h-full" fill="none" stroke="#10A37F" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <div className={`${className} flex items-center justify-center shrink-0`} title="OpenAI">
+        <svg viewBox="0 0 24 24" className="w-7 h-7" fill="none" stroke="#10A37F" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
           <path d="M19.07 4.93a10 10 0 0 0-14.14 0M16.24 7.76a6 6 0 0 0-8.48 0M12 10a2 2 0 1 0 0 4 2 2 0 0 0 0-4z"/>
           <path d="M4.93 19.07a10 10 0 0 0 14.14 0M7.76 16.24a6 6 0 0 0 8.48 0"/>
         </svg>
@@ -745,16 +796,16 @@ export function ModelOrgAvatar({ modelId, author, className = 'w-8 h-8' }: { mod
       <img 
         src={cachedUrl} 
         alt={resolvedAuthor} 
-        className={`${className} rounded-lg object-cover border border-white/10 shrink-0 bg-zinc-900 shadow-sm`}
+        className={`${className} rounded-lg object-cover shrink-0`}
         onError={() => setCachedUrl(null)}
       />
     );
   }
 
-  // 3. Fallback: Official Full-Color Hugging Face 🤗 Smiling Face Logo
+  // 3. Fallback: Official Full-Color Hugging Face 🤗 Smiling Face Logo (frameless)
   return (
-    <div className={`${className} rounded-lg bg-zinc-900 border border-white/10 flex items-center justify-center p-1 shrink-0 shadow-sm`} title={resolvedAuthor || "Hugging Face"}>
-      <svg viewBox="0 0 95 88" className="w-full h-full" fill="none">
+    <div className={`${className} flex items-center justify-center shrink-0`} title={resolvedAuthor || "Hugging Face"}>
+      <svg viewBox="0 0 95 88" className="w-7 h-7" fill="none">
         <path fill="#FFD21E" d="M47.21 76.5a34.75 34.75 0 1 0 0-69.5 34.75 34.75 0 0 0 0 69.5Z" />
         <path fill="#FF9D0B" d="M81.96 41.75a34.75 34.75 0 1 0-69.5 0 34.75 34.75 0 0 0 69.5 0Zm-73.5 0a38.75 38.75 0 1 1 77.5 0 38.75 38.75 0 0 1-77.5 0Z" />
         <path fill="#3A3B45" d="M58.5 32.3c1.28.44 1.78 3.06 3.07 2.38a5 5 0 1 0-6.76-2.07c.61 1.15 2.55-.72 3.7-.32ZM34.95 32.3c-1.28.44-1.79 3.06-3.07 2.38a5 5 0 1 1 6.76-2.07c-.61 1.15-2.56-.72-3.7-.32Z" />
@@ -766,6 +817,34 @@ export function ModelOrgAvatar({ modelId, author, className = 'w-8 h-8' }: { mod
 
 function renderProviderLogo(modelId: string, author?: string) {
   return <ModelOrgAvatar modelId={modelId} author={author} />;
+}
+
+function getModelCapabilities(model: { id: string; tags?: string[]; pipeline_tag?: string }) {
+  const idLower = (model.id || '').toLowerCase();
+  const tagsStr = ((model.tags || []).join(' ') + ' ' + (model.pipeline_tag || '')).toLowerCase();
+  const combined = `${idLower} ${tagsStr}`;
+
+  const isVision = combined.includes('vision') || combined.includes('-vl') || combined.includes('_vl') || 
+                   combined.includes('image-to-text') || combined.includes('multimodal') || 
+                   combined.includes('llava') || combined.includes('internvl') || combined.includes('pixtral') ||
+                   combined.includes('qwen-vl') || combined.includes('minicpm-v') || combined.includes('omni');
+
+  const isToolUse = combined.includes('tool') || combined.includes('function-calling') || combined.includes('function_calling') ||
+                    combined.includes('agent') || combined.includes('coder') || combined.includes('code') ||
+                    combined.includes('instruct') || combined.includes('heretic') || combined.includes('qwen') ||
+                    combined.includes('llama-3') || combined.includes('nemotron') || combined.includes('mistral');
+
+  const isReasoning = combined.includes('think') || combined.includes('reasoning') || combined.includes('r1') ||
+                      combined.includes('qwq') || combined.includes('o1') || combined.includes('math') ||
+                      combined.includes('logic') || combined.includes('deepseek-r1') || combined.includes('self-reward');
+
+  const isImageGen = combined.includes('text-to-image') || combined.includes('diffusion') || combined.includes('flux') ||
+                     combined.includes('stable-diffusion') || combined.includes('sdxl') || combined.includes('sd-');
+
+  const isAudio = combined.includes('tts') || combined.includes('audio') || combined.includes('voice') ||
+                  combined.includes('speech') || combined.includes('whisper') || combined.includes('music');
+
+  return { isVision, isToolUse, isReasoning, isImageGen, isAudio };
 }
 
 export default function SettingsApp() {
@@ -1650,6 +1729,7 @@ export default function SettingsApp() {
                           const author = parts.length > 1 ? parts[0] : '';
                           const modelName = parts.length > 1 ? parts[1] : m.id;
                           const isModelPresent = localModels.some(lm => lm.id.toLowerCase().includes(modelName.toLowerCase()));
+                          const caps = getModelCapabilities(m);
 
                           return (
                             <div 
@@ -1665,16 +1745,64 @@ export default function SettingsApp() {
 
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-center justify-between gap-1 mb-1">
-                                  <span className={`text-xs font-semibold truncate ${isSelected ? 'text-white font-bold' : 'text-zinc-100'}`}>
-                                    {modelName}
-                                  </span>
-                                  <span className="text-[10px] text-zinc-400 shrink-0 font-mono">
-                                    {formatRelativeTime(m.lastModified)}
-                                  </span>
+                                  <div className="flex items-center gap-1.5 min-w-0">
+                                    <span className={`text-xs font-semibold truncate ${isSelected ? 'text-white font-bold' : 'text-zinc-100'}`}>
+                                      {modelName}
+                                    </span>
+                                    {/* Blue verified checkmark icon */}
+                                    <span title="Verified Model">
+                                      <svg className="w-3.5 h-3.5 text-blue-500 fill-current shrink-0" viewBox="0 0 24 24">
+                                        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+                                      </svg>
+                                    </span>
+                                  </div>
+
+                                  {/* Right Capability Icons & Timestamp */}
+                                  <div className="flex items-center gap-1 shrink-0">
+                                    {caps.isVision && (
+                                      <span className="p-0.5 text-zinc-400 hover:text-zinc-200" title="Vision Multimodal (Understands Images)">
+                                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                        </svg>
+                                      </span>
+                                    )}
+                                    {caps.isToolUse && (
+                                      <span className="p-0.5 text-zinc-400 hover:text-zinc-200" title="Tool Calling / Agent Functions">
+                                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                        </svg>
+                                      </span>
+                                    )}
+                                    {caps.isReasoning && (
+                                      <span className="p-0.5 text-zinc-400 hover:text-zinc-200" title="Deep Reasoning & Thinking (CoT)">
+                                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                                        </svg>
+                                      </span>
+                                    )}
+                                    {caps.isImageGen && (
+                                      <span className="p-0.5 text-zinc-400 hover:text-zinc-200" title="Image Generation / Diffusion">
+                                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                                        </svg>
+                                      </span>
+                                    )}
+                                    {caps.isAudio && (
+                                      <span className="p-0.5 text-zinc-400 hover:text-zinc-200" title="Voice & Speech / TTS">
+                                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+                                        </svg>
+                                      </span>
+                                    )}
+                                    <span className="text-[10px] text-zinc-500 font-mono ml-1">
+                                      {formatRelativeTime(m.lastModified)}
+                                    </span>
+                                  </div>
                                 </div>
 
                                 {author && (
-                                  <p className="text-[11px] text-zinc-400 truncate mb-2 font-mono">
+                                  <p className="text-[11px] text-zinc-400 truncate mb-1.5 font-mono">
                                     by {author}
                                   </p>
                                 )}
@@ -1697,14 +1825,6 @@ export default function SettingsApp() {
                                       ✓ Local
                                     </span>
                                   )}
-                                  {(() => {
-                                    const modInfo = getModelModalityInfo(m);
-                                    return (
-                                      <span className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-semibold border ml-auto ${modInfo.color}`}>
-                                        {modInfo.label}
-                                      </span>
-                                    );
-                                  })()}
                                 </div>
                               </div>
                             </div>
@@ -1966,38 +2086,9 @@ export default function SettingsApp() {
                             </h4>
                           </div>
 
-                          <div className="bg-zinc-900/60 border border-white/10 rounded-2xl p-6 text-xs text-zinc-200 leading-relaxed font-sans max-h-[600px] overflow-y-auto custom-scrollbar">
+                          <div className="bg-zinc-900/60 border border-white/10 rounded-2xl p-6 text-xs text-zinc-200 leading-relaxed font-sans">
                             {modelReadme ? (
-                              <ReactMarkdown
-                                remarkPlugins={[remarkGfm]}
-                                rehypePlugins={[rehypeRaw, rehypeHighlight]}
-                                components={{
-                                  h1: ({ node, ...props }) => <h1 className="text-lg font-bold text-white mt-4 mb-2 pb-1 border-b border-white/10" {...props} />,
-                                  h2: ({ node, ...props }) => <h2 className="text-base font-bold text-white mt-4 mb-2" {...props} />,
-                                  h3: ({ node, ...props }) => <h3 className="text-sm font-semibold text-zinc-100 mt-3 mb-1" {...props} />,
-                                  p: ({ node, ...props }) => <p className="mb-3 text-zinc-300 leading-relaxed" {...props} />,
-                                  a: ({ node, ...props }) => <a className="text-zinc-100 underline hover:text-white" target="_blank" rel="noreferrer" {...props} />,
-                                  ul: ({ node, ...props }) => <ul className="list-disc pl-5 mb-3 space-y-1 text-zinc-300" {...props} />,
-                                  ol: ({ node, ...props }) => <ol className="list-decimal pl-5 mb-3 space-y-1 text-zinc-300" {...props} />,
-                                  li: ({ node, ...props }) => <li className="text-zinc-300" {...props} />,
-                                  code: ({ node, className, children, ...props }: any) => {
-                                    const match = /language-(\w+)/.exec(className || '');
-                                    return match ? (
-                                      <div className="my-3 rounded-xl overflow-hidden bg-zinc-950 border border-white/10">
-                                        <pre className="p-3.5 text-[11px] font-mono text-zinc-200 overflow-x-auto custom-scrollbar">
-                                          <code className={className} {...props}>{children}</code>
-                                        </pre>
-                                      </div>
-                                    ) : (
-                                      <code className="px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-200 font-mono text-[11px] border border-white/5" {...props}>
-                                        {children}
-                                      </code>
-                                    );
-                                  }
-                                }}
-                              >
-                                {modelReadme.replace(/^---[\s\S]*?---\s*/, '')}
-                              </ReactMarkdown>
+                              <ModelReadmeViewer content={modelReadme} />
                             ) : (
                               <span className="text-zinc-500 italic">No README content available for this model repository.</span>
                             )}
