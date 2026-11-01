@@ -206,6 +206,7 @@ export class SettingsProvider {
             }
             break;
           }
+          case 'setActiveModel':
           case 'setLocalLlmModelName': {
             if (data.model) {
               await vscode.workspace.getConfiguration('exovonhub').update('localLlmModelName', data.model, vscode.ConfigurationTarget.Global);
@@ -213,6 +214,11 @@ export class SettingsProvider {
               const preferredModel = vscode.workspace.getConfiguration('exovonhub').get<string>('preferredModel');
               this._panel.webview.postMessage({ type: 'settingsState', model: preferredModel, localLlmModelName: updatedModel });
               vscode.window.showInformationMessage(`Active Local Model set to ${data.model}`);
+              if (data.openChat) {
+                try {
+                  vscode.commands.executeCommand('exovonhub.openSidebar');
+                } catch {}
+              }
             }
             break;
           }
