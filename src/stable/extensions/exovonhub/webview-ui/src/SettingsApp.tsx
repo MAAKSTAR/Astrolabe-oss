@@ -861,8 +861,6 @@ export default function SettingsApp() {
   const [resetsIn, setResetsIn] = useState<string>('...');
   const [showQuotaDetails, setShowQuotaDetails] = useState<boolean>(false);
 
-  const [isMaximized, setIsMaximized] = useState(false);
-
   interface ModelRate {
     id: string;
     displayName: string;
@@ -870,11 +868,12 @@ export default function SettingsApp() {
     tierColor: string;
     percentage: number;
   }
-  const [modelRates, setModelRates] = useState<ModelRate[]>([]);  useEffect(() => {
+  const [modelRates, setModelRates] = useState<ModelRate[]>([]);
+
+  useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
       const message = event.data;
       if (message.command === 'windowStateChanged') {
-        setIsMaximized(!!message.isMaximized);
         return;
       }
       if (message.type === 'workspaceInfo') {
@@ -1643,7 +1642,6 @@ export default function SettingsApp() {
               className="window-drag px-6 py-4 border-b border-white/5 flex items-center justify-between shrink-0 bg-[#1a1a1c] cursor-move select-none"
               onDoubleClick={() => {
                 vscodeApi?.postMessage({ command: 'toggleMaximizeSettings' });
-                setIsMaximized(prev => !prev);
               }}
             >
               <div className="pointer-events-none">
@@ -1654,20 +1652,6 @@ export default function SettingsApp() {
               </div>
               
               <div className="window-no-drag flex items-center gap-1.5">
-                <button 
-                  onClick={() => {
-                    if (activeTab === 'Discover') {
-                      fetchLiveModels(hubSortMode, hubSearchQuery, selectedModality);
-                    } else {
-                      vscodeApi?.postMessage({ command: 'getWorkspaceInfo' });
-                      vscodeApi?.postMessage({ command: 'getLocalModels' });
-                    }
-                  }}
-                  className="px-3 py-1.5 rounded-lg text-xs font-medium text-zinc-300 hover:text-white bg-white/5 hover:bg-white/10 border border-white/10 transition-colors cursor-pointer mr-0.5"
-                >
-                  Refresh
-                </button>
-
                 {/* Downloads Popover Tray Toggle Button */}
                 <button
                   ref={downloadsButtonRef}
@@ -1692,40 +1676,11 @@ export default function SettingsApp() {
                 {/* Pop Out to Dedicated Window Button */}
                 <button
                   onClick={() => vscodeApi?.postMessage({ command: 'popOutWindow' })}
-                  className="p-1.5 text-zinc-400 hover:text-white rounded-lg hover:bg-white/10 transition-colors cursor-pointer"
+                  className="p-1.5 text-zinc-400 hover:text-white rounded-lg hover:bg-white/10 border border-transparent hover:border-white/10 transition-colors cursor-pointer"
                   title="Pop Out into Separate Window"
                 >
                   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                  </svg>
-                </button>
-                {/* Maximize / Restore Button */}
-                <button
-                  onClick={() => {
-                    vscodeApi?.postMessage({ command: 'toggleMaximizeSettings' });
-                    setIsMaximized(prev => !prev);
-                  }}
-                  className="p-1.5 text-zinc-400 hover:text-white rounded-lg hover:bg-white/10 transition-colors cursor-pointer"
-                  title={isMaximized ? "Restore Window" : "Maximize / Fullscreen"}
-                >
-                  {isMaximized ? (
-                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
-                    </svg>
-                  ) : (
-                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-5h-4m4 0v4m0-4l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5h-4m4 0v-4m0 4l-5-5" />
-                    </svg>
-                  )}
-                </button>
-                {/* Close "X" Button */}
-                <button
-                  onClick={() => vscodeApi?.postMessage({ command: 'closeSettings' })}
-                  className="p-1.5 text-zinc-400 hover:text-rose-400 rounded-lg hover:bg-white/10 transition-colors cursor-pointer"
-                  title="Close Settings (Esc)"
-                >
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
                   </svg>
                 </button>
               </div>
