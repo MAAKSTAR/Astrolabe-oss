@@ -245,6 +245,25 @@ export class SettingsProvider {
             }
             break;
           }
+          case 'openFolder':
+          case 'revealInOS': {
+            try {
+              let targetPath = (data && data.path) || vscode.workspace.getConfiguration('exovonhub').get<string>('localModelsDirectory') || '';
+              if (targetPath.startsWith('~/')) {
+                const home = process.env.HOME || process.env.USERPROFILE || '';
+                targetPath = require('path').join(home, targetPath.slice(2));
+              }
+              const fs = require('fs');
+              if (targetPath && fs.existsSync(targetPath)) {
+                vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(targetPath));
+              } else {
+                vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(process.env.HOME || '/'));
+              }
+            } catch (err: any) {
+              vscode.window.showErrorMessage(`Failed to reveal in OS: ${err.message}`);
+            }
+            break;
+          }
           case 'setLocalModelsDirectory': {
             try {
               if (data.directory !== undefined) {

@@ -1008,6 +1008,13 @@ export default function SettingsApp() {
   const [showHfToken, setShowHfToken] = useState<boolean>(false);
   const [isHfTokenSaved, setIsHfTokenSaved] = useState<boolean>(false);
 
+  // Header Downloads Popover Tray State
+  const [isDownloadsTrayOpen, setIsDownloadsTrayOpen] = useState(false);
+  const [downloadsFilterQuery, setDownloadsFilterQuery] = useState('');
+  const [clearedCompleted, setClearedCompleted] = useState<Set<string>>(new Set());
+  const downloadsButtonRef = useRef<HTMLButtonElement>(null);
+  const downloadsTrayRef = useRef<HTMLDivElement>(null);
+
   // Speed and ETA calculation helper
   const prevDownloadsRef = useRef<{ [key: string]: { bytes: number; time: number; speed: string; eta: string } }>({});
 
@@ -1058,6 +1065,94 @@ export default function SettingsApp() {
     prevDownloadsRef.current[dl.model_name] = { bytes: dl.downloaded_bytes, time: now, speed: '', eta: '' };
     return { speed: '', eta: '' };
   };
+
+  const handleQuickLoadModel = (modelId: string) => {
+    const meta = extractModelMetadata(modelId);
+    setSelectedModelToLoad(modelId);
+    if (meta.isDiffusion) {
+      setLoadTarget('diffusion');
+      setLoadBackend('stable-diffusion.cpp');
+      const match = localModels.find(x => x.id.toLowerCase().includes('qwen3-vl') || x.id.toLowerCase().includes('mmproj'));
+      if (match) setSelectedMmprojPath(match.id);
+      const vaeMatch = localModels.find(x => x.id.toLowerCase().includes('vae'));
+      if (vaeMatch) setSelectedVaePath(vaeMatch.id);
+      else setSelectedVaePath('qwen_image_2.1_vae_bf16.safetensors');
+    } else {
+      setLoadTarget('primary');
+      if (daemonHealth?.hardware?.gpu?.toLowerCase().includes('nvidia')) {
+        setLoadBackend('sglang');
+      } else {
+        setLoadBackend('llama.cpp');
+      }
+      const baseName = modelId.split('/').pop()?.replace(/\.gguf$/i, '').toLowerCase() || '';
+      const mmMatch = localModels.find(x => x.id.toLowerCase().includes('mmproj') && (
+        (baseName.includes('gemma') && x.id.toLowerCase().includes('gemma')) ||
+        (baseName.includes('bonsai') && x.id.toLowerCase().includes('bonsai')) ||
+        (baseName.includes('qwen3-vl') && x.id.toLowerCase().includes('qwen3-vl')) ||
+        (baseName.includes('qwen') && x.id.toLowerCase().includes('qwen'))
+      ));
+      if (mmMatch) setSelectedMmprojPath(mmMatch.id);
+      else setSelectedMmprojPath('');
+    }
+    setLoadModelModalOpen(true);
+  };
+
+  const completedDownloadItems = useMemo(() => {
+    const items: Array<{
+      id: string;
+      displayName: string;
+      sizeDisplay: string;
+      sizeBytes: number;
+      isRuntime: boolean;
+      isLoaded: boolean;
+      filename: string;
+      fullPath?: string;
+    }> = [];
+
+    if (daemonHealth?.llama_cpp_version || daemonRunning) {
+      items.push({
+        id: 'llama-cpp-engine',
+        displayName: `llama.cpp-linux-x86_64-vulkan-avx2 (${daemonHealth?.llama_cpp_version || '2.67.0'})`,
+        sizeDisplay: '24.08 MB',
+        sizeBytes: 24 * 1024 * 1024,
+        isRuntime: true,
+        isLoaded: daemonRunning,
+        filename: 'llama.cpp-linux-x86_64-vulkan-avx2',
+        fullPath: localModelsDir
+      });
+    }
+
+    localModels.forEach(m => {
+      if (clearedCompleted.has(m.id)) return;
+      const isLoaded = activeLocalModel === m.id || m.loaded;
+      const isRuntime = m.id.toLowerCase().includes('llama.cpp') || m.id.toLowerCase().includes('vulkan');
+      const displayName = m.name || formatModelDisplayName(m.id);
+      items.push({
+        id: m.id,
+        displayName,
+        sizeDisplay: m.size_display || 'Model File',
+        sizeBytes: m.size_bytes || 0,
+        isRuntime,
+        isLoaded: !!isLoaded,
+        filename: m.id.split('/').pop() || m.id,
+        fullPath: `${localModelsDir}/${m.id}`
+      });
+    });
+
+    return items;
+  }, [localModels, daemonHealth, daemonRunning, clearedCompleted, activeLocalModel, localModelsDir]);
+
+  const filteredActiveDownloads = activeDownloads.filter(d => {
+    if (!downloadsFilterQuery.trim()) return true;
+    const q = downloadsFilterQuery.toLowerCase();
+    return d.model_name.toLowerCase().includes(q);
+  });
+
+  const filteredCompletedDownloads = completedDownloadItems.filter(item => {
+    if (!downloadsFilterQuery.trim()) return true;
+    const q = downloadsFilterQuery.toLowerCase();
+    return item.displayName.toLowerCase().includes(q) || item.id.toLowerCase().includes(q);
+  });
 
   // 1. Fetch live models list directly from Hugging Face API with modality routing
   const fetchLiveModels = async (
@@ -1222,7 +1317,9 @@ export default function SettingsApp() {
           filterInputRef.current?.select();
         }
       } else if (e.key === 'Escape') {
-        if (activeActionMenuId) {
+        if (isDownloadsTrayOpen) {
+          setIsDownloadsTrayOpen(false);
+        } else if (activeActionMenuId) {
           setActiveActionMenuId(null);
         } else if (loadModelModalOpen) {
           setLoadModelModalOpen(false);
@@ -1237,7 +1334,15 @@ export default function SettingsApp() {
       }
     };
 
-    const handleClickOutside = () => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (
+        downloadsTrayRef.current && 
+        !downloadsTrayRef.current.contains(e.target as Node) &&
+        downloadsButtonRef.current && 
+        !downloadsButtonRef.current.contains(e.target as Node)
+      ) {
+        setIsDownloadsTrayOpen(false);
+      }
       setActiveActionMenuId(null);
     };
 
@@ -1247,7 +1352,7 @@ export default function SettingsApp() {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('click', handleClickOutside);
     };
-  }, [activeTab, activeActionMenuId, loadModelModalOpen, isModelHubOpen]);
+  }, [activeTab, activeActionMenuId, loadModelModalOpen, isModelHubOpen, isDownloadsTrayOpen]);
 
   useEffect(() => {
     // Request initial daemon status and local models config
@@ -1532,7 +1637,7 @@ export default function SettingsApp() {
           </div>
 
           {/* Right Main Content Panel */}
-          <div className="flex-1 flex flex-col min-w-0 bg-[#1a1a1c] overflow-hidden">
+          <div className="flex-1 flex flex-col min-w-0 bg-[#1a1a1c] overflow-hidden relative">
             {/* Header Bar */}
             <div 
               className="window-drag px-6 py-4 border-b border-white/5 flex items-center justify-between shrink-0 bg-[#1a1a1c] cursor-move select-none"
@@ -1558,10 +1663,32 @@ export default function SettingsApp() {
                       vscodeApi?.postMessage({ command: 'getLocalModels' });
                     }
                   }}
-                  className="px-3 py-1.5 rounded-lg text-xs font-medium text-zinc-300 hover:text-white bg-white/5 hover:bg-white/10 border border-white/10 transition-colors cursor-pointer mr-1"
+                  className="px-3 py-1.5 rounded-lg text-xs font-medium text-zinc-300 hover:text-white bg-white/5 hover:bg-white/10 border border-white/10 transition-colors cursor-pointer mr-0.5"
                 >
                   Refresh
                 </button>
+
+                {/* Downloads Popover Tray Toggle Button */}
+                <button
+                  ref={downloadsButtonRef}
+                  onClick={() => setIsDownloadsTrayOpen(prev => !prev)}
+                  className={`relative p-1.5 rounded-lg border transition-all cursor-pointer ${
+                    isDownloadsTrayOpen
+                      ? 'bg-white/15 text-white border-white/20 shadow-inner'
+                      : 'text-zinc-300 hover:text-white bg-white/5 hover:bg-white/10 border-white/10'
+                  }`}
+                  title="Downloads (Active & Completed)"
+                >
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                  </svg>
+                  {activeDownloads.length > 0 && (
+                    <span className="absolute -top-1 -right-1 flex h-4 min-w-4 px-1 items-center justify-center rounded-full bg-emerald-500 text-[9px] font-bold text-zinc-950 ring-2 ring-[#18181c] shadow-sm animate-pulse">
+                      {activeDownloads.length}
+                    </span>
+                  )}
+                </button>
+
                 {/* Pop Out to Dedicated Window Button */}
                 <button
                   onClick={() => vscodeApi?.postMessage({ command: 'popOutWindow' })}
@@ -1603,6 +1730,315 @@ export default function SettingsApp() {
                 </button>
               </div>
             </div>
+
+            {/* Floating Downloads Popover Tray (matching LM Studio 1:1) */}
+            {isDownloadsTrayOpen && (
+              <div
+                ref={downloadsTrayRef}
+                className="absolute right-6 top-16 w-[380px] max-h-[520px] bg-[#18181c] border border-white/10 rounded-2xl shadow-2xl z-50 flex flex-col overflow-hidden text-zinc-100 animate-in fade-in zoom-in-95 duration-150 backdrop-blur-md"
+              >
+                {/* Tray Header */}
+                <div className="px-4 py-3 border-b border-white/5 flex items-center justify-between shrink-0 bg-[#141416]/50">
+                  <h3 className="text-sm font-semibold text-white tracking-wide">Downloads</h3>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => {
+                        setActiveTab('Discover');
+                        setIsDownloadsTrayOpen(false);
+                      }}
+                      className="p-1 text-zinc-400 hover:text-white rounded hover:bg-white/10 transition-colors cursor-pointer"
+                      title="Discover Models on Hub"
+                    >
+                      <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                      </svg>
+                    </button>
+                    <button
+                      onClick={() => setIsDownloadsTrayOpen(false)}
+                      className="p-1 text-zinc-400 hover:text-white rounded hover:bg-white/10 transition-colors cursor-pointer"
+                      title="Close"
+                    >
+                      <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Filter Downloads Search Box */}
+                <div className="p-3 border-b border-white/5 bg-[#18181c]">
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={downloadsFilterQuery}
+                      onChange={(e) => setDownloadsFilterQuery(e.target.value)}
+                      placeholder="Filter downloads..."
+                      className="w-full bg-zinc-900/90 border border-white/10 rounded-lg pl-3 pr-7 py-1.5 text-xs text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-white/20 transition-all"
+                    />
+                    {downloadsFilterQuery && (
+                      <button
+                        onClick={() => setDownloadsFilterQuery('')}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300 text-xs"
+                      >
+                        ×
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Scrollable Downloads List */}
+                <div className="flex-1 overflow-y-auto p-3 space-y-4">
+                  {/* Active Section */}
+                  {filteredActiveDownloads.length > 0 && (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between text-[11px] font-semibold text-zinc-400 uppercase tracking-wide">
+                        <span>Active</span>
+                        <span className="text-[10px] font-mono text-emerald-400 font-semibold">{filteredActiveDownloads.length}</span>
+                      </div>
+                      <div className="space-y-2">
+                        {filteredActiveDownloads.map((dl, i) => {
+                          const { speed, eta } = getSpeedAndEta(dl);
+                          const isDownloading = dl.status === 'downloading' || dl.status === 'starting';
+                          const isPaused = dl.status === 'paused';
+                          const isError = dl.status.includes('error');
+                          const isFinished = dl.status === 'finished';
+                          const downloadedGb = ((dl.downloaded_bytes || 0) / (1024 * 1024 * 1024)).toFixed(2);
+                          const totalGb = ((dl.total_bytes || 0) / (1024 * 1024 * 1024)).toFixed(2);
+                          const packFile = VERIFIED_IMAGE_PACKS.flatMap(p => p.files).find(f => f.filename === dl.model_name);
+                          const fallbackUrl = (dl as any).url || packFile?.url;
+
+                          return (
+                            <div key={i} className="bg-zinc-900/80 border border-white/5 p-2.5 rounded-xl space-y-2">
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <svg className="w-4 h-4 text-emerald-400 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                    <rect x="4" y="8" width="16" height="12" rx="2" strokeWidth={1.5} />
+                                    <circle cx="9" cy="14" r="1.5" fill="currentColor" />
+                                    <circle cx="15" cy="14" r="1.5" fill="currentColor" />
+                                    <path d="M12 2v6M9 2h6" strokeWidth={1.5} strokeLinecap="round" />
+                                  </svg>
+                                  <span className="text-xs font-medium text-zinc-100 truncate" title={dl.model_name}>
+                                    {dl.model_name}
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-1 shrink-0">
+                                  {isDownloading && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setActiveDownloads(prev => prev.map(d => d.model_name === dl.model_name ? { ...d, status: 'paused', speed_display: '', speed_bytes_per_sec: 0, eta_seconds: undefined } : d));
+                                        vscodeApi?.postMessage({ command: 'controlDownload', filename: dl.model_name, action: 'pause' });
+                                      }}
+                                      className="p-1 text-zinc-400 hover:text-white rounded hover:bg-white/10 transition-colors"
+                                      title="Pause download"
+                                    >
+                                      <svg className="w-3 h-3" viewBox="0 0 24 24" fill="currentColor">
+                                        <rect x="6" y="4" width="4" height="16" rx="1" />
+                                        <rect x="14" y="4" width="4" height="16" rx="1" />
+                                      </svg>
+                                    </button>
+                                  )}
+                                  {isPaused && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setActiveDownloads(prev => prev.map(d => d.model_name === dl.model_name ? { ...d, status: 'starting' } : d));
+                                        vscodeApi?.postMessage({ command: 'controlDownload', filename: dl.model_name, action: 'retry', url: fallbackUrl });
+                                      }}
+                                      className="p-1 text-emerald-400 hover:text-emerald-300 rounded hover:bg-emerald-500/10 transition-colors"
+                                      title="Resume download"
+                                    >
+                                      <svg className="w-3 h-3" viewBox="0 0 24 24" fill="currentColor">
+                                        <polygon points="5 3 19 12 5 21 5 3" />
+                                      </svg>
+                                    </button>
+                                  )}
+                                  <button
+                                    type="button"
+                                    onClick={() => setDownloadConfirmDelete(dl)}
+                                    className="p-1 text-zinc-400 hover:text-rose-400 rounded hover:bg-rose-500/10 transition-colors"
+                                    title="Cancel and delete"
+                                  >
+                                    <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                                    </svg>
+                                  </button>
+                                </div>
+                              </div>
+
+                              {/* Progress Bar */}
+                              <div className="w-full bg-zinc-800 rounded-full h-1.5 overflow-hidden">
+                                <div
+                                  className={`h-full rounded-full transition-all duration-300 ${
+                                    isFinished ? 'bg-emerald-500' : isError ? 'bg-rose-500' : isPaused ? 'bg-amber-400' : 'bg-emerald-400'
+                                  }`}
+                                  style={{ width: `${Math.min(100, Math.max(0, dl.percent))}%` }}
+                                />
+                              </div>
+
+                              <div className="flex justify-between items-center text-[10px] font-mono text-zinc-400">
+                                <span>{dl.percent.toFixed(1)}% • {downloadedGb} GB / {totalGb} GB</span>
+                                <span>{speed || (isPaused ? 'Paused' : 'Connecting...')}{eta ? ` • ETA ${eta}` : ''}</span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Completed Section */}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between text-[11px] font-semibold text-zinc-400 uppercase tracking-wide">
+                      <span>Completed</span>
+                      {filteredCompletedDownloads.length > 0 && (
+                        <button
+                          onClick={() => setClearedCompleted(prev => new Set([...prev, ...completedDownloadItems.map(item => item.id)]))}
+                          className="text-[11px] text-zinc-400 hover:text-white transition-colors cursor-pointer capitalize font-normal"
+                        >
+                          Clear
+                        </button>
+                      )}
+                    </div>
+
+                    {filteredCompletedDownloads.length === 0 && filteredActiveDownloads.length === 0 ? (
+                      <div className="py-8 text-center text-xs text-zinc-500">
+                        {downloadsFilterQuery ? 'No matching downloads.' : 'No downloads yet.'}
+                      </div>
+                    ) : (
+                      <div className="space-y-1">
+                        {filteredCompletedDownloads.map((item) => (
+                          <div
+                            key={item.id}
+                            className="group flex items-center justify-between gap-2.5 py-2 px-2 hover:bg-white/[0.04] rounded-xl transition-all"
+                          >
+                            {/* Left Icon */}
+                            <div className="text-zinc-400 shrink-0">
+                              {item.isRuntime ? (
+                                <svg className="w-4 h-4 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                  <rect x="4" y="4" width="16" height="16" rx="2" strokeWidth={1.5} />
+                                  <rect x="9" y="9" width="6" height="6" strokeWidth={1.5} />
+                                  <path d="M9 1v3M15 1v3M9 20v3M15 20v3M20 9h3M20 15h3M1 9h3M1 15h3" strokeWidth={1.5} strokeLinecap="round" />
+                                </svg>
+                              ) : (
+                                <svg className="w-4 h-4 text-zinc-400" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                  <rect x="4" y="8" width="16" height="12" rx="2" strokeWidth={1.5} />
+                                  <circle cx="9" cy="14" r="1.5" fill="currentColor" />
+                                  <circle cx="15" cy="14" r="1.5" fill="currentColor" />
+                                  <path d="M12 2v6M9 2h6" strokeWidth={1.5} strokeLinecap="round" />
+                                </svg>
+                              )}
+                            </div>
+
+                            {/* Center Title & Subtitle */}
+                            <div className="min-w-0 flex-1">
+                              <div className="text-xs font-medium text-zinc-100 truncate" title={item.displayName}>
+                                {item.displayName}
+                              </div>
+                              <div className="text-[10px] text-zinc-400 flex items-center gap-1.5 mt-0.5 font-mono">
+                                <span>{item.isRuntime ? 'Download' : 'Model'}</span>
+                                <span>•</span>
+                                <span>{item.sizeDisplay}</span>
+                                {item.isLoaded && (
+                                  <>
+                                    <span>•</span>
+                                    <span className="text-emerald-400 font-semibold flex items-center gap-1">
+                                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                                      Active
+                                    </span>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Right Actions */}
+                            <div className="flex items-center gap-1 shrink-0">
+                              {!item.isRuntime && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (item.isLoaded) {
+                                      vscodeApi?.postMessage({ command: 'unloadLocalModel' });
+                                    } else {
+                                      handleQuickLoadModel(item.id);
+                                    }
+                                  }}
+                                  className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                                    item.isLoaded 
+                                      ? 'text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/15' 
+                                      : 'text-zinc-400 hover:text-white hover:bg-white/10'
+                                  }`}
+                                  title={item.isLoaded ? "Unload model" : "Load into Engine"}
+                                >
+                                  {item.isLoaded ? (
+                                    <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
+                                      <rect x="6" y="6" width="12" height="12" rx="1.5" />
+                                    </svg>
+                                  ) : (
+                                    <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
+                                      <polygon points="6 4 20 12 6 20 6 4" />
+                                    </svg>
+                                  )}
+                                </button>
+                              )}
+
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  vscodeApi?.postMessage({
+                                    command: 'openFolder',
+                                    path: item.fullPath || localModelsDir
+                                  });
+                                }}
+                                className="p-1.5 text-zinc-400 hover:text-white rounded-lg hover:bg-white/10 transition-colors cursor-pointer"
+                                title="Show in file manager"
+                              >
+                                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                                </svg>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setDownloadConfirmDelete({
+                                    model_name: item.displayName,
+                                    filename: item.filename,
+                                    downloaded_bytes: item.sizeBytes || 0,
+                                    total_bytes: item.sizeBytes || 0,
+                                    percent: 100,
+                                    status: 'finished'
+                                  } as any);
+                                }}
+                                className="p-1.5 text-zinc-400 hover:text-rose-400 rounded-lg hover:bg-white/10 transition-colors cursor-pointer"
+                                title="Delete from disk"
+                              >
+                                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
+                                  <circle cx="12" cy="12" r="1.5" />
+                                  <circle cx="12" cy="5" r="1.5" />
+                                  <circle cx="12" cy="19" r="1.5" />
+                                </svg>
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Tray Footer */}
+                <div className="border-t border-white/5 px-4 py-2.5 bg-[#141416]/50 flex items-center justify-end">
+                  <button
+                    onClick={() => vscodeApi?.postMessage({ command: 'openFolder', path: localModelsDir })}
+                    className="text-xs text-zinc-400 hover:text-zinc-200 flex items-center gap-1.5 transition-colors cursor-pointer font-medium"
+                  >
+                    <span>Open downloads directory</span>
+                    <span className="text-xs">↗</span>
+                  </button>
+                </div>
+              </div>
+            )}
 
             {/* Main Content Area: Full Discover Models View OR Standard Scrollable Container */}
             {activeTab === 'Discover' ? (() => {
@@ -2062,6 +2498,7 @@ export default function SettingsApp() {
                                   if (selectedQuant) {
                                     vscodeApi?.postMessage({ command: 'downloadLocalModel', url: selectedQuant.directUrl, filename: selectedQuant.filename });
                                     vscodeApi?.postMessage({ command: 'showNotification', message: `Started accelerated download for ${selectedQuant.filename}` });
+                                    setIsDownloadsTrayOpen(true);
                                   }
                                 }}
                                 className="px-6 py-2.5 rounded-xl text-xs font-bold text-zinc-950 bg-white hover:bg-zinc-200 active:scale-[0.98] shadow-lg flex items-center gap-2 transition-all cursor-pointer"
@@ -3244,193 +3681,6 @@ export default function SettingsApp() {
                 })()}
               </div>
             </div>
-
-
-
-            {/* Active Downloads List */}
-            {activeDownloads.length > 0 && (
-              <div className="bg-[#121215] border border-white/5 rounded-xl p-5 relative shadow-xl">
-                <div className="flex items-center justify-between mb-3.5">
-                  <div className="flex items-center gap-2">
-                    <svg className="w-4 h-4 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                    </svg>
-                    <h3 className="text-xs font-semibold text-zinc-200 tracking-wide uppercase">
-                      Active Downloads
-                    </h3>
-                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded-full bg-zinc-800 text-zinc-300 border border-white/5">
-                      {activeDownloads.length}
-                    </span>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab('System')}
-                    className={`text-[10px] font-mono px-2 py-0.5 rounded-md border flex items-center gap-1.5 transition-colors cursor-pointer ${
-                      huggingFaceToken.trim() || useHfMirror
-                        ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/20'
-                        : 'bg-amber-500/10 text-amber-400 border-amber-500/20 hover:bg-amber-500/20'
-                    }`}
-                    title="Click to configure Download Accelerator & Priority CDN"
-                  >
-                    <span className="w-1.5 h-1.5 rounded-full animate-pulse bg-current"></span>
-                    <span>{huggingFaceToken.trim() ? '⚡ 16x Priority CDN' : useHfMirror ? '⚡ Regional Mirror' : '⚠️ Throttled (~1 MB/s) — Boost'}</span>
-                  </button>
-                </div>
-
-                <div className="space-y-3">
-                  {activeDownloads.map((dl, i) => {
-                    const { speed, eta } = getSpeedAndEta(dl);
-                    const isDownloading = dl.status === 'downloading' || dl.status === 'starting';
-                    const isPaused = dl.status === 'paused';
-                    const isError = dl.status.includes('error');
-                    const isFinished = dl.status === 'finished';
-
-                    const downloadedGb = ((dl.downloaded_bytes || 0) / (1024 * 1024 * 1024)).toFixed(2);
-                    const totalGb = ((dl.total_bytes || 0) / (1024 * 1024 * 1024)).toFixed(2);
-                    const packFile = VERIFIED_IMAGE_PACKS.flatMap(p => p.files).find(f => f.filename === dl.model_name);
-                    const fallbackUrl = (dl as any).url || packFile?.url;
-
-                    return (
-                      <div key={i} className="bg-[#18181c] border border-white/[0.06] p-3.5 rounded-lg flex flex-col gap-2.5 transition-all">
-                        {/* Top Row: File Name + Status Badge + Actions */}
-                        <div className="flex justify-between items-center gap-3">
-                          <div className="flex items-center gap-2 min-w-0">
-                            <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-                              isDownloading ? 'bg-emerald-400 animate-pulse' :
-                              isPaused ? 'bg-amber-400' :
-                              isFinished ? 'bg-emerald-400' : 'bg-rose-400'
-                            }`} />
-                            <h4 className="text-xs font-medium text-zinc-100 truncate" title={dl.model_name}>
-                              {dl.model_name}
-                            </h4>
-                          </div>
-
-                          <div className="flex items-center gap-2 shrink-0">
-                            <span className={`text-[10px] font-medium px-2 py-0.5 rounded-md border ${
-                              isDownloading ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
-                              isPaused ? 'bg-amber-500/10 text-amber-300 border-amber-500/20' :
-                              isFinished ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
-                              'bg-rose-500/10 text-rose-300 border-rose-500/20'
-                            }`}>
-                              {isDownloading ? 'Downloading' : isPaused ? 'Paused' : isFinished ? 'Completed' : 'Error'}
-                            </span>
-
-                            {/* Download Action Controls */}
-                            <div className="flex items-center gap-1">
-                              {isDownloading && (
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setActiveDownloads(prev => prev.map(d => d.model_name === dl.model_name ? { ...d, status: 'paused', speed_display: '', speed_bytes_per_sec: 0, eta_seconds: undefined } : d));
-                                    vscodeApi?.postMessage({ command: 'controlDownload', filename: dl.model_name, action: 'pause' });
-                                  }}
-                                  className="px-2 py-1 bg-zinc-800 hover:bg-zinc-700 active:scale-[0.98] text-zinc-300 hover:text-white rounded border border-white/5 text-[10px] font-medium flex items-center gap-1 transition-all cursor-pointer"
-                                  title="Pause download"
-                                >
-                                  <svg className="w-2.5 h-2.5" viewBox="0 0 24 24" fill="currentColor">
-                                    <rect x="6" y="4" width="4" height="16" rx="1"/>
-                                    <rect x="14" y="4" width="4" height="16" rx="1"/>
-                                  </svg>
-                                  Pause
-                                </button>
-                              )}
-
-                              {isPaused && (
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setActiveDownloads(prev => prev.map(d => d.model_name === dl.model_name ? { ...d, status: 'starting' } : d));
-                                    vscodeApi?.postMessage({ command: 'controlDownload', filename: dl.model_name, action: 'retry', url: fallbackUrl });
-                                  }}
-                                  className="px-2 py-1 bg-zinc-800 hover:bg-zinc-700 active:scale-[0.98] text-zinc-200 hover:text-white rounded border border-white/10 text-[10px] font-medium flex items-center gap-1 transition-all cursor-pointer"
-                                  title="Resume download"
-                                >
-                                  <svg className="w-2.5 h-2.5" viewBox="0 0 24 24" fill="currentColor">
-                                    <polygon points="5 3 19 12 5 21 5 3"/>
-                                  </svg>
-                                  Resume
-                                </button>
-                              )}
-
-                              {isError && (
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setActiveDownloads(prev => prev.map(d => d.model_name === dl.model_name ? { ...d, status: 'starting' } : d));
-                                    vscodeApi?.postMessage({ command: 'controlDownload', filename: dl.model_name, action: 'retry', url: fallbackUrl });
-                                  }}
-                                  className="px-2 py-1 bg-amber-500/10 hover:bg-amber-500/20 active:scale-[0.98] text-amber-300 rounded border border-amber-500/20 text-[10px] font-medium flex items-center gap-1 transition-all cursor-pointer"
-                                  title="Retry download"
-                                >
-                                  <svg className="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                    <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
-                                  </svg>
-                                  Retry
-                                </button>
-                              )}
-
-                              <button
-                                type="button"
-                                onClick={() => setDownloadConfirmDelete(dl)}
-                                className="p-1 text-zinc-400 hover:text-rose-400 hover:bg-rose-500/10 active:scale-[0.98] rounded border border-transparent hover:border-rose-500/20 transition-all cursor-pointer"
-                                title="Cancel and delete download"
-                              >
-                                <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                  <path d="M18 6L6 18M6 6l12 12" />
-                                </svg>
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Middle Row: Progress Bar */}
-                        <div className="w-full bg-zinc-800/80 rounded-full h-1.5 overflow-hidden">
-                          <div
-                            className={`h-full rounded-full transition-all duration-300 ${
-                              isFinished ? 'bg-emerald-500' :
-                              isError ? 'bg-rose-500' :
-                              isPaused ? 'bg-amber-400' : 'bg-zinc-200'
-                            }`}
-                            style={{ width: `${Math.min(100, Math.max(0, dl.percent))}%` }}
-                          />
-                        </div>
-
-                        {/* Bottom Row: Unified Telemetry */}
-                        <div className="flex justify-between items-center text-[11px] font-mono tabular-nums text-zinc-400">
-                          <div className="flex items-center gap-2">
-                            <span className="font-semibold text-zinc-200">{dl.percent.toFixed(1)}%</span>
-                            {speed && isDownloading && (
-                              <>
-                                <span className="text-zinc-600">•</span>
-                                <span className="text-zinc-300 font-medium">{speed}</span>
-                              </>
-                            )}
-                            {eta && isDownloading && (
-                              <>
-                                <span className="text-zinc-600">•</span>
-                                <span className="text-zinc-400">ETA {eta}</span>
-                              </>
-                            )}
-                          </div>
-                          <span>{downloadedGb} GB / {totalGb} GB</span>
-                        </div>
-
-                        {/* Error Banner */}
-                        {isError && dl.status && (
-                          <div className="text-[10px] text-rose-400 font-mono bg-rose-500/10 border border-rose-500/20 px-2.5 py-1.5 rounded-md flex items-center gap-1.5 mt-0.5">
-                            <svg className="w-3 h-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                            </svg>
-                            <span className="truncate">{dl.status.replace(/^error:\s*/i, '')}</span>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
 
             {/* Local Models Table: "My Models" */}
             <div className="bg-[#141416] rounded-xl border border-white/5 shadow-2xl overflow-hidden relative">

@@ -50372,6 +50372,27 @@ class SettingsProvider {
                     }
                     break;
                 }
+                case 'openFolder':
+                case 'revealInOS': {
+                    try {
+                        let targetPath = (data && data.path) || vscode.workspace.getConfiguration('exovonhub').get('localModelsDirectory') || '';
+                        if (targetPath.startsWith('~/')) {
+                            const home = process.env.HOME || process.env.USERPROFILE || '';
+                            targetPath = (__webpack_require__(3).join)(home, targetPath.slice(2));
+                        }
+                        const fs = __webpack_require__(2);
+                        if (targetPath && fs.existsSync(targetPath)) {
+                            vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(targetPath));
+                        }
+                        else {
+                            vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(process.env.HOME || '/'));
+                        }
+                    }
+                    catch (err) {
+                        vscode.window.showErrorMessage(`Failed to reveal in OS: ${err.message}`);
+                    }
+                    break;
+                }
                 case 'setLocalModelsDirectory': {
                     try {
                         if (data.directory !== undefined) {
