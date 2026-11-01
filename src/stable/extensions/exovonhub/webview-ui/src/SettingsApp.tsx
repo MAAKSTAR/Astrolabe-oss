@@ -3,10 +3,11 @@ import ReactMarkdown from 'react-markdown';
 import rehypeHighlight from 'rehype-highlight';
 import remarkGfm from 'remark-gfm';
 import { ModelOrgAvatar, KNOWN_ORG_LOGOS } from './components/settings/ModelOrgAvatar';
+import { TrustedBadge, isTrustedPublisher } from './components/settings/TrustedBadge';
 import { SystemEngineView } from './components/settings/SystemEngineView';
 import { LocalModelsView } from './components/settings/LocalModelsView';
 
-export { ModelOrgAvatar, KNOWN_ORG_LOGOS };
+export { ModelOrgAvatar, KNOWN_ORG_LOGOS, TrustedBadge, isTrustedPublisher };
 
 const REMARK_PLUGINS = [remarkGfm];
 const REHYPE_PLUGINS = [rehypeHighlight];
@@ -1841,9 +1842,14 @@ export default function SettingsApp() {
                                 </div>
 
                                 {author && (
-                                  <p className="text-xs text-zinc-300 font-medium truncate mb-1.5">
-                                    by {author}
-                                  </p>
+                                  <div className="flex items-center gap-1 mb-1.5">
+                                    <p className="text-xs text-zinc-300 font-medium truncate">
+                                      by {author}
+                                    </p>
+                                    {isTrustedPublisher(author, m.id) && (
+                                      <TrustedBadge className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                                    )}
+                                  </div>
                                 )}
 
                                 <div className="flex items-center gap-3 text-xs text-zinc-400 font-mono">
@@ -1890,9 +1896,14 @@ export default function SettingsApp() {
                           <div className="flex items-center gap-3.5 min-w-0">
                             {renderProviderLogo(selectedModelDetails.id)}
                             <div className="min-w-0">
-                              <h2 className="text-base font-bold text-white tracking-tight truncate font-sans">
-                                {selectedModelDetails.id}
-                              </h2>
+                              <div className="flex items-center gap-1.5 min-w-0">
+                                <h2 className="text-base font-bold text-white tracking-tight truncate font-sans">
+                                  {selectedModelDetails.id}
+                                </h2>
+                                {isTrustedPublisher(selectedModelDetails.author || selectedModelDetails.id.split('/')[0]) && (
+                                  <TrustedBadge className="w-4 h-4 shrink-0" title="Trusted Publisher" />
+                                )}
+                              </div>
                               <div className="flex items-center gap-2 mt-1">
                                 <button 
                                   type="button"
