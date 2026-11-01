@@ -475,50 +475,297 @@ function formatRelativeTime(dateStr?: string): string {
   }
 }
 
-function renderProviderLogo(modelId: string) {
-  const lower = modelId.toLowerCase();
-  if (lower.includes('qwen') || lower.includes('alibaba')) {
+const KNOWN_ORG_LOGOS: Record<string, string> = {
+  // DeepSeek
+  'deepseek': 'https://cdn-avatars.huggingface.co/v1/production/uploads/6538815d1bdb3c40db94fbfa/xMBly9PUMphrFVMxLX4kq.png',
+  'deepseek-ai': 'https://cdn-avatars.huggingface.co/v1/production/uploads/6538815d1bdb3c40db94fbfa/xMBly9PUMphrFVMxLX4kq.png',
+  // Qwen
+  'qwen': 'https://cdn-avatars.huggingface.co/v1/production/uploads/6215ca5692c0ecfba9186921/hrRM50-6XcdWgg2AKpENG.jpeg',
+  // Poolside / Laguna
+  'poolside': 'https://cdn-avatars.huggingface.co/v1/production/uploads/699484cbe85a4b61cbc5ee0f/GpYWuz-CovEFgbPOW21dZ.png',
+  'laguna': 'https://cdn-avatars.huggingface.co/v1/production/uploads/699484cbe85a4b61cbc5ee0f/GpYWuz-CovEFgbPOW21dZ.png',
+  // Bonsai / Prism-ML / Liquid AI
+  'prism-ml': 'https://cdn-avatars.huggingface.co/v1/production/uploads/6920b71747acb07530915d41/mEaEo0tgAYZn-NB6S-nuP.png',
+  'bonsai': 'https://cdn-avatars.huggingface.co/v1/production/uploads/6920b71747acb07530915d41/mEaEo0tgAYZn-NB6S-nuP.png',
+  'liquidai': 'https://cdn-avatars.huggingface.co/v1/production/uploads/61b8e2ba285851687028d395/EsTgVtnM2IqVRKgPdfqcB.png',
+  // Mistral
+  'mistralai': 'https://cdn-avatars.huggingface.co/v1/production/uploads/634c17653d11eaedd88b314d/9OgyfKstSZtbmsmuG8MbU.png',
+  'mistral': 'https://cdn-avatars.huggingface.co/v1/production/uploads/634c17653d11eaedd88b314d/9OgyfKstSZtbmsmuG8MbU.png',
+  // Meta
+  'meta-llama': 'https://cdn-avatars.huggingface.co/v1/production/uploads/646cf8084eefb026fb8fd8bc/oCTqufkdTkjyGodsx1vo1.png',
+  'meta': 'https://cdn-avatars.huggingface.co/v1/production/uploads/646cf8084eefb026fb8fd8bc/oCTqufkdTkjyGodsx1vo1.png',
+  // Google
+  'google': 'https://cdn-avatars.huggingface.co/v1/production/uploads/5dd96eb166059660ed1ee413/WtA3YYitedOr9n02eHfJe.png',
+  // Microsoft
+  'microsoft': 'https://cdn-avatars.huggingface.co/v1/production/uploads/1583646260758-5e64858c87403103f9f1055d.png',
+  // Black Forest Labs
+  'black-forest-labs': 'https://cdn-avatars.huggingface.co/v1/production/uploads/633f7a8f4be90e06da248e0f/m5YoF33abJ09vcwFxt1Mj.png',
+  'bfl': 'https://cdn-avatars.huggingface.co/v1/production/uploads/633f7a8f4be90e06da248e0f/m5YoF33abJ09vcwFxt1Mj.png',
+  // Stability AI
+  'stabilityai': 'https://cdn-avatars.huggingface.co/v1/production/uploads/643feeb67bc3fbde1385cc25/7vmYr2XwVcPtkLzac_jxQ.png',
+  // Cohere
+  'cohere': 'https://cdn-avatars.huggingface.co/v1/production/uploads/660eb9ff338e9556c90a6bbc/9DrmMdvUZKoHP3hRTngvc.png',
+  'cohereforai': 'https://cdn-avatars.huggingface.co/v1/production/uploads/660eb9ff338e9556c90a6bbc/9DrmMdvUZKoHP3hRTngvc.png',
+  // AllenAI
+  'allenai': 'https://cdn-avatars.huggingface.co/v1/production/uploads/652db071b62cf1f8463221e2/CxxwFiaomTa1MCX_B7-pT.png',
+  // 01-ai
+  '01-ai': 'https://cdn-avatars.huggingface.co/v1/production/uploads/6536187279f1de44b5e02d0f/-T8Xw0mX67_R73b7Re1y-.png',
+  // THUDM
+  'thudm': 'https://cdn-avatars.huggingface.co/v1/production/uploads/63033dc4e1e7f0e03a5e1a31/0BibmRdezvN6v6d2CEtd5.png',
+  // Snowflake
+  'snowflake': 'https://cdn-avatars.huggingface.co/v1/production/uploads/64dc52cf858f8a41c12fc819/O9-MWzRjWzbNP_DQlMb-7.png',
+  // Unsloth
+  'unsloth': 'https://cdn-avatars.huggingface.co/v1/production/uploads/62ecdc18b72a69615d6bd857/E4lkPz1TZNLzIFr_dR273.png',
+  // TheBloke
+  'thebloke': 'https://cdn-avatars.huggingface.co/v1/production/uploads/6426d3f3a7723d62b53c259b/tvPikpAzKTKGN5wrpadOJ.jpeg',
+  // bartowski
+  'bartowski': 'https://cdn-avatars.huggingface.co/v1/production/uploads/6435718aaaef013d1aec3b8b/XKf-8MA47tjVAM6SCX0MP.jpeg',
+  // lmstudio-community
+  'lmstudio-community': 'https://cdn-avatars.huggingface.co/v1/production/uploads/64445e5f1bc692d87b27e183/Quwh3tlKXa1y7aduVfxZi.png',
+  // Pollardweights
+  'pollardweights': 'https://cdn-avatars.huggingface.co/v1/production/uploads/644df00416703fd6702ce0b7/8C9kV10RCy_HUuNFJTwo-.jpeg',
+  // Capibara-LLM
+  'capibara-llm': 'https://cdn-avatars.huggingface.co/v1/production/uploads/603c35633ffb859aa2a154f2/g-B_D7vutJEjElDEyl5Dq.png',
+  // ReadyArt
+  'readyart': 'https://cdn-avatars.huggingface.co/v1/production/uploads/6759e155bc947d6070775cb9/uA_aXyXpBtK9M77jSv0aP.png',
+};
+
+const globalAvatarCache: Record<string, string> = { ...KNOWN_ORG_LOGOS };
+const inFlightRequests = new Set<string>();
+
+export function ModelOrgAvatar({ modelId, author, className = 'w-8 h-8' }: { modelId: string; author?: string; className?: string }) {
+  const parts = modelId.split('/');
+  const resolvedAuthor = (author || (parts.length > 1 ? parts[0] : '')).toLowerCase();
+  const lowerId = modelId.toLowerCase();
+  const combined = `${lowerId} ${resolvedAuthor}`;
+
+  // 1. Foundation Lab / Family Detection (exact 1:1 match with official designs)
+  // NVIDIA / Nemotron
+  if (combined.includes('nemotron') || combined.includes('nvidia') || combined.includes('megatron')) {
     return (
-      <div className="w-8 h-8 rounded-lg bg-zinc-800 border border-white/10 flex items-center justify-center text-zinc-300 flex-shrink-0">
-        <span className="font-bold text-xs">Q</span>
-      </div>
-    );
-  }
-  if (lower.includes('meta') || lower.includes('llama')) {
-    return (
-      <div className="w-8 h-8 rounded-lg bg-zinc-800 border border-white/10 flex items-center justify-center text-blue-400 flex-shrink-0">
-        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
-          <path d="M16.994 6.002c-1.892 0-3.32 1.058-4.994 3.013C10.326 7.06 8.898 6.002 7.006 6.002 3.864 6.002 1.5 8.536 1.5 12c0 3.464 2.364 5.998 5.506 5.998 2.052 0 3.593-1.185 4.994-3.09 1.401 1.905 2.942 3.09 4.994 3.09 3.142 0 5.506-2.534 5.506-5.998 0-3.464-2.364-5.998-5.506-5.998zm0 9.77c-1.884 0-3.308-1.745-4.494-3.772 1.186-2.027 2.61-3.772 4.494-3.772 1.884 0 3.28 1.574 3.28 3.772 0 2.198-1.396 3.772-3.28 3.772zm-9.988 0c-1.884 0-3.28-1.574-3.28-3.772 0-2.198 1.396-3.772 3.28-3.772 1.884 0 3.308 1.745 4.494 3.772-1.186 2.027-2.61 3.772-4.494 3.772z"/>
+      <div className={`${className} rounded-lg bg-white p-1 flex items-center justify-center shrink-0 shadow-sm border border-white/20`} title="NVIDIA">
+        <svg viewBox="0 0 120 90" className="w-full h-full">
+          <path fill="#76B900" d="M47.8 71.9c-12.7 0-23-10.3-23-23s10.3-23 23-23c9.9 0 18.2 6.2 21.4 15 2.6-3.8 6.4-6.8 10.9-8.4-5.9-12.8-18.7-21.6-32.3-21.6C24.4 10.9 8 27.4 8 48.9s16.4 38 39.8 38c14 0 26.6-8.2 32.3-21.6-4.5-1.6-8.3-4.6-10.9-8.4-3.2 8.8-11.5 15-21.4 15zm0-36c-7.2 0-13 5.8-13 13s5.8 13 13 13c5.6 0 10.4-3.6 12.1-8.6.6-2.8.6-5.8 0-8.6-1.7-5.2-6.5-8.8-12.1-8.8zm39.6-11.8c-2.4 1.5-4.4 3.5-5.9 5.9 4.3 5.4 6.9 12.3 6.9 19.8s-2.6 14.4-6.9 19.8c1.5 2.4 3.5 4.4 5.9 5.9 6.2-7.1 10-16.4 10-25.7s-3.8-18.6-10-25.7z"/>
         </svg>
       </div>
     );
   }
-  if (lower.includes('google') || lower.includes('gemma')) {
+
+  // Qwen / Alibaba
+  if (combined.includes('qwen') || combined.includes('alibaba') || combined.includes('tongyi')) {
     return (
-      <div className="w-8 h-8 rounded-lg bg-zinc-800 border border-white/10 flex items-center justify-center flex-shrink-0">
-        <span className="font-bold text-xs text-amber-400">G</span>
+      <div className={`${className} rounded-lg bg-[#14141c] border border-indigo-500/20 flex items-center justify-center p-1 shrink-0 shadow-sm`} title="Qwen / Alibaba">
+        <svg viewBox="0 0 48 48" className="w-full h-full" fill="none">
+          <defs>
+            <linearGradient id="qwenGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stopColor="#7F56D9" />
+              <stop offset="100%" stopColor="#444CE7" />
+            </linearGradient>
+          </defs>
+          <path d="M24 4L34.39 10L34.39 22L24 16L13.61 22L13.61 10L24 4Z" fill="url(#qwenGrad)" />
+          <path d="M41.32 14L41.32 26L30.93 32L30.93 20L20.54 26L30.93 14L41.32 14Z" fill="#8075FF" />
+          <path d="M41.32 34L30.93 40L20.54 34L30.93 28L34.39 26L41.32 34Z" fill="url(#qwenGrad)" />
+          <path d="M24 44L13.61 38L13.61 26L24 32L34.39 26L34.39 38L24 44Z" fill="#8075FF" />
+          <path d="M6.68 34L6.68 22L17.07 16L17.07 28L27.46 22L17.07 34L6.68 34Z" fill="url(#qwenGrad)" />
+          <path d="M6.68 14L17.07 8L27.46 14L17.07 20L13.61 22L6.68 14Z" fill="#8075FF" />
+        </svg>
       </div>
     );
   }
-  if (lower.includes('deepseek')) {
+
+  // Meta / Llama / Muse
+  if (combined.includes('llama') || combined.includes('meta-llama') || combined.includes('muse-') || combined.includes('muse_') || combined.includes('opt-') || combined.includes('facebook') || (resolvedAuthor === 'meta')) {
     return (
-      <div className="w-8 h-8 rounded-lg bg-zinc-800 border border-white/10 flex items-center justify-center text-sky-400 flex-shrink-0">
-        <span className="font-bold text-xs">DS</span>
+      <div className={`${className} rounded-lg bg-zinc-900 border border-blue-500/20 flex items-center justify-center p-1.5 shrink-0 shadow-sm`} title="Meta / Llama">
+        <svg viewBox="0 0 24 24" className="w-full h-full" fill="none">
+          <path
+            d="M16.994 6.002c-1.892 0-3.32 1.058-4.994 3.013C10.326 7.06 8.898 6.002 7.006 6.002 3.864 6.002 1.5 8.536 1.5 12c0 3.464 2.364 5.998 5.506 5.998 2.052 0 3.593-1.185 4.994-3.09 1.401 1.905 2.942 3.09 4.994 3.09 3.142 0 5.506-2.534 5.506-5.998 0-3.464-2.364-5.998-5.506-5.998zm0 9.77c-1.884 0-3.308-1.745-4.494-3.772 1.186-2.027 2.61-3.772 4.494-3.772 1.884 0 3.28 1.574 3.28 3.772 0 2.198-1.396 3.772-3.28 3.772zm-9.988 0c-1.884 0-3.28-1.574-3.28-3.772 0-2.198 1.396-3.772 3.28-3.772 1.884 0 3.308 1.745 4.494 3.772-1.186 2.027-2.61 3.772-4.494 3.772z"
+            fill="#0866FF"
+          />
+        </svg>
       </div>
     );
   }
-  if (lower.includes('mistral') || lower.includes('mixtral')) {
+
+  // DeepSeek (Blue Whale Mascot)
+  if (combined.includes('deepseek') || combined.includes('deep-seek')) {
     return (
-      <div className="w-8 h-8 rounded-lg bg-zinc-800 border border-white/10 flex items-center justify-center text-amber-500 flex-shrink-0">
-        <span className="font-bold text-xs">M</span>
+      <div className={`${className} rounded-lg bg-[#0e1726] border border-blue-500/20 flex items-center justify-center p-0.5 shrink-0 shadow-sm overflow-hidden`} title="DeepSeek">
+        <img 
+          src={KNOWN_ORG_LOGOS['deepseek']} 
+          alt="DeepSeek" 
+          className="w-full h-full object-contain"
+        />
       </div>
     );
   }
+
+  // Google / Gemma
+  if (combined.includes('gemma') || combined.includes('google') || combined.includes('paligemma') || combined.includes('gecko')) {
+    return (
+      <div className={`${className} rounded-lg bg-zinc-900 border border-white/10 flex items-center justify-center p-1.5 shrink-0 shadow-sm`} title="Google / Gemma">
+        <svg viewBox="0 0 24 24" className="w-full h-full">
+          <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+          <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+          <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
+          <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
+        </svg>
+      </div>
+    );
+  }
+
+  // Poolside / Laguna
+  if (combined.includes('laguna') || combined.includes('poolside')) {
+    return (
+      <div className={`${className} rounded-lg bg-zinc-900 border border-blue-500/20 flex items-center justify-center p-0.5 shrink-0 shadow-sm overflow-hidden`} title="Poolside">
+        <img src={KNOWN_ORG_LOGOS['poolside']} alt="Poolside" className="w-full h-full object-contain" />
+      </div>
+    );
+  }
+
+  // Bonsai / Prism / Liquid AI
+  if (combined.includes('bonsai') || combined.includes('prism-ml') || combined.includes('liquid') || combined.includes('lfm')) {
+    return (
+      <div className={`${className} rounded-lg bg-zinc-900 border border-white/10 flex items-center justify-center p-0.5 shrink-0 shadow-sm overflow-hidden`} title="Bonsai / Liquid AI">
+        <img src={KNOWN_ORG_LOGOS['prism-ml']} alt="Bonsai" className="w-full h-full object-contain" />
+      </div>
+    );
+  }
+
+  // Mistral AI
+  if (combined.includes('mistral') || combined.includes('mixtral') || combined.includes('ministral') || combined.includes('codestral') || combined.includes('pixtral')) {
+    return (
+      <div className={`${className} rounded-lg bg-zinc-900 border border-orange-500/20 flex items-center justify-center p-1.5 shrink-0 shadow-sm`} title="Mistral AI">
+        <svg viewBox="0 0 24 24" className="w-full h-full" fill="none">
+          <rect x="2" y="3" width="4" height="3" fill="#FF5E00" />
+          <rect x="18" y="3" width="4" height="3" fill="#FF5E00" />
+          <rect x="2" y="7" width="8" height="3" fill="#FF7700" />
+          <rect x="14" y="7" width="8" height="3" fill="#FF7700" />
+          <rect x="2" y="11" width="20" height="3" fill="#FFA000" />
+          <rect x="2" y="15" width="4" height="3" fill="#FF7700" />
+          <rect x="10" y="15" width="4" height="3" fill="#FF7700" />
+          <rect x="18" y="15" width="4" height="3" fill="#FF7700" />
+          <rect x="2" y="19" width="4" height="3" fill="#FF5E00" />
+          <rect x="18" y="19" width="4" height="3" fill="#FF5E00" />
+        </svg>
+      </div>
+    );
+  }
+
+  // Microsoft / Phi
+  if (combined.includes('phi-') || combined.includes('phi3') || combined.includes('phi4') || combined.includes('microsoft') || combined.includes('wizardlm')) {
+    return (
+      <div className={`${className} rounded-lg bg-zinc-900 border border-white/10 flex items-center justify-center p-2 shrink-0 shadow-sm`} title="Microsoft">
+        <svg viewBox="0 0 23 23" className="w-full h-full">
+          <path fill="#f35325" d="M1 1h10v10H1z"/>
+          <path fill="#81bc06" d="M12 1h10v10H12z"/>
+          <path fill="#05a6f0" d="M1 12h10v10H1z"/>
+          <path fill="#ffba08" d="M12 12h10v10H12z"/>
+        </svg>
+      </div>
+    );
+  }
+
+  // Black Forest Labs / FLUX
+  if (combined.includes('flux') || combined.includes('black-forest-labs') || combined.includes('bfl')) {
+    return (
+      <div className={`${className} rounded-lg bg-black border border-white/20 flex items-center justify-center p-1.5 shrink-0 shadow-sm`} title="Black Forest Labs">
+        <svg viewBox="0 0 24 24" className="w-full h-full" fill="none">
+          <path d="M4 4h7v7H4V4zm9 0h7v7h-7V4zm-9 9h7v7H4v-7zm9 9l7-7v7h-7z" fill="#FFFFFF"/>
+        </svg>
+      </div>
+    );
+  }
+
+  // Stability AI
+  if (combined.includes('stability') || combined.includes('stable-diffusion') || combined.includes('sdxl') || combined.includes('sd-') || combined.includes('sd_')) {
+    return (
+      <div className={`${className} rounded-lg bg-zinc-900 border border-purple-500/20 flex items-center justify-center p-1.5 shrink-0 shadow-sm`} title="Stability AI">
+        <svg viewBox="0 0 24 24" className="w-full h-full" fill="none">
+          <path d="M12 2L4 6.5v9L12 20l8-4.5v-9L12 2zm0 3.5l5.5 3.1v6.2L12 18l-5.5-3.2V8.6L12 5.5zm0 3.5L8.5 11v2.5L12 15.5l3.5-2V11L12 9z" fill="#A855F7"/>
+        </svg>
+      </div>
+    );
+  }
+
+  // OpenAI / Whisper
+  if (combined.includes('whisper') || combined.includes('openai') || combined.includes('gpt')) {
+    return (
+      <div className={`${className} rounded-lg bg-zinc-900 border border-emerald-500/20 flex items-center justify-center p-1.5 shrink-0 shadow-sm`} title="OpenAI">
+        <svg viewBox="0 0 24 24" className="w-full h-full" fill="none" stroke="#10A37F" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M19.07 4.93a10 10 0 0 0-14.14 0M16.24 7.76a6 6 0 0 0-8.48 0M12 10a2 2 0 1 0 0 4 2 2 0 0 0 0-4z"/>
+          <path d="M4.93 19.07a10 10 0 0 0 14.14 0M7.76 16.24a6 6 0 0 0 8.48 0"/>
+        </svg>
+      </div>
+    );
+  }
+
+  // 2. Static Known Org Avatars or Dynamic Author Avatar from Hugging Face
+  const [cachedUrl, setCachedUrl] = useState<string | null>(() => globalAvatarCache[resolvedAuthor] || null);
+
+  useEffect(() => {
+    if (!resolvedAuthor) return;
+    if (globalAvatarCache[resolvedAuthor]) {
+      setCachedUrl(globalAvatarCache[resolvedAuthor]);
+      return;
+    }
+    if (inFlightRequests.has(resolvedAuthor)) return;
+
+    inFlightRequests.add(resolvedAuthor);
+    (async () => {
+      try {
+        const orgRes = await fetch(`https://huggingface.co/api/organizations/${encodeURIComponent(resolvedAuthor)}/avatar`);
+        if (orgRes.ok) {
+          const data = await orgRes.json();
+          if (data?.avatarUrl) {
+            const finalUrl = data.avatarUrl.startsWith('http') ? data.avatarUrl : `https://huggingface.co${data.avatarUrl}`;
+            globalAvatarCache[resolvedAuthor] = finalUrl;
+            setCachedUrl(finalUrl);
+            return;
+          }
+        }
+        const userRes = await fetch(`https://huggingface.co/api/users/${encodeURIComponent(resolvedAuthor)}/avatar`);
+        if (userRes.ok) {
+          const data = await userRes.json();
+          if (data?.avatarUrl) {
+            const finalUrl = data.avatarUrl.startsWith('http') ? data.avatarUrl : `https://huggingface.co${data.avatarUrl}`;
+            globalAvatarCache[resolvedAuthor] = finalUrl;
+            setCachedUrl(finalUrl);
+            return;
+          }
+        }
+      } catch {
+        // network fallback
+      }
+    })();
+  }, [resolvedAuthor]);
+
+  if (cachedUrl) {
+    return (
+      <img 
+        src={cachedUrl} 
+        alt={resolvedAuthor} 
+        className={`${className} rounded-lg object-cover border border-white/10 shrink-0 bg-zinc-900 shadow-sm`}
+        onError={() => setCachedUrl(null)}
+      />
+    );
+  }
+
+  // 3. Fallback: Official Full-Color Hugging Face 🤗 Smiling Face Logo
   return (
-    <div className="w-8 h-8 rounded-lg bg-zinc-800 border border-white/10 flex items-center justify-center text-zinc-400 flex-shrink-0 font-mono text-[10px] font-bold">
-      HF
+    <div className={`${className} rounded-lg bg-zinc-900 border border-white/10 flex items-center justify-center p-1 shrink-0 shadow-sm`} title={resolvedAuthor || "Hugging Face"}>
+      <svg viewBox="0 0 95 88" className="w-full h-full" fill="none">
+        <path fill="#FFD21E" d="M47.21 76.5a34.75 34.75 0 1 0 0-69.5 34.75 34.75 0 0 0 0 69.5Z" />
+        <path fill="#FF9D0B" d="M81.96 41.75a34.75 34.75 0 1 0-69.5 0 34.75 34.75 0 0 0 69.5 0Zm-73.5 0a38.75 38.75 0 1 1 77.5 0 38.75 38.75 0 0 1-77.5 0Z" />
+        <path fill="#3A3B45" d="M58.5 32.3c1.28.44 1.78 3.06 3.07 2.38a5 5 0 1 0-6.76-2.07c.61 1.15 2.55-.72 3.7-.32ZM34.95 32.3c-1.28.44-1.79 3.06-3.07 2.38a5 5 0 1 1 6.76-2.07c-.61 1.15-2.56-.72-3.7-.32Z" />
+        <path fill="#FF323D" d="M46.96 56.29c9.83 0 13-8.76 13-13.26 0-2.34-1.57-1.6-4.09-.36-2.33 1.15-5.46 2.74-8.9 2.74-7.19 0-13-6.88-13-2.38s3.16 13.26 13 13.26Z" />
+      </svg>
     </div>
   );
+}
+
+function renderProviderLogo(modelId: string, author?: string) {
+  return <ModelOrgAvatar modelId={modelId} author={author} />;
 }
 
 export default function SettingsApp() {
@@ -1414,7 +1661,7 @@ export default function SettingsApp() {
                                   : 'bg-zinc-900/30 border-white/5 hover:border-white/15 hover:bg-zinc-800/40 text-zinc-300'
                               }`}
                             >
-                              {renderProviderLogo(m.id)}
+                              {renderProviderLogo(m.id, author)}
 
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-center justify-between gap-1 mb-1">
