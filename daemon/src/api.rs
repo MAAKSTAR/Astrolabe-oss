@@ -417,7 +417,10 @@ async fn chat_completions(
 async fn list_models(
     State(state): State<Arc<AppState>>,
 ) -> Json<ModelsResponse> {
-    let local = models::list_local_models(&state.models_dir);
+    let models_dir = state.models_dir.clone();
+    let local = tokio::task::spawn_blocking(move || models::list_local_models(&models_dir))
+        .await
+        .unwrap_or_default();
     let active = state.active_model.read().await.clone();
 
     let data = local

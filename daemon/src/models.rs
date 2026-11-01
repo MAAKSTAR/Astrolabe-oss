@@ -190,6 +190,11 @@ pub fn inspect_gguf_metadata(path: &Path) -> GgufMeta {
     let mut block_cnt: Option<u32> = None;
 
     for _ in 0..kv_count.min(250) {
+        // If we already have all required architecture metadata, stop immediately!
+        if !arch.is_empty() && ctx_len.is_some() && block_cnt.is_some() && meta.quantization != "Q4_0" {
+            break;
+        }
+
         if reader.read_exact(&mut u64_buf).is_err() { break; }
         let klen = u64::from_le_bytes(u64_buf) as usize;
         if klen > 512 { break; }
@@ -200,6 +205,11 @@ pub fn inspect_gguf_metadata(path: &Path) -> GgufMeta {
 
         if reader.read_exact(&mut u32_buf).is_err() { break; }
         let vtype = u32::from_le_bytes(u32_buf);
+
+        // Optimization: Tokenizer arrays are massive (256,000+ entries) and irrelevant for model architecture
+        if key.starts_with("tokenizer.") {
+            break;
+        }
 
         match vtype {
             0 | 1 | 7 => {
@@ -304,6 +314,25 @@ fn extract_quant_from_name(name: &str) -> Option<String> {
     None
 }
 
+static GGUF_CACHE: std::sync::OnceLock<std::sync::RwLock<std::collections::HashMap<PathBuf, (u64, std::time::SystemTime, GgufMeta)>>> = std::sync::OnceLock::new();
+
+fn get_cached_gguf_metadata(path: &Path, size: u64, mtime: std::time::SystemTime) -> GgufMeta {
+    let cache = GGUF_CACHE.get_or_init(|| std::sync::RwLock::new(std::collections::HashMap::new()));
+    if let Ok(guard) = cache.read() {
+        if let Some((cached_size, cached_mtime, cached_meta)) = guard.get(path) {
+            if *cached_size == size && *cached_mtime == mtime {
+                return cached_meta.clone();
+            }
+        }
+    }
+
+    let meta = inspect_gguf_metadata(path);
+    if let Ok(mut guard) = cache.write() {
+        guard.insert(path.to_path_buf(), (size, mtime, meta.clone()));
+    }
+    meta
+}
+
 /// List all .gguf, .safetensors, and .sft files in the models directory.
 fn find_gguf_files_recursive(dir: &Path, models: &mut Vec<LocalModel>, depth: usize) {
     if depth > 3 { return; } // Limit depth to avoid symlink loops or massive trees
@@ -315,9 +344,10 @@ fn find_gguf_files_recursive(dir: &Path, models: &mut Vec<LocalModel>, depth: us
             } else if path.extension().map(|e| e == "gguf" || e == "safetensors" || e == "sft").unwrap_or(false) {
                 if let Ok(meta) = std::fs::metadata(&path) {
                     let size = meta.len();
+                    let mtime = meta.modified().unwrap_or(std::time::SystemTime::UNIX_EPOCH);
                     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
                     let gguf_meta = if ext == "gguf" {
-                        inspect_gguf_metadata(&path)
+                        get_cached_gguf_metadata(&path, size, mtime)
                     } else {
                         let fname = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default().to_lowercase();
                         let arch = if fname.contains("clip_l") || fname.contains("t5xxl") {
@@ -976,3 +1006,6 @@ mod urlencoding {
         result
     }
 }
+
+
+
