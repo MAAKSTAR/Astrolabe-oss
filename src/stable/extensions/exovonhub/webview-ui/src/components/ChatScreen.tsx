@@ -550,20 +550,16 @@ interface TerminalDashProgressBarProps {
   msg: Message;
   modelName: string;
   isAgentThinking: boolean;
-  onTransitionComplete: () => void;
 }
 
 function TerminalDashProgressBar({
   msg,
   modelName,
   isAgentThinking,
-  onTransitionComplete
 }: TerminalDashProgressBarProps) {
   const TOTAL_DASHES = 26;
-  const [percent, setPercent] = React.useState<number>(0);
-  const percentRef = React.useRef<number>(0);
-  const isCompletingRef = React.useRef<boolean>(false);
-  const transitionFiredRef = React.useRef<boolean>(false);
+  const [percent, setPercent] = React.useState<number>(5);
+  const percentRef = React.useRef<number>(5);
 
   const hasFirstToken = Boolean(msg.text || (msg.timeline && msg.timeline.length > 0));
   const hasProgress = msg.promptTokens !== undefined && msg.promptTokens > 0;
@@ -571,113 +567,61 @@ function TerminalDashProgressBar({
     ? Math.min(100, Math.max(0, Math.round((msg.promptProcessed / msg.promptTokens!) * 100)))
     : null;
 
-  // Abort transition if agent stopped thinking
+  // Active smooth progression during prefill
   React.useEffect(() => {
-    if (!isAgentThinking && !transitionFiredRef.current) {
-      transitionFiredRef.current = true;
-      onTransitionComplete();
+    if (hasFirstToken) {
+      setPercent(100);
+      percentRef.current = 100;
+      return;
     }
-  }, [isAgentThinking, onTransitionComplete]);
 
-  // Handle immediate transition trigger when first token arrives after 100% is reached
-  React.useEffect(() => {
-    if (hasFirstToken && percentRef.current >= 100 && !transitionFiredRef.current) {
-      transitionFiredRef.current = true;
-      const t = setTimeout(() => {
-        onTransitionComplete();
-      }, 120);
-      return () => clearTimeout(t);
-    }
-  }, [hasFirstToken, onTransitionComplete]);
-
-  // Main active interval: Anti-Freeze timer + SSE interpolation + Rapid Fill
-  React.useEffect(() => {
     const interval = setInterval(() => {
-      if (transitionFiredRef.current) return;
-
-      const shouldComplete = hasFirstToken || (realPercent !== null && realPercent >= 100);
-
-      if (shouldComplete || isCompletingRef.current) {
-        isCompletingRef.current = true;
-        // Rapid fill: rapidly advance dashes to 100%
-        if (percentRef.current < 100) {
-          const step = Math.max(10, Math.round((100 - percentRef.current) * 0.45));
-          const next = Math.min(100, percentRef.current + step);
+      if (realPercent !== null) {
+        percentRef.current = realPercent;
+        setPercent(realPercent);
+      } else {
+        // Smoothly advance dashes during prefill so it never looks frozen
+        if (percentRef.current < 95) {
+          const step = Math.max(1, Math.round((95 - percentRef.current) * 0.12));
+          const next = Math.min(95, percentRef.current + step);
           percentRef.current = next;
           setPercent(next);
-        } else {
-          // At 100%: seamlessly transition into <think> / text stream if first token has arrived
-          if (hasFirstToken || !isAgentThinking) {
-            transitionFiredRef.current = true;
-            clearInterval(interval);
-            setTimeout(() => {
-              onTransitionComplete();
-            }, 120);
-          }
-        }
-      } else {
-        // Normal progress tracking & Anti-Freeze timer
-        if (realPercent !== null) {
-          const target = realPercent;
-          if (percentRef.current < target) {
-            const step = Math.max(1, Math.round((target - percentRef.current) * 0.35));
-            const next = Math.min(target, percentRef.current + step);
-            percentRef.current = next;
-            setPercent(next);
-          }
-        } else {
-          // Anti-freeze: while waiting for initial engine SSE, smoothly creep up to ~28%
-          if (percentRef.current < 28) {
-            const step = percentRef.current < 12 ? 1 : (Math.random() > 0.4 ? 1 : 0);
-            if (step > 0) {
-              const next = percentRef.current + step;
-              percentRef.current = next;
-              setPercent(next);
-            }
-          }
         }
       }
-    }, 50);
+    }, 60);
 
     return () => clearInterval(interval);
-  }, [hasFirstToken, realPercent, isAgentThinking, onTransitionComplete]);
+  }, [hasFirstToken, realPercent]);
 
-  const filledCount = Math.max(0, Math.min(TOTAL_DASHES, Math.round((percent / 100) * TOTAL_DASHES)));
-  const unfilledCount = TOTAL_DASHES - filledCount;
+  // If first token arrived or agent stopped thinking, prefill is done
+  if (hasFirstToken || !isAgentThinking) {
+    return null;
+  }
+
+  const filledCount = Math.max(1, Math.min(TOTAL_DASHES, Math.round((percent / 100) * TOTAL_DASHES)));
+  const unfilledCount = Math.max(0, TOTAL_DASHES - filledCount);
   const filledDashes = '-'.repeat(filledCount);
   const unfilledDashes = '-'.repeat(unfilledCount);
 
-  let comment = 'percent loading done';
-  if (percent >= 100 || isCompletingRef.current) {
-    comment = 'prompt loaded';
-  } else if (hasProgress) {
-    comment = 'ingesting prompt';
-  }
-
   return (
-    <div className="py-2.5 px-3.5 my-1.5 w-full bg-zinc-900/60 border border-white/10 rounded-xl font-mono text-[11px] shadow-lg backdrop-blur-md animate-in fade-in duration-200 select-none">
-      {/* Line 1: %model name% */}
-      <div className="flex items-center gap-0.5 text-zinc-400 font-mono text-[11px] tracking-tight mb-1 select-none">
-        <span className="text-amber-500/80 font-bold">%</span>
-        <span className="text-zinc-300 font-medium">{modelName}</span>
-        <span className="text-amber-500/80 font-bold">%</span>
+    <div className="py-1 my-1 w-full font-mono text-[11px] leading-relaxed select-none">
+      {/* Line 1: Model Name (No card, pure monospace text) */}
+      <div className="text-amber-400 font-semibold tracking-tight mb-0.5">
+        {modelName}
       </div>
 
-      {/* Line 2: Horizontal Dash Progress Bar */}
-      <div className="flex items-center flex-wrap gap-x-1.5 font-mono text-[11px] leading-tight select-none">
-        <span className="tracking-tighter inline-flex items-center">
-          <span className="text-amber-400 font-bold tracking-tighter drop-shadow-[0_0_6px_rgba(251,191,36,0.5)]">
+      {/* Line 2: Horizontal Dash Progress Bar (No comments, no card wrapper) */}
+      <div className="flex items-center gap-x-1.5 font-mono text-[11px] leading-tight select-none">
+        <span className="tracking-tighter inline-flex items-center font-mono">
+          <span className="text-amber-400 font-bold">
             {filledDashes}
           </span>
-          <span className="text-zinc-700 font-medium tracking-tighter">
+          <span className="text-zinc-700 font-medium">
             {unfilledDashes}
           </span>
         </span>
-        <span className="text-amber-400/90 font-semibold tracking-tight">
+        <span className="text-amber-400 font-semibold">
           ({percent}%)
-        </span>
-        <span className="text-zinc-500 font-normal">
-          // {comment}
         </span>
       </div>
     </div>
@@ -746,7 +690,7 @@ export function ChatScreen({
 
   const [showReviewModal, setShowReviewModal] = React.useState(false);
   const [expandedDiffs, setExpandedDiffs] = React.useState<Record<string, boolean>>({});
-  const [promptTransitionDone, setPromptTransitionDone] = React.useState<Record<string, boolean>>({});
+
   const [showQuotaPopover, setShowQuotaPopover] = React.useState(false);
   const [modelDropdownOpen, setModelDropdownOpen] = React.useState(false);
   const [modelFilterTab, setModelFilterTab] = React.useState<'all' | 'llm' | 'diffusion' | 'projector'>('all');
@@ -899,12 +843,13 @@ export function ChatScreen({
         className="flex-1 overflow-y-auto space-y-3.5 pr-1 min-h-0 py-2 scrollbar-thin"
       >
         {messages.map((msg, idx) => {
-          const isPromptTransitioning = msg.sender === 'agent' &&
+          const isPrefilling = msg.sender === 'agent' &&
+            !msg.text &&
+            (!msg.timeline || msg.timeline.length === 0) &&
             !msg.isGeneratingImage &&
             !msg.isHistory &&
             !msg.endTime &&
             idx === messages.length - 1 &&
-            !promptTransitionDone[msg.id] &&
             isAgentThinking;
 
           return (
@@ -932,19 +877,17 @@ export function ChatScreen({
                 </div>
               )}
 
-              {/* Terminal Dash Progress Bar during Prompt Loading / Rapid Fill */}
-              {isPromptTransitioning && (
+              {/* Terminal Dash Progress Bar: Active ONLY during prefill before first token/thought */}
+              {isPrefilling && (
                 <TerminalDashProgressBar
                   msg={msg}
                   modelName={formatModelDisplayName(activeLocalModel || selectedModel || 'Local Model')}
                   isAgentThinking={isAgentThinking}
-                  onTransitionComplete={() => {
-                    setPromptTransitionDone(prev => ({ ...prev, [msg.id]: true }));
-                  }}
                 />
               )}
 
-              {msg.sender === 'agent' && !msg.isGeneratingImage && !isPromptTransitioning && msg.timeline && msg.timeline.length > 0 && (
+              {/* Task/Thinking Card: NEVER blocked, renders immediately as thoughts stream in */}
+              {msg.sender === 'agent' && !msg.isGeneratingImage && msg.timeline && msg.timeline.length > 0 && (
                 <TaskProgressCard msg={msg} />
               )}
               
@@ -966,8 +909,8 @@ export function ChatScreen({
                 </div>
               )}
 
-              {/* Final Response Chat Bubble */}
-              {!isPromptTransitioning && (msg.text || (msg.images && msg.images.length > 0)) && (
+              {/* Final Response Chat Bubble: Appears immediately when text begins streaming */}
+              {(msg.text || (msg.images && msg.images.length > 0)) && (
               <div className="relative group/message w-full">
                 <div
                   className={`py-2 px-1 text-sm leading-relaxed font-sans transition-all duration-150 markdown-body select-text ${msg.sender === 'user'
@@ -1619,158 +1562,120 @@ export function ChatScreen({
                 return (
                   <>
                     <div className="fixed inset-0 z-40" onClick={() => setModelDropdownOpen(false)} />
-                    <div className="absolute bottom-full left-0 mb-2 w-80 sm:w-88 glass-panel-dark rounded-2xl shadow-2xl z-50 overflow-hidden divide-y divide-white/10 max-h-[500px] flex flex-col border border-white/15 bg-zinc-950/95 backdrop-blur-xl">
-                      <div className="overflow-y-auto scrollbar-thin flex-1 divide-y divide-white/5">
+                    <div className="absolute bottom-full left-0 mb-2 w-80 sm:w-84 rounded-xl shadow-2xl z-50 overflow-hidden flex flex-col border border-white/10 bg-zinc-950/95 backdrop-blur-xl text-zinc-300 font-sans">
+                      <div className="overflow-y-auto scrollbar-thin max-h-[460px] divide-y divide-white/5">
                         
                         {/* Primary LLM Engine */}
-                        <div className="p-2.5">
-                          <div className="px-1 py-1 text-[9px] font-bold text-zinc-400 uppercase tracking-widest flex items-center justify-between mb-1.5">
+                        <div className="p-3">
+                          <div className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider flex items-center justify-between mb-2 select-none">
                             <span className="flex items-center gap-1.5">
-                              <span className={`w-2 h-2 rounded-full ${activeLocalModel ? 'bg-emerald-500 shadow-sm shadow-emerald-500/50' : 'bg-zinc-600'}`}></span>
-                              Primary LLM Engine
+                              <span className={`w-2 h-2 rounded-full ${activeLocalModel ? 'bg-emerald-400' : 'bg-zinc-600'}`} />
+                              Primary LLM
                             </span>
-                            <span className="font-mono text-[9px] text-zinc-500">Port 47990</span>
+                            <span className="text-zinc-500 font-mono text-[10px]">
+                              {activeLocalModel ? 'Running' : 'Offline'}
+                            </span>
                           </div>
                           {activeLocalModel ? (
-                            <div className="rounded-xl p-2.5 bg-emerald-500/10 border border-emerald-500/25 flex flex-col gap-2">
-                              <div className="flex items-center justify-between gap-2">
+                            <div className="rounded-lg p-2.5 bg-zinc-900/80 border border-white/5 flex items-center justify-between gap-2">
+                              <div className="flex flex-col min-w-0">
                                 <span className="font-semibold text-xs text-zinc-100 truncate" title={activeLocalModel}>
                                   {formatModelDisplayName(activeLocalModel)}
                                 </span>
-                                <span className="px-1.5 py-0.5 rounded text-[9px] font-mono bg-emerald-500/20 text-emerald-300 shrink-0">
-                                  ✓ In RAM/VRAM
+                                <span className="text-[10px] text-zinc-400 font-mono">
+                                  Loaded in VRAM
                                 </span>
-                              </div>
-                              <div className="flex items-center gap-1.5">
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    handleModelChange?.(`local:${activeLocalModel}`);
-                                    setModelDropdownOpen(false);
-                                  }}
-                                  className={`flex-1 py-1 px-2 rounded text-[11px] font-medium text-center transition-colors cursor-pointer ${
-                                    selectedModel === `local:${activeLocalModel}` || (!selectedModel?.startsWith('diffusion:') && selectedModel)
-                                      ? 'bg-emerald-500 text-black font-semibold'
-                                      : 'bg-white/10 hover:bg-white/15 text-zinc-200'
-                                  }`}
-                                >
-                                  {selectedModel === `local:${activeLocalModel}` || (!selectedModel?.startsWith('diffusion:') && selectedModel)
-                                    ? '✓ Active in Chat'
-                                    : 'Select for Chat'}
-                                </button>
-                                <button
-                                  type="button"
-                                  title="Unload model from RAM/VRAM"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    vscodeApi?.postMessage({ command: 'unloadLocalModel', target: 'primary' });
-                                  }}
-                                  className="py-1 px-2.5 rounded text-[11px] font-medium bg-red-500/15 hover:bg-red-500/25 text-red-400 border border-red-500/20 transition-colors cursor-pointer shrink-0"
-                                >
-                                  ⏏ Unload
-                                </button>
-                              </div>
-                            </div>
-                          ) : (
-                            <div className="rounded-xl p-2.5 border border-dashed border-white/10 bg-white/[0.02] flex items-center justify-between gap-2">
-                              <div className="flex flex-col">
-                                <span className="text-xs text-zinc-400 font-medium">No LLM loaded</span>
-                                <span className="text-[10px] text-zinc-500 font-mono">Select a model below to load</span>
                               </div>
                               <button
                                 type="button"
-                                onClick={() => setModelFilterTab('llm')}
-                                className="px-2.5 py-1 rounded text-[11px] font-semibold bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30 transition-colors cursor-pointer shrink-0"
+                                title="Unload model"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  vscodeApi?.postMessage({ command: 'unloadLocalModel', target: 'primary' });
+                                }}
+                                className="px-2 py-1 rounded text-[11px] font-medium text-zinc-400 hover:text-red-400 hover:bg-red-500/10 transition-colors cursor-pointer shrink-0"
                               >
-                                + Load LLM
+                                Unload
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="rounded-lg p-2.5 border border-dashed border-white/10 bg-white/[0.02] flex items-center justify-between gap-2">
+                              <span className="text-xs text-zinc-400">No model loaded</span>
+                              <button
+                                type="button"
+                                onClick={() => setModelFilterTab('llm')}
+                                className="px-2 py-1 rounded text-xs font-medium text-zinc-300 bg-white/10 hover:bg-white/15 transition-colors cursor-pointer"
+                              >
+                                Select Model
                               </button>
                             </div>
                           )}
                         </div>
 
                         {/* Visual & Diffusion Engine */}
-                        <div className="p-2.5">
-                          <div className="px-1 py-1 text-[9px] font-bold text-zinc-400 uppercase tracking-widest flex items-center justify-between mb-1.5">
+                        <div className="p-3">
+                          <div className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider flex items-center justify-between mb-2 select-none">
                             <span className="flex items-center gap-1.5">
-                              <span className={`w-2 h-2 rounded-full ${activeDiffusionModel ? 'bg-cyan-400 animate-pulse shadow-sm shadow-cyan-400/50' : 'bg-zinc-600'}`}></span>
-                              Visual & Diffusion Engine
+                              <span className={`w-2 h-2 rounded-full ${activeDiffusionModel ? 'bg-cyan-400' : 'bg-zinc-600'}`} />
+                              Visual & Diffusion
                             </span>
-                            <span className="font-mono text-[9px] text-zinc-500">Port 47992 (Vulkan)</span>
+                            <span className="text-zinc-500 font-mono text-[10px]">
+                              {activeDiffusionModel ? 'Ready' : 'Offline'}
+                            </span>
                           </div>
                           {activeDiffusionModel ? (
-                            <div className="rounded-xl p-2.5 bg-cyan-500/10 border border-cyan-500/25 flex flex-col gap-2">
-                              <div className="flex items-center justify-between gap-2">
+                            <div className="rounded-lg p-2.5 bg-zinc-900/80 border border-white/5 flex items-center justify-between gap-2">
+                              <div className="flex flex-col min-w-0">
                                 <span className="font-semibold text-xs text-zinc-100 truncate" title={activeDiffusionModel}>
                                   {formatModelDisplayName(activeDiffusionModel)}
                                 </span>
-                                <span className="px-1.5 py-0.5 rounded text-[9px] font-mono bg-cyan-500/20 text-cyan-300 shrink-0">
-                                  ✦ Port 47992
+                                <span className="text-[10px] text-zinc-400 font-mono">
+                                  Active for Images
                                 </span>
-                              </div>
-                              <div className="flex items-center gap-1.5">
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    handleModelChange?.(`diffusion:${activeDiffusionModel}`);
-                                    setModelDropdownOpen(false);
-                                  }}
-                                  className={`flex-1 py-1 px-2 rounded text-[11px] font-medium text-center transition-colors cursor-pointer ${
-                                    selectedModel?.startsWith('diffusion:')
-                                      ? 'bg-cyan-500 text-black font-semibold'
-                                      : 'bg-white/10 hover:bg-white/15 text-zinc-200'
-                                  }`}
-                                >
-                                  {selectedModel?.startsWith('diffusion:')
-                                    ? '✦ Active for Images'
-                                    : 'Select for Image Gen'}
-                                </button>
-                                <button
-                                  type="button"
-                                  title="Unload diffusion model"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    vscodeApi?.postMessage({ command: 'unloadLocalModel', target: 'diffusion' });
-                                  }}
-                                  className="py-1 px-2.5 rounded text-[11px] font-medium bg-red-500/15 hover:bg-red-500/25 text-red-400 border border-red-500/20 transition-colors cursor-pointer shrink-0"
-                                >
-                                  ⏏ Unload
-                                </button>
-                              </div>
-                            </div>
-                          ) : (
-                            <div className="rounded-xl p-2.5 border border-dashed border-white/10 bg-white/[0.02] flex items-center justify-between gap-2">
-                              <div className="flex flex-col">
-                                <span className="text-xs text-zinc-400 font-medium">No Image Model loaded</span>
-                                <span className="text-[10px] text-zinc-500 font-mono">Load SD/Turbo/Flux into Port 47992</span>
                               </div>
                               <button
                                 type="button"
-                                onClick={() => setModelFilterTab('diffusion')}
-                                className="px-2.5 py-1 rounded text-[11px] font-semibold bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/30 transition-colors cursor-pointer shrink-0"
+                                title="Unload diffusion model"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  vscodeApi?.postMessage({ command: 'unloadLocalModel', target: 'diffusion' });
+                                }}
+                                className="px-2 py-1 rounded text-[11px] font-medium text-zinc-400 hover:text-red-400 hover:bg-red-500/10 transition-colors cursor-pointer shrink-0"
                               >
-                                + Load Image Model
+                                Unload
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="rounded-lg p-2.5 border border-dashed border-white/10 bg-white/[0.02] flex items-center justify-between gap-2">
+                              <span className="text-xs text-zinc-400">No image model</span>
+                              <button
+                                type="button"
+                                onClick={() => setModelFilterTab('diffusion')}
+                                className="px-2 py-1 rounded text-xs font-medium text-zinc-300 bg-white/10 hover:bg-white/15 transition-colors cursor-pointer"
+                              >
+                                Select Image Model
                               </button>
                             </div>
                           )}
                         </div>
 
-                        {/* Available Models Quick Switcher & Loader */}
+                        {/* Available Local Models */}
                         {availableLocalModels && availableLocalModels.length > 0 && (
-                          <div className="p-2.5 flex flex-col gap-2">
-                            <div className="flex items-center justify-between">
-                              <span className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest">
-                                Available Models ({availableLocalModels.length})
+                          <div className="p-3 flex flex-col gap-2">
+                            <div className="flex items-center justify-between select-none">
+                              <span className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider">
+                                Local Models ({availableLocalModels.length})
                               </span>
                             </div>
 
                             {/* Filter Tabs */}
-                            <div className="flex items-center gap-1 p-0.5 bg-black/40 rounded-lg border border-white/5 text-[10px]">
+                            <div className="flex items-center gap-1 p-0.5 bg-zinc-900 rounded-lg border border-white/5 text-[10px]">
                               <button
                                 type="button"
                                 onClick={() => setModelFilterTab('all')}
                                 className={`flex-1 py-1 text-center rounded transition-all font-medium cursor-pointer ${
                                   modelFilterTab === 'all'
-                                    ? 'bg-white/15 text-white font-semibold'
+                                    ? 'bg-zinc-800 text-white font-semibold'
                                     : 'text-zinc-400 hover:text-zinc-200'
                                 }`}
                               >
@@ -1781,8 +1686,8 @@ export function ChatScreen({
                                 onClick={() => setModelFilterTab('llm')}
                                 className={`flex-1 py-1 text-center rounded transition-all font-medium cursor-pointer ${
                                   modelFilterTab === 'llm'
-                                    ? 'bg-emerald-500/25 text-emerald-300 font-semibold border border-emerald-500/30'
-                                    : 'text-zinc-400 hover:text-emerald-300'
+                                    ? 'bg-zinc-800 text-white font-semibold'
+                                    : 'text-zinc-400 hover:text-zinc-200'
                                 }`}
                               >
                                 LLMs ({llmModels.length})
@@ -1792,8 +1697,8 @@ export function ChatScreen({
                                 onClick={() => setModelFilterTab('diffusion')}
                                 className={`flex-1 py-1 text-center rounded transition-all font-medium cursor-pointer ${
                                   modelFilterTab === 'diffusion'
-                                    ? 'bg-cyan-500/25 text-cyan-300 font-semibold border border-cyan-500/30'
-                                    : 'text-zinc-400 hover:text-cyan-300'
+                                    ? 'bg-zinc-800 text-white font-semibold'
+                                    : 'text-zinc-400 hover:text-zinc-200'
                                 }`}
                               >
                                 Image ({diffModels.length})
@@ -1803,8 +1708,8 @@ export function ChatScreen({
                                 onClick={() => setModelFilterTab('projector')}
                                 className={`flex-1 py-1 text-center rounded transition-all font-medium cursor-pointer ${
                                   modelFilterTab === 'projector'
-                                    ? 'bg-purple-500/25 text-purple-300 font-semibold border border-purple-500/30'
-                                    : 'text-zinc-400 hover:text-purple-300'
+                                    ? 'bg-zinc-800 text-white font-semibold'
+                                    : 'text-zinc-400 hover:text-zinc-200'
                                 }`}
                               >
                                 Vision ({projModels.length})
@@ -1812,7 +1717,7 @@ export function ChatScreen({
                             </div>
 
                             {/* Model List */}
-                            <div className="space-y-1.5 max-h-48 overflow-y-auto scrollbar-thin pr-1">
+                            <div className="space-y-1 max-h-48 overflow-y-auto scrollbar-thin pr-1">
                               {filteredModels.length === 0 ? (
                                 <div className="py-4 text-center text-xs text-zinc-500 font-mono">
                                   No models in this category
@@ -1826,133 +1731,47 @@ export function ChatScreen({
                                   return (
                                     <div
                                       key={m.id}
-                                      className={`p-2 rounded-xl text-xs flex flex-col gap-1.5 border transition-all ${
-                                        isCurrentActiveLlm
-                                          ? 'bg-emerald-950/25 border-emerald-500/30'
-                                          : isCurrentActiveDiff
-                                            ? 'bg-cyan-950/25 border-cyan-500/30'
-                                            : 'bg-zinc-900/50 hover:bg-zinc-900/80 border-white/5'
+                                      onClick={() => {
+                                        if (m.category === 'diffusion') {
+                                          handleModelChange?.(`diffusion:${modelBaseName}`);
+                                          vscodeApi?.postMessage({ command: 'loadLocalModel', modelId: m.id, target: 'diffusion' });
+                                        } else {
+                                          handleModelChange?.(`local:${modelBaseName}`);
+                                          vscodeApi?.postMessage({ command: 'loadLocalModel', modelId: m.id, target: 'primary' });
+                                        }
+                                        setModelDropdownOpen(false);
+                                      }}
+                                      className={`p-2 rounded-lg text-xs flex items-center justify-between border transition-all cursor-pointer ${
+                                        isCurrentActiveLlm || isCurrentActiveDiff
+                                          ? 'bg-zinc-800/80 border-white/15'
+                                          : 'bg-zinc-900/40 hover:bg-zinc-900/80 border-white/5'
                                       }`}
                                     >
-                                      {/* Top row: Name & Category Badge */}
-                                      <div className="flex items-center justify-between gap-2">
-                                        <span className="font-medium text-zinc-200 truncate flex-1" title={m.id}>
+                                      <div className="flex flex-col min-w-0 pr-2">
+                                        <span className="font-medium text-zinc-200 truncate" title={m.id}>
                                           {formatModelDisplayName(modelBaseName)}
                                         </span>
-                                        {m.category === 'diffusion' && (
-                                          <span className="px-1.5 py-0.5 rounded text-[9px] font-bold font-mono bg-cyan-500/15 text-cyan-300 border border-cyan-500/25 shrink-0">
-                                            IMAGE GEN
-                                          </span>
-                                        )}
-                                        {m.category === 'llm' && (
-                                          <span className="px-1.5 py-0.5 rounded text-[9px] font-bold font-mono bg-emerald-500/15 text-emerald-300 border border-emerald-500/25 shrink-0">
-                                            LLM
-                                          </span>
-                                        )}
-                                        {m.category === 'projector' && (
-                                          <span className="px-1.5 py-0.5 rounded text-[9px] font-bold font-mono bg-purple-500/15 text-purple-300 border border-purple-500/25 shrink-0">
-                                            VISION PROJ
-                                          </span>
-                                        )}
-                                      </div>
-
-                                      {/* Bottom row: Meta & Load/Unload Actions */}
-                                      <div className="flex items-center justify-between gap-2">
-                                        <div className="flex items-center gap-1.5 text-[10px] font-mono text-zinc-400">
+                                        <div className="flex items-center gap-1.5 text-[10px] font-mono text-zinc-500">
                                           <span>{m.size_display || 'Local'}</span>
                                           {m.quantization && (
                                             <>
-                                              <span className="text-zinc-600">•</span>
+                                              <span>•</span>
                                               <span>{m.quantization}</span>
                                             </>
                                           )}
                                         </div>
+                                      </div>
 
-                                        <div className="flex items-center gap-1 shrink-0">
-                                          {m.category === 'diffusion' && (
-                                            isCurrentActiveDiff ? (
-                                              <div className="flex items-center gap-1">
-                                                <button
-                                                  type="button"
-                                                  onClick={() => {
-                                                    handleModelChange?.(`diffusion:${modelBaseName}`);
-                                                    setModelDropdownOpen(false);
-                                                  }}
-                                                  className={`px-2 py-0.5 text-[10px] font-semibold rounded transition-colors cursor-pointer ${
-                                                    selectedModel === `diffusion:${modelBaseName}`
-                                                      ? 'bg-cyan-500 text-black font-bold'
-                                                      : 'bg-cyan-500/20 text-cyan-300 hover:bg-cyan-500/30'
-                                                  }`}
-                                                >
-                                                  {selectedModel === `diffusion:${modelBaseName}` ? '✦ Selected' : 'Select'}
-                                                </button>
-                                                <button
-                                                  type="button"
-                                                  onClick={() => vscodeApi?.postMessage({ command: 'unloadLocalModel', target: 'diffusion' })}
-                                                  className="px-1.5 py-0.5 text-[9px] bg-red-500/15 hover:bg-red-500/25 text-red-400 rounded transition-colors cursor-pointer"
-                                                >
-                                                  Unload
-                                                </button>
-                                              </div>
-                                            ) : (
-                                              <button
-                                                type="button"
-                                                onClick={() => {
-                                                  handleModelChange?.(`diffusion:${modelBaseName}`);
-                                                  vscodeApi?.postMessage({ command: 'loadLocalModel', modelId: m.id, target: 'diffusion' });
-                                                }}
-                                                className="px-2 py-0.5 text-[10px] font-semibold bg-cyan-500/20 hover:bg-cyan-500/35 text-cyan-300 rounded border border-cyan-500/30 transition-colors cursor-pointer"
-                                              >
-                                                Load Diffusion
-                                              </button>
-                                            )
-                                          )}
-
-                                          {m.category === 'llm' && (
-                                            isCurrentActiveLlm ? (
-                                              <div className="flex items-center gap-1">
-                                                <button
-                                                  type="button"
-                                                  onClick={() => {
-                                                    handleModelChange?.(`local:${modelBaseName}`);
-                                                    setModelDropdownOpen(false);
-                                                  }}
-                                                  className={`px-2 py-0.5 text-[10px] font-semibold rounded transition-colors cursor-pointer ${
-                                                    selectedModel === `local:${modelBaseName}`
-                                                      ? 'bg-emerald-500 text-black font-bold'
-                                                      : 'bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30'
-                                                  }`}
-                                                >
-                                                  {selectedModel === `local:${modelBaseName}` ? '✓ Selected' : 'Select'}
-                                                </button>
-                                                <button
-                                                  type="button"
-                                                  onClick={() => vscodeApi?.postMessage({ command: 'unloadLocalModel', target: 'primary' })}
-                                                  className="px-1.5 py-0.5 text-[9px] bg-red-500/15 hover:bg-red-500/25 text-red-400 rounded transition-colors cursor-pointer"
-                                                >
-                                                  Unload
-                                                </button>
-                                              </div>
-                                            ) : (
-                                              <button
-                                                type="button"
-                                                onClick={() => {
-                                                  handleModelChange?.(`local:${modelBaseName}`);
-                                                  vscodeApi?.postMessage({ command: 'loadLocalModel', modelId: m.id, target: 'primary' });
-                                                }}
-                                                className="px-2 py-0.5 text-[10px] font-semibold bg-emerald-500/20 hover:bg-emerald-500/35 text-emerald-300 rounded border border-emerald-500/30 transition-colors cursor-pointer"
-                                              >
-                                                Load in RAM
-                                              </button>
-                                            )
-                                          )}
-
-                                          {m.category === 'projector' && (
-                                            <span className="text-[9px] font-mono text-zinc-500">
-                                              Vision Clip
-                                            </span>
-                                          )}
-                                        </div>
+                                      <div className="flex items-center gap-1.5 shrink-0">
+                                        {isCurrentActiveLlm || isCurrentActiveDiff ? (
+                                          <span className="text-[10px] font-medium text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20">
+                                            Active
+                                          </span>
+                                        ) : (
+                                          <span className="text-[10px] font-medium text-zinc-400 hover:text-zinc-200">
+                                            Select
+                                          </span>
+                                        )}
                                       </div>
                                     </div>
                                   );
@@ -1964,19 +1783,19 @@ export function ChatScreen({
                       </div>
 
                       {/* Actions */}
-                      <div className="p-2 bg-black/30 flex flex-col gap-1">
+                      <div className="p-2 bg-zinc-950 border-t border-white/5 flex flex-col gap-1">
                         <button
                           onClick={() => {
                             vscodeApi?.postMessage({ command: 'openSettings' });
                             setModelDropdownOpen(false);
                           }}
-                          className="w-full flex items-center justify-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium text-zinc-300 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+                          className="w-full flex items-center justify-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium text-zinc-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer"
                         >
                           <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                           </svg>
-                          Hardware & Engine Settings
+                          <span>Hardware & Engine Settings</span>
                         </button>
                       </div>
                     </div>

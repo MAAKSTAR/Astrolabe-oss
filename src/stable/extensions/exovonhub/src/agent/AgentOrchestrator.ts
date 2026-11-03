@@ -541,14 +541,14 @@ MANDATORY RULES:
           brainContext = await this.brainCoordinator.contextCard(prompt);
         }
 
-        // Add project brain context to system instruction
-        fullSystemInstruction = `${systemInstruction}${goalContext}${memoryContext}${constitutionContext}${agentRulesContext}\n\n${brainContext}`;
+        // Keep system instruction 100% static across all turns to preserve KV cache prefix hit rate
+        fullSystemInstruction = `${systemInstruction}${goalContext}${memoryContext}${constitutionContext}${agentRulesContext}`;
       } else {
         if (this.brainCoordinator) {
           await this.brainCoordinator.forceFlushNow();
           brainContext = await this.brainCoordinator.contextCard(prompt);
         }
-        fullSystemInstruction = `${systemInstruction}\n\n${brainContext}`;
+        fullSystemInstruction = `${systemInstruction}`;
       }
 
       // BP-6: Input Sanitization - Safely truncate prompt to prevent token limit crashes
@@ -603,7 +603,7 @@ MANDATORY RULES:
           }
         }
         
-        const initialParts: any[] = [{ text: `<|USER_PROMPT_START|>\n${sanitizedPrompt}\n<|USER_PROMPT_END|>` }];
+        const initialParts: any[] = [{ text: sanitizedPrompt }];
         if (images && images.length > 0) {
           for (const imgBase64 of images) {
             let b64Data = imgBase64;
@@ -624,7 +624,7 @@ MANDATORY RULES:
           { role: 'user', parts: initialParts }
         ];
       } else {
-        const initialParts: any[] = [{ text: `<|USER_PROMPT_START|>\n${sanitizedPrompt}\n<|USER_PROMPT_END|>` }];
+        const initialParts: any[] = [{ text: sanitizedPrompt }];
         if (images && images.length > 0) {
           for (const imgBase64 of images) {
             let b64Data = imgBase64;
