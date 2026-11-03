@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { extractModelMetadata } from './modelUtils';
 import { ModelInspector } from './ModelInspector';
 import { ModelOrgAvatar } from './ModelOrgAvatar';
+import { ModelCapabilityBadges } from './ModelCapabilityIcons';
 
 export interface LocalModelsViewProps {
   localModels: any[];
@@ -310,6 +311,16 @@ export const LocalModelsView: React.FC<LocalModelsViewProps> = ({
                       >
                         {meta.displayName}
                       </span>
+                      <ModelCapabilityBadges
+                        capabilities={{
+                          isVision: meta.isVision,
+                          isToolUse: meta.isToolUse,
+                          isReasoning: meta.isReasoning,
+                          isImageGen: meta.isDiffusion,
+                          isAudio: false
+                        }}
+                        showLlmFallback={false}
+                      />
                       {isPrimary && (
                         <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shrink-0">
                           <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />

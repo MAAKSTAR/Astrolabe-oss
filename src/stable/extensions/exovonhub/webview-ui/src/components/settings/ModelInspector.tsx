@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { extractModelMetadata, type ModelMetadata } from './modelUtils';
 import { ModelOrgAvatar } from './ModelOrgAvatar';
+import { ModelCapabilityBadges } from './ModelCapabilityIcons';
 
 export interface ModelInspectorProps {
   model: any; // local model object: { id, name, size, modified, quant, params, architecture, path, etc. }
@@ -26,21 +27,51 @@ export const ModelInspector: React.FC<ModelInspectorProps> = ({
   const [activeTab, setActiveTab] = useState<'overview' | 'tuning' | 'roles'>('overview');
   const [copiedPath, setCopiedPath] = useState(false);
 
+  const meta: ModelMetadata = useMemo(() => {
+    return extractModelMetadata(model?.id, model);
+  }, [model]);
+
+  const maxContextSupported = useMemo(() => {
+    return meta.maxContextLength || 131072;
+  }, [meta.maxContextLength]);
+
+  const totalModelLayers = useMemo(() => {
+    return meta.totalLayers || 33;
+  }, [meta.totalLayers]);
+
   // Tuning Parameters State
   const [ctxSize, setCtxSize] = useState<number>(() => {
     if (daemonHealth?.ctx_size && (daemonHealth?.active_model === model?.id || activeLocalModel === model?.id)) {
       return daemonHealth.ctx_size;
     }
-    return 8192;
+    return Math.min(8192, maxContextSupported);
   });
-  const [nGPULayers, setNGPULayers] = useState<number>(99);
+  const [nGPULayers, setNGPULayers] = useState<number>(() => totalModelLayers);
   const [temperature, setTemperature] = useState<number>(0.7);
   const [nThreads, setNThreads] = useState<number>(4);
+  const [nBatch, setNBatch] = useState<number>(2048);
+  const [nUbatch, setNUbatch] = useState<number>(512);
   const [flashAttn, setFlashAttn] = useState<boolean>(true);
+  const [useMmap, setUseMmap] = useState<boolean>(true);
 
-  const meta: ModelMetadata = useMemo(() => {
-    return extractModelMetadata(model?.id, model);
-  }, [model]);
+  // Live estimated memory calculation (LM Studio style)
+  const { estGpuGb, estTotalGb } = useMemo(() => {
+    const rawSizeBytes = model?.size_bytes || meta.sizeBytes || 4.5 * 1024 * 1024 * 1024;
+    const sizeGb = rawSizeBytes / (1024 * 1024 * 1024);
+    const layers = totalModelLayers || 33;
+    const gpuRatio = Math.min(1, Math.max(0, nGPULayers / layers));
+    
+    // KV Cache estimation: ~0.12 GB per 1024 tokens for typical models
+    const kvCacheTotalGb = (ctxSize / 1024) * 0.125;
+    const kvCacheGpuGb = gpuRatio > 0 ? kvCacheTotalGb * gpuRatio : 0;
+    
+    // Engine CUDA/Vulkan context overhead (~0.35 GB)
+    const contextOverheadGb = gpuRatio > 0 ? 0.35 : 0.05;
+    
+    const gpuGb = (sizeGb * gpuRatio + kvCacheGpuGb + contextOverheadGb).toFixed(2);
+    const totalGb = (sizeGb + kvCacheTotalGb + 0.5).toFixed(2);
+    return { estGpuGb: gpuGb, estTotalGb: totalGb };
+  }, [model?.size_bytes, meta.sizeBytes, totalModelLayers, nGPULayers, ctxSize]);
 
   // Determine current active status
   const isPrimary = useMemo(() => {
@@ -100,8 +131,11 @@ export const ModelInspector: React.FC<ModelInspectorProps> = ({
       ctxSize,
       nGPULayers,
       nThreads,
-      temperature,
-      flashAttn
+      nBatch,
+      nUbatch,
+      flashAttn,
+      useMmap,
+      temperature
     });
   };
 
@@ -120,7 +154,10 @@ export const ModelInspector: React.FC<ModelInspectorProps> = ({
     });
   };
 
-  const CONTEXT_PRESETS = [2048, 4096, 8192, 16384, 32768];
+  const ALL_CONTEXT_PRESETS = [2048, 4096, 8192, 16384, 32768, 65536, 131072, 262144];
+  const contextPresets = useMemo(() => {
+    return ALL_CONTEXT_PRESETS.filter(val => val <= maxContextSupported || val <= 8192);
+  }, [maxContextSupported]);
 
   return (
     <div className="flex flex-col h-full bg-[#18181b] border border-white/10 rounded-2xl overflow-hidden shadow-2xl backdrop-blur-xl">
@@ -137,6 +174,18 @@ export const ModelInspector: React.FC<ModelInspectorProps> = ({
                 >
                   {meta.displayName}
                 </h2>
+
+                {/* SVG Capability Badges */}
+                <ModelCapabilityBadges
+                  capabilities={{
+                    isVision: meta.isVision,
+                    isToolUse: meta.isToolUse,
+                    isReasoning: meta.isReasoning,
+                    isImageGen: meta.isDiffusion,
+                    isAudio: false
+                  }}
+                  showLlmFallback={false}
+                />
 
                 {/* Status Badges */}
                 {isPrimary && (
@@ -440,21 +489,67 @@ export const ModelInspector: React.FC<ModelInspectorProps> = ({
               </p>
             </div>
 
+            {/* Estimated Memory Usage Bar [Beta] (LM Studio style) */}
+            <div className="bg-[#141416] border border-white/10 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-lg">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-semibold text-zinc-100">Estimated Memory Usage</span>
+                  <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-400 border border-sky-500/20 font-semibold">
+                    Beta
+                  </span>
+                </div>
+                <span className="text-[11px] text-zinc-400 mt-0.5 block">
+                  Estimated VRAM and system memory required to run this model with selected settings.
+                </span>
+              </div>
+              <div className="flex items-center gap-2.5 font-mono text-xs shrink-0">
+                <div className="px-3 py-1.5 rounded-lg bg-zinc-900 border border-white/10 flex items-center gap-1.5">
+                  <span className="text-zinc-400 text-[11px]">GPU:</span>
+                  <span className="text-emerald-400 font-bold">{estGpuGb} GB</span>
+                </div>
+                <div className="px-3 py-1.5 rounded-lg bg-zinc-900 border border-white/10 flex items-center gap-1.5">
+                  <span className="text-zinc-400 text-[11px]">Total:</span>
+                  <span className="text-white font-bold">{estTotalGb} GB</span>
+                </div>
+              </div>
+            </div>
+
             {/* 1. Context Length */}
             <div className="bg-[#141416] border border-white/10 rounded-xl p-4 space-y-3">
               <div className="flex items-center justify-between">
                 <div>
-                  <label className="text-xs font-semibold text-zinc-100 block">Context Length</label>
-                  <span className="text-xs text-zinc-300 mt-0.5 font-normal">Maximum token window for prompt & code context</span>
+                  <div className="flex items-center gap-2">
+                    <label className="text-xs font-semibold text-zinc-100 block">Context Length</label>
+                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-300 border border-white/10">
+                      Model supports up to {maxContextSupported.toLocaleString()} tokens
+                    </span>
+                  </div>
+                  <span className="text-xs text-zinc-400 mt-0.5 font-normal block">
+                    Maximum token window for prompt & code context
+                  </span>
                 </div>
-                <span className="bg-zinc-800/90 text-white font-mono text-xs font-bold px-2 py-0.5 rounded border border-white/10">
-                  {ctxSize.toLocaleString()} tokens ({Math.round(ctxSize / 1024)}K)
-                </span>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min={2048}
+                    max={maxContextSupported}
+                    step={1024}
+                    value={ctxSize}
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value, 10);
+                      if (!isNaN(val)) {
+                        setCtxSize(Math.max(2048, Math.min(maxContextSupported, val)));
+                      }
+                    }}
+                    className="w-24 bg-zinc-900 border border-white/15 rounded-lg px-2.5 py-1 font-mono text-xs text-white text-right focus:outline-none focus:border-white/40"
+                  />
+                  <span className="text-xs text-zinc-400 font-mono">tokens</span>
+                </div>
               </div>
 
               {/* Presets Row */}
               <div className="flex items-center gap-1.5 flex-wrap">
-                {CONTEXT_PRESETS.map((val) => (
+                {contextPresets.map((val) => (
                   <button
                     key={val}
                     type="button"
@@ -465,7 +560,7 @@ export const ModelInspector: React.FC<ModelInspectorProps> = ({
                         : 'bg-zinc-800/80 text-zinc-300 hover:text-white hover:bg-zinc-700 border border-white/10 font-medium'
                     }`}
                   >
-                    {Math.round(val / 1024)}K ({val})
+                    {val >= 1048576 ? `${val / 1048576}M` : `${Math.round(val / 1024)}K`} ({val.toLocaleString()})
                   </button>
                 ))}
               </div>
@@ -474,12 +569,17 @@ export const ModelInspector: React.FC<ModelInspectorProps> = ({
               <input
                 type="range"
                 min="2048"
-                max="32768"
+                max={maxContextSupported}
                 step="1024"
                 value={ctxSize}
                 onChange={(e) => setCtxSize(parseInt(e.target.value, 10))}
                 className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-white"
               />
+              <div className="flex justify-between text-[11px] text-zinc-400 font-mono">
+                <span>2,048 (Minimal)</span>
+                <span>{ctxSize.toLocaleString()} tokens active</span>
+                <span>{maxContextSupported.toLocaleString()} (Max Ceiling)</span>
+              </div>
             </div>
 
             {/* 2. GPU Offload Layers */}
@@ -487,37 +587,182 @@ export const ModelInspector: React.FC<ModelInspectorProps> = ({
               <div className="flex items-center justify-between">
                 <div>
                   <label className="text-xs font-semibold text-zinc-100 block">GPU Offload Layers</label>
-                  <span className="text-xs text-zinc-300 mt-0.5 font-normal">
-                    Layers pushed to VRAM (99 = Full GPU Acceleration)
+                  <span className="text-xs text-zinc-400 mt-0.5 font-normal block">
+                    Layers pushed to VRAM ({nGPULayers >= totalModelLayers ? 'Full GPU Acceleration' : nGPULayers === 0 ? 'CPU Only' : 'Partial Offload'})
                   </span>
                 </div>
-                <span className="bg-zinc-800/90 text-white font-mono text-xs font-bold px-2 py-0.5 rounded border border-white/10">
-                  {nGPULayers >= 99 ? '99 (Full GPU)' : nGPULayers === 0 ? '0 (CPU Only)' : `${nGPULayers} layers`}
-                </span>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min={0}
+                    max={totalModelLayers}
+                    step={1}
+                    value={nGPULayers}
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value, 10);
+                      if (!isNaN(val)) {
+                        setNGPULayers(Math.max(0, Math.min(totalModelLayers, val)));
+                      }
+                    }}
+                    className="w-16 bg-zinc-900 border border-white/15 rounded-lg px-2.5 py-1 font-mono text-xs text-white text-right focus:outline-none focus:border-white/40"
+                  />
+                  <span className="text-xs text-zinc-400 font-mono">/ {totalModelLayers}</span>
+                </div>
               </div>
 
               <input
                 type="range"
                 min="0"
-                max="99"
+                max={totalModelLayers}
                 step="1"
                 value={nGPULayers}
                 onChange={(e) => setNGPULayers(parseInt(e.target.value, 10))}
                 className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-white"
               />
               <div className="flex justify-between text-[11px] text-zinc-400 font-mono">
-                <span>0 (CPU)</span>
-                <span>Partial Offload</span>
-                <span>99 (Max VRAM)</span>
+                <span>0 (CPU Only)</span>
+                <span>{nGPULayers} of {totalModelLayers} layers</span>
+                <span>{totalModelLayers} (Full GPU)</span>
               </div>
             </div>
 
-            {/* 3. Temperature */}
+            {/* 3. Evaluation & Physical Batch Sizes */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {/* Evaluation Batch Size */}
+              <div className="bg-[#141416] border border-white/10 rounded-xl p-4 space-y-2">
+                <label className="text-xs font-semibold text-zinc-100 block">Evaluation Batch Size (n_batch)</label>
+                <span className="text-[11px] text-zinc-400 block">Prompt processing evaluation chunk size</span>
+                <div className="flex items-center gap-1.5 pt-1">
+                  {[512, 1024, 2048, 4096].map((b) => (
+                    <button
+                      key={b}
+                      type="button"
+                      onClick={() => setNBatch(b)}
+                      className={`flex-1 py-1 rounded text-xs font-mono transition-colors cursor-pointer ${
+                        nBatch === b
+                          ? 'bg-white text-zinc-950 font-bold'
+                          : 'bg-zinc-800 text-zinc-300 hover:text-white border border-white/10'
+                      }`}
+                    >
+                      {b}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Physical Batch Size */}
+              <div className="bg-[#141416] border border-white/10 rounded-xl p-4 space-y-2">
+                <label className="text-xs font-semibold text-zinc-100 block">Physical Batch Size (n_ubatch)</label>
+                <span className="text-[11px] text-zinc-400 block">Physical micro-batch size for GPU execution</span>
+                <div className="flex items-center gap-1.5 pt-1">
+                  {[128, 256, 512, 1024].map((ub) => (
+                    <button
+                      key={ub}
+                      type="button"
+                      onClick={() => setNUbatch(ub)}
+                      className={`flex-1 py-1 rounded text-xs font-mono transition-colors cursor-pointer ${
+                        nUbatch === ub
+                          ? 'bg-white text-zinc-950 font-bold'
+                          : 'bg-zinc-800 text-zinc-300 hover:text-white border border-white/10'
+                      }`}
+                    >
+                      {ub}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* 4. CPU Thread Count */}
+            <div className="bg-[#141416] border border-white/10 rounded-xl p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <label className="text-xs font-semibold text-zinc-100 block">CPU Thread Pool Size</label>
+                  <span className="text-xs text-zinc-400 mt-0.5 font-normal">Compute threads for CPU layers and matrix operations</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min={1}
+                    max={16}
+                    step={1}
+                    value={nThreads}
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value, 10);
+                      if (!isNaN(val)) setNThreads(Math.max(1, Math.min(16, val)));
+                    }}
+                    className="w-16 bg-zinc-900 border border-white/15 rounded-lg px-2.5 py-1 font-mono text-xs text-white text-right focus:outline-none focus:border-white/40"
+                  />
+                  <span className="text-xs text-zinc-400 font-mono">threads</span>
+                </div>
+              </div>
+
+              <input
+                type="range"
+                min="1"
+                max="16"
+                step="1"
+                value={nThreads}
+                onChange={(e) => setNThreads(parseInt(e.target.value, 10))}
+                className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-white"
+              />
+            </div>
+
+            {/* 5. Kernel Toggles: Flash Attention & Try mmap */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {/* Flash Attention */}
+              <div className="bg-[#141416] border border-white/10 rounded-xl p-4 flex items-center justify-between">
+                <div>
+                  <label className="text-xs font-semibold text-zinc-100 block">Flash Attention (FA2)</label>
+                  <span className="text-[11px] text-zinc-400 mt-0.5 block">
+                    Tiled on-chip attention (2-3x speedup, lower VRAM)
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setFlashAttn(!flashAttn)}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors cursor-pointer border border-white/10 shrink-0 ${
+                    flashAttn ? 'bg-white' : 'bg-zinc-800'
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full transition-transform ${
+                      flashAttn ? 'translate-x-6 bg-zinc-950' : 'translate-x-1 bg-zinc-400'
+                    }`}
+                  />
+                </button>
+              </div>
+
+              {/* Try mmap() */}
+              <div className="bg-[#141416] border border-white/10 rounded-xl p-4 flex items-center justify-between">
+                <div>
+                  <label className="text-xs font-semibold text-zinc-100 block">Memory Mapping (mmap)</label>
+                  <span className="text-[11px] text-zinc-400 mt-0.5 block">
+                    Zero-copy disk memory-mapping (fast startup)
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setUseMmap(!useMmap)}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors cursor-pointer border border-white/10 shrink-0 ${
+                    useMmap ? 'bg-white' : 'bg-zinc-800'
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full transition-transform ${
+                      useMmap ? 'translate-x-6 bg-zinc-950' : 'translate-x-1 bg-zinc-400'
+                    }`}
+                  />
+                </button>
+              </div>
+            </div>
+
+            {/* 6. Sampling Temperature */}
             <div className="bg-[#141416] border border-white/10 rounded-xl p-4 space-y-3">
               <div className="flex items-center justify-between">
                 <div>
                   <label className="text-xs font-semibold text-zinc-100 block">Sampling Temperature</label>
-                  <span className="text-xs text-zinc-300 mt-0.5 font-normal">
+                  <span className="text-xs text-zinc-400 mt-0.5 font-normal block">
                     Lower values produce more deterministic code; higher values are more creative
                   </span>
                 </div>
@@ -542,53 +787,7 @@ export const ModelInspector: React.FC<ModelInspectorProps> = ({
               </div>
             </div>
 
-            {/* 4. CPU Thread Count */}
-            <div className="bg-[#141416] border border-white/10 rounded-xl p-4 space-y-3">
-              <div className="flex items-center justify-between">
-                <div>
-                  <label className="text-xs font-semibold text-zinc-100 block">CPU Thread Count</label>
-                  <span className="text-xs text-zinc-300 mt-0.5 font-normal">Compute threads for CPU layers and matrix operations</span>
-                </div>
-                <span className="bg-zinc-800/90 text-white font-mono text-xs font-bold px-2 py-0.5 rounded border border-white/10">
-                  {nThreads} threads
-                </span>
-              </div>
-
-              <input
-                type="range"
-                min="1"
-                max="16"
-                step="1"
-                value={nThreads}
-                onChange={(e) => setNThreads(parseInt(e.target.value, 10))}
-                className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-white"
-              />
-            </div>
-
-            {/* 5. Flash Attention Toggle */}
-            <div className="bg-[#141416] border border-white/10 rounded-xl p-4 flex items-center justify-between">
-              <div>
-                <label className="text-xs font-semibold text-zinc-100 block">Flash Attention (FA2)</label>
-                <span className="text-xs text-zinc-300 mt-0.5 font-normal">
-                  Saves memory & accelerates prompt processing on modern GPUs
-                </span>
-              </div>
-              <button
-                type="button"
-                onClick={() => setFlashAttn(!flashAttn)}
-                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors cursor-pointer border border-white/10 ${
-                  flashAttn ? 'bg-white' : 'bg-zinc-800'
-                }`}
-              >
-                <span
-                  className={`inline-block h-4 w-4 transform rounded-full transition-transform ${
-                    flashAttn ? 'translate-x-6 bg-zinc-950' : 'translate-x-1 bg-zinc-400'
-                  }`}
-                />
-              </button>
-            </div>
-
-            {/* 6. Commit Button */}
+            {/* 7. Commit Button */}
             <div className="pt-2">
               <button
                 type="button"

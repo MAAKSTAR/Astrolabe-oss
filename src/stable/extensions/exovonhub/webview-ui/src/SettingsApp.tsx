@@ -4,10 +4,11 @@ import rehypeHighlight from 'rehype-highlight';
 import remarkGfm from 'remark-gfm';
 import { ModelOrgAvatar, KNOWN_ORG_LOGOS } from './components/settings/ModelOrgAvatar';
 import { TrustedBadge, isTrustedPublisher } from './components/settings/TrustedBadge';
+import { ModelCapabilityBadges } from './components/settings/ModelCapabilityIcons';
 import { SystemEngineView } from './components/settings/SystemEngineView';
 import { LocalModelsView } from './components/settings/LocalModelsView';
 
-export { ModelOrgAvatar, KNOWN_ORG_LOGOS, TrustedBadge, isTrustedPublisher };
+export { ModelOrgAvatar, KNOWN_ORG_LOGOS, TrustedBadge, isTrustedPublisher, ModelCapabilityBadges };
 
 const REMARK_PLUGINS = [remarkGfm];
 const REHYPE_PLUGINS = [rehypeHighlight];
@@ -1805,36 +1806,7 @@ export default function SettingsApp() {
 
                                   {/* Right Capability Tags & Timestamp */}
                                   <div className="flex items-center gap-1.5 shrink-0">
-                                    {caps.isVision && (
-                                      <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-medium bg-zinc-800 text-zinc-300 border border-white/10" title="Vision Multimodal (Understands Images)">
-                                        Vision
-                                      </span>
-                                    )}
-                                    {caps.isReasoning && (
-                                      <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-medium bg-zinc-800 text-zinc-300 border border-white/10" title="Deep Reasoning & Thinking (CoT)">
-                                        Reasoning
-                                      </span>
-                                    )}
-                                    {caps.isToolUse && (
-                                      <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-medium bg-zinc-800 text-zinc-300 border border-white/10" title="Tool Calling / Agent Functions">
-                                        Tools
-                                      </span>
-                                    )}
-                                    {caps.isImageGen && (
-                                      <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-medium bg-zinc-800 text-zinc-300 border border-white/10" title="Image Generation / Diffusion">
-                                        Image
-                                      </span>
-                                    )}
-                                    {caps.isAudio && (
-                                      <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-medium bg-zinc-800 text-zinc-300 border border-white/10" title="Voice & Speech / TTS">
-                                        TTS
-                                      </span>
-                                    )}
-                                    {!caps.isVision && !caps.isImageGen && !caps.isAudio && !caps.isReasoning && (
-                                      <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-medium bg-zinc-800 text-zinc-300 border border-white/10" title="Language Model">
-                                        LLM
-                                      </span>
-                                    )}
+                                    <ModelCapabilityBadges capabilities={caps} />
                                     <span className="text-xs text-zinc-400 font-mono ml-1 flex items-center gap-1">
                                       {formatRelativeTime(m.lastModified)}
                                     </span>

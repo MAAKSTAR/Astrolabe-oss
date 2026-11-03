@@ -18,6 +18,8 @@ export interface ModelMetadata {
   isToolUse: boolean;
   isReasoning: boolean;
   isEmbedding: boolean;
+  maxContextLength?: number;
+  totalLayers?: number;
 }
 
 export function cleanModelId(rawId?: string): string {
@@ -161,6 +163,21 @@ export function extractModelMetadata(rawId?: string, modelObj?: any): ModelMetad
     modelObj?.size ||
     (modelObj?.size_bytes ? formatBytes(modelObj.size_bytes) : '-');
 
+  // Context & Layer Metadata
+  let maxContextLength = modelObj?.max_context_length || modelObj?.context_length;
+  if (!maxContextLength || maxContextLength <= 0) {
+    const lower = clean.toLowerCase();
+    if (lower.includes('qwen') || lower.includes('llama-3') || lower.includes('llama3') || lower.includes('deepseek') || lower.includes('lfm') || lower.includes('liquid')) {
+      maxContextLength = 131072;
+    } else if (lower.includes('mistral') || lower.includes('mixtral') || lower.includes('gemma')) {
+      maxContextLength = 32768;
+    } else {
+      maxContextLength = 131072;
+    }
+  }
+
+  const totalLayers = modelObj?.total_layers || 33;
+
   const filePath = modelObj?.path || clean;
 
   return {
@@ -182,6 +199,8 @@ export function extractModelMetadata(rawId?: string, modelObj?: any): ModelMetad
     isDiffusion,
     isToolUse,
     isReasoning,
-    isEmbedding
+    isEmbedding,
+    maxContextLength,
+    totalLayers
   };
 }
