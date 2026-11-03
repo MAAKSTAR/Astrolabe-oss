@@ -4381,8 +4381,8 @@ ${transcript.slice(-15000)}
                     aiMsg.content = textParts;
                 }
                 if (funcCalls.length > 0) {
-                    aiMsg.tool_calls = funcCalls.map((fc) => {
-                        const cid = fc.functionCall.name + '_call_' + Date.now();
+                    aiMsg.tool_calls = funcCalls.map((fc, fcIdx) => {
+                        const cid = fc.functionCall.id || `${fc.functionCall.name}_call_${fcIdx}`;
                         lastCallIds[fc.functionCall.name] = cid;
                         return {
                             id: cid,

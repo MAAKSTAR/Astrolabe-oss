@@ -546,6 +546,144 @@ export function getModelCategory(m: { id?: string; name?: string; architecture?:
   return 'llm';
 }
 
+interface TerminalDashProgressBarProps {
+  msg: Message;
+  modelName: string;
+  isAgentThinking: boolean;
+  onTransitionComplete: () => void;
+}
+
+function TerminalDashProgressBar({
+  msg,
+  modelName,
+  isAgentThinking,
+  onTransitionComplete
+}: TerminalDashProgressBarProps) {
+  const TOTAL_DASHES = 26;
+  const [percent, setPercent] = React.useState<number>(0);
+  const percentRef = React.useRef<number>(0);
+  const isCompletingRef = React.useRef<boolean>(false);
+  const transitionFiredRef = React.useRef<boolean>(false);
+
+  const hasFirstToken = Boolean(msg.text || (msg.timeline && msg.timeline.length > 0));
+  const hasProgress = msg.promptTokens !== undefined && msg.promptTokens > 0;
+  const realPercent = hasProgress && msg.promptProcessed !== undefined
+    ? Math.min(100, Math.max(0, Math.round((msg.promptProcessed / msg.promptTokens!) * 100)))
+    : null;
+
+  // Abort transition if agent stopped thinking
+  React.useEffect(() => {
+    if (!isAgentThinking && !transitionFiredRef.current) {
+      transitionFiredRef.current = true;
+      onTransitionComplete();
+    }
+  }, [isAgentThinking, onTransitionComplete]);
+
+  // Handle immediate transition trigger when first token arrives after 100% is reached
+  React.useEffect(() => {
+    if (hasFirstToken && percentRef.current >= 100 && !transitionFiredRef.current) {
+      transitionFiredRef.current = true;
+      const t = setTimeout(() => {
+        onTransitionComplete();
+      }, 120);
+      return () => clearTimeout(t);
+    }
+  }, [hasFirstToken, onTransitionComplete]);
+
+  // Main active interval: Anti-Freeze timer + SSE interpolation + Rapid Fill
+  React.useEffect(() => {
+    const interval = setInterval(() => {
+      if (transitionFiredRef.current) return;
+
+      const shouldComplete = hasFirstToken || (realPercent !== null && realPercent >= 100);
+
+      if (shouldComplete || isCompletingRef.current) {
+        isCompletingRef.current = true;
+        // Rapid fill: rapidly advance dashes to 100%
+        if (percentRef.current < 100) {
+          const step = Math.max(10, Math.round((100 - percentRef.current) * 0.45));
+          const next = Math.min(100, percentRef.current + step);
+          percentRef.current = next;
+          setPercent(next);
+        } else {
+          // At 100%: seamlessly transition into <think> / text stream if first token has arrived
+          if (hasFirstToken || !isAgentThinking) {
+            transitionFiredRef.current = true;
+            clearInterval(interval);
+            setTimeout(() => {
+              onTransitionComplete();
+            }, 120);
+          }
+        }
+      } else {
+        // Normal progress tracking & Anti-Freeze timer
+        if (realPercent !== null) {
+          const target = realPercent;
+          if (percentRef.current < target) {
+            const step = Math.max(1, Math.round((target - percentRef.current) * 0.35));
+            const next = Math.min(target, percentRef.current + step);
+            percentRef.current = next;
+            setPercent(next);
+          }
+        } else {
+          // Anti-freeze: while waiting for initial engine SSE, smoothly creep up to ~28%
+          if (percentRef.current < 28) {
+            const step = percentRef.current < 12 ? 1 : (Math.random() > 0.4 ? 1 : 0);
+            if (step > 0) {
+              const next = percentRef.current + step;
+              percentRef.current = next;
+              setPercent(next);
+            }
+          }
+        }
+      }
+    }, 50);
+
+    return () => clearInterval(interval);
+  }, [hasFirstToken, realPercent, isAgentThinking, onTransitionComplete]);
+
+  const filledCount = Math.max(0, Math.min(TOTAL_DASHES, Math.round((percent / 100) * TOTAL_DASHES)));
+  const unfilledCount = TOTAL_DASHES - filledCount;
+  const filledDashes = '-'.repeat(filledCount);
+  const unfilledDashes = '-'.repeat(unfilledCount);
+
+  let comment = 'percent loading done';
+  if (percent >= 100 || isCompletingRef.current) {
+    comment = 'prompt loaded';
+  } else if (hasProgress) {
+    comment = 'ingesting prompt';
+  }
+
+  return (
+    <div className="py-2.5 px-3.5 my-1.5 w-full bg-zinc-900/60 border border-white/10 rounded-xl font-mono text-[11px] shadow-lg backdrop-blur-md animate-in fade-in duration-200 select-none">
+      {/* Line 1: %model name% */}
+      <div className="flex items-center gap-0.5 text-zinc-400 font-mono text-[11px] tracking-tight mb-1 select-none">
+        <span className="text-amber-500/80 font-bold">%</span>
+        <span className="text-zinc-300 font-medium">{modelName}</span>
+        <span className="text-amber-500/80 font-bold">%</span>
+      </div>
+
+      {/* Line 2: Horizontal Dash Progress Bar */}
+      <div className="flex items-center flex-wrap gap-x-1.5 font-mono text-[11px] leading-tight select-none">
+        <span className="tracking-tighter inline-flex items-center">
+          <span className="text-amber-400 font-bold tracking-tighter drop-shadow-[0_0_6px_rgba(251,191,36,0.5)]">
+            {filledDashes}
+          </span>
+          <span className="text-zinc-700 font-medium tracking-tighter">
+            {unfilledDashes}
+          </span>
+        </span>
+        <span className="text-amber-400/90 font-semibold tracking-tight">
+          ({percent}%)
+        </span>
+        <span className="text-zinc-500 font-normal">
+          // {comment}
+        </span>
+      </div>
+    </div>
+  );
+}
+
 export function ChatScreen({
   messages,
   isAgentThinking,
@@ -608,6 +746,7 @@ export function ChatScreen({
 
   const [showReviewModal, setShowReviewModal] = React.useState(false);
   const [expandedDiffs, setExpandedDiffs] = React.useState<Record<string, boolean>>({});
+  const [promptTransitionDone, setPromptTransitionDone] = React.useState<Record<string, boolean>>({});
   const [showQuotaPopover, setShowQuotaPopover] = React.useState(false);
   const [modelDropdownOpen, setModelDropdownOpen] = React.useState(false);
   const [modelFilterTab, setModelFilterTab] = React.useState<'all' | 'llm' | 'diffusion' | 'projector'>('all');
@@ -759,115 +898,76 @@ export function ChatScreen({
         onScroll={handleScroll}
         className="flex-1 overflow-y-auto space-y-3.5 pr-1 min-h-0 py-2 scrollbar-thin"
       >
-        {messages.map((msg, idx) => (
-          <div
-            key={msg.id}
-            className={`flex flex-col max-w-[90%] ${msg.sender === 'user' ? 'ml-auto items-end' : 'mr-auto items-start'
-              }`}
-          >
-            {/* Thinking/Working Components (Distinct from Chat Response) */}
-            {msg.sender === 'agent' && msg.isGeneratingImage && (
-              <div className="w-full max-w-md flex flex-col items-start gap-2.5 my-3 z-10 animate-in fade-in duration-200">
-                <div className="flex items-center gap-2 text-zinc-200 text-xs font-medium tracking-wide">
-                  <span className="text-emerald-400 animate-pulse text-sm">✦</span>
-                  <span>Creating your image</span>
-                </div>
-                <div className="w-full aspect-square rounded-3xl bg-[#18181b] border border-white/10 relative overflow-hidden flex flex-col items-center justify-center shadow-2xl">
-                  {/* Subtle elegant shimmer pulse */}
-                  <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/[0.04] to-transparent -translate-x-full animate-[shimmer_2s_infinite]" />
-                  <div className="text-center p-6 space-y-2 z-10">
-                    <div className="w-8 h-8 rounded-full border-2 border-emerald-500/20 border-t-emerald-400 animate-spin mx-auto mb-3" />
-                    <div className="text-xs font-mono text-zinc-300 font-semibold">Diffusion Engine (Port 47992)</div>
-                    <div className="text-[11px] font-mono text-zinc-500">Offloading latent tensors to Vulkan GPU...</div>
-                  </div>
-                </div>
-              </div>
-            )}
+        {messages.map((msg, idx) => {
+          const isPromptTransitioning = msg.sender === 'agent' &&
+            !msg.isGeneratingImage &&
+            !msg.isHistory &&
+            !msg.endTime &&
+            idx === messages.length - 1 &&
+            !promptTransitionDone[msg.id] &&
+            isAgentThinking;
 
-            {msg.sender === 'agent' && !msg.isGeneratingImage && msg.timeline && msg.timeline.length > 0 && (
-              <TaskProgressCard msg={msg} />
-            )}
-            
-            {msg.sender === 'agent' && !msg.text && (!msg.timeline || msg.timeline.length === 0) && isAgentThinking && (() => {
-              if (msg.isGeneratingImage) {
-                return (
-                  <div className="py-2.5 px-3.5 my-1.5 flex items-center gap-3 bg-cyan-950/30 border border-cyan-500/20 rounded-xl text-cyan-300 font-mono text-[11px] backdrop-blur-sm shadow-sm animate-in fade-in duration-200">
-                    <div className="relative flex items-center justify-center w-5 h-5 shrink-0">
-                      <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-ping absolute"></span>
-                      <span className="w-2 h-2 rounded-full bg-cyan-400"></span>
-                    </div>
-                    <div className="flex flex-col min-w-0">
-                      <span className="font-semibold text-cyan-200 flex items-center gap-1.5">
-                        <span>Generating Image via Diffusion Engine</span>
-                        <span className="text-[9px] px-1.5 py-0.2 rounded bg-cyan-500/20 text-cyan-300 font-mono">Port 47992</span>
-                      </span>
-                      <span className="text-[9px] text-cyan-400/70 truncate">
-                        {msg.generatedImagePrompt ? `"${msg.generatedImagePrompt}"` : 'Rendering visual asset...'}
-                      </span>
+          return (
+            <div
+              key={msg.id}
+              className={`flex flex-col max-w-[90%] ${msg.sender === 'user' ? 'ml-auto items-end' : 'mr-auto items-start'
+                }`}
+            >
+              {/* Thinking/Working Components (Distinct from Chat Response) */}
+              {msg.sender === 'agent' && msg.isGeneratingImage && (
+                <div className="w-full max-w-md flex flex-col items-start gap-2.5 my-3 z-10 animate-in fade-in duration-200">
+                  <div className="flex items-center gap-2 text-zinc-200 text-xs font-medium tracking-wide">
+                    <span className="text-emerald-400 animate-pulse text-sm">✦</span>
+                    <span>Creating your image</span>
+                  </div>
+                  <div className="w-full aspect-square rounded-3xl bg-[#18181b] border border-white/10 relative overflow-hidden flex flex-col items-center justify-center shadow-2xl">
+                    {/* Subtle elegant shimmer pulse */}
+                    <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/[0.04] to-transparent -translate-x-full animate-[shimmer_2s_infinite]" />
+                    <div className="text-center p-6 space-y-2 z-10">
+                      <div className="w-8 h-8 rounded-full border-2 border-emerald-500/20 border-t-emerald-400 animate-spin mx-auto mb-3" />
+                      <div className="text-xs font-mono text-zinc-300 font-semibold">Diffusion Engine (Port 47992)</div>
+                      <div className="text-[11px] font-mono text-zinc-500">Offloading latent tensors to Vulkan GPU...</div>
                     </div>
                   </div>
-                );
-              }
+                </div>
+              )}
 
-              const radius = 10;
-              const circumference = 2 * Math.PI * radius;
-              const hasProgress = msg.promptTokens !== undefined && msg.promptTokens > 0;
-              const percent = hasProgress && msg.promptProcessed !== undefined
-                ? Math.min(100, Math.max(0, Math.round((msg.promptProcessed / msg.promptTokens!) * 100)))
-                : 0;
-              const dashoffset = circumference - (percent / 100) * circumference;
+              {/* Terminal Dash Progress Bar during Prompt Loading / Rapid Fill */}
+              {isPromptTransitioning && (
+                <TerminalDashProgressBar
+                  msg={msg}
+                  modelName={formatModelDisplayName(activeLocalModel || selectedModel || 'Local Model')}
+                  isAgentThinking={isAgentThinking}
+                  onTransitionComplete={() => {
+                    setPromptTransitionDone(prev => ({ ...prev, [msg.id]: true }));
+                  }}
+                />
+              )}
 
-              return (
-                <div className="py-2 px-3 my-1.5 flex items-center gap-3 bg-zinc-900/40 border border-white/5 rounded-xl text-zinc-300 font-mono text-[11px] backdrop-blur-sm shadow-sm animate-in fade-in duration-200">
-                  <div className="relative flex items-center justify-center w-6 h-6 shrink-0">
-                    <svg className="w-6 h-6 transform -rotate-90" viewBox="0 0 26 26">
-                      {/* Background Track */}
-                      <circle
-                        cx="13"
-                        cy="13"
-                        r={radius}
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        className="text-zinc-800"
-                        fill="none"
-                      />
-                      {/* Animated Progress Ring */}
-                      <circle
-                        cx="13"
-                        cy="13"
-                        r={radius}
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        className="text-zinc-300 transition-all duration-150 ease-out"
-                        fill="none"
-                        strokeDasharray={circumference}
-                        strokeDashoffset={hasProgress ? dashoffset : circumference * 0.75}
-                        strokeLinecap="round"
-                      />
-                    </svg>
-                    <span className="absolute text-[8px] font-medium text-zinc-300 font-mono">
-                      {hasProgress ? `${percent}%` : ''}
-                    </span>
+              {msg.sender === 'agent' && !msg.isGeneratingImage && !isPromptTransitioning && msg.timeline && msg.timeline.length > 0 && (
+                <TaskProgressCard msg={msg} />
+              )}
+              
+              {msg.sender === 'agent' && !msg.text && (!msg.timeline || msg.timeline.length === 0) && isAgentThinking && msg.isGeneratingImage && (
+                <div className="py-2.5 px-3.5 my-1.5 flex items-center gap-3 bg-cyan-950/30 border border-cyan-500/20 rounded-xl text-cyan-300 font-mono text-[11px] backdrop-blur-sm shadow-sm animate-in fade-in duration-200">
+                  <div className="relative flex items-center justify-center w-5 h-5 shrink-0">
+                    <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-ping absolute"></span>
+                    <span className="w-2 h-2 rounded-full bg-cyan-400"></span>
                   </div>
                   <div className="flex flex-col min-w-0">
-                    <span className="font-medium text-zinc-200 flex items-center gap-1.5">
-                      <span>Processing Prompt & Context</span>
-                      <span className="inline-block w-1.5 h-1.5 rounded-full bg-zinc-400 animate-pulse"></span>
+                    <span className="font-semibold text-cyan-200 flex items-center gap-1.5">
+                      <span>Generating Image via Diffusion Engine</span>
+                      <span className="text-[9px] px-1.5 py-0.2 rounded bg-cyan-500/20 text-cyan-300 font-mono">Port 47992</span>
                     </span>
-                    {hasProgress ? (
-                      <span className="text-[9px] text-zinc-400 truncate">
-                        Ingesting <span className="text-zinc-200 font-medium">{msg.promptProcessed?.toLocaleString() || 0}</span> / <span className="text-zinc-200 font-medium">{msg.promptTokens?.toLocaleString()}</span> tokens <span className="text-zinc-400">({percent}%)</span> into GPU...
-                      </span>
-                    ) : (
-                      <span className="text-[9px] text-zinc-500">Preparing inference engine...</span>
-                    )}
+                    <span className="text-[9px] text-cyan-400/70 truncate">
+                      {msg.generatedImagePrompt ? `"${msg.generatedImagePrompt}"` : 'Rendering visual asset...'}
+                    </span>
                   </div>
                 </div>
-              );
-            })()}
+              )}
 
-            {/* Final Response Chat Bubble */}
-            {(msg.text || (msg.images && msg.images.length > 0)) && (
+              {/* Final Response Chat Bubble */}
+              {!isPromptTransitioning && (msg.text || (msg.images && msg.images.length > 0)) && (
               <div className="relative group/message w-full">
                 <div
                   className={`py-2 px-1 text-sm leading-relaxed font-sans transition-all duration-150 markdown-body select-text ${msg.sender === 'user'
@@ -1184,7 +1284,8 @@ export function ChatScreen({
             )}
 
           </div>
-        ))}
+          );
+        })}
 
 
 

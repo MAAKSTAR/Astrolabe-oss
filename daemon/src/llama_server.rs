@@ -101,6 +101,7 @@ impl LlamaServerEngine {
             .arg("--host").arg("127.0.0.1")
             .arg("-c").arg(ctx_size.to_string())
             .arg("-np").arg("1") // Single slot to reserve all context for editor chat
+            .arg("-nk").arg("-1") // Keep all tokens from the initial system prompt pinned in KV cache permanently
             .env("LD_LIBRARY_PATH", &ld_path);
 
         if n_gpu_layers >= 0 {
