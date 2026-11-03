@@ -306,6 +306,8 @@ export class SettingsProvider {
               if (data.useMmap !== undefined) payload.use_mmap = data.useMmap;
               if (data.flashAttn !== undefined) payload.flash_attn = data.flashAttn;
               if (data.kvQuant !== undefined) payload.kv_quant = data.kvQuant;
+              if (data.cacheTypeK !== undefined) payload.cache_type_k = data.cacheTypeK;
+              if (data.cacheTypeV !== undefined) payload.cache_type_v = data.cacheTypeV;
               if (data.target !== undefined) payload.target = data.target;
               if (data.temperature !== undefined) {
                 payload.temperature = data.temperature;

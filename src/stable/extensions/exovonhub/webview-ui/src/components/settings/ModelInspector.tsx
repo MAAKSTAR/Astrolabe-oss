@@ -53,25 +53,58 @@ export const ModelInspector: React.FC<ModelInspectorProps> = ({
   const [nUbatch, setNUbatch] = useState<number>(512);
   const [flashAttn, setFlashAttn] = useState<boolean>(true);
   const [useMmap, setUseMmap] = useState<boolean>(true);
+  const [cacheTypeK, setCacheTypeK] = useState<'f16' | 'q8_0' | 'q4_0'>('f16');
+  const [cacheTypeV, setCacheTypeV] = useState<'f16' | 'q8_0' | 'q4_0'>('f16');
+
+  // Hardware memory limits (available system RAM & available GPU VRAM)
+  const totalRamGb = daemonHealth?.hardware?.memory_gb || 14.7;
+  const usedRamGb = daemonHealth?.hardware?.used_memory_gb || 5.4;
+  const availRamGb = Math.max(0, totalRamGb - usedRamGb);
+
+  const totalVramGb = daemonHealth?.hardware?.vram_total_mb ? daemonHealth.hardware.vram_total_mb / 1024 : 16.0;
+  const availVramGb = daemonHealth?.hardware?.vram_free_mb ? daemonHealth.hardware.vram_free_mb / 1024 : 14.8;
+  void totalVramGb;
 
   // Live estimated memory calculation (LM Studio style)
   const { estGpuGb, estTotalGb } = useMemo(() => {
     const rawSizeBytes = model?.size_bytes || meta.sizeBytes || 4.5 * 1024 * 1024 * 1024;
     const sizeGb = rawSizeBytes / (1024 * 1024 * 1024);
     const layers = totalModelLayers || 33;
-    const gpuRatio = Math.min(1, Math.max(0, nGPULayers / layers));
-    
-    // KV Cache estimation: ~0.12 GB per 1024 tokens for typical models
-    const kvCacheTotalGb = (ctxSize / 1024) * 0.125;
-    const kvCacheGpuGb = gpuRatio > 0 ? kvCacheTotalGb * gpuRatio : 0;
-    
-    // Engine CUDA/Vulkan context overhead (~0.35 GB)
-    const contextOverheadGb = gpuRatio > 0 ? 0.35 : 0.05;
-    
-    const gpuGb = (sizeGb * gpuRatio + kvCacheGpuGb + contextOverheadGb).toFixed(2);
-    const totalGb = (sizeGb + kvCacheTotalGb + 0.5).toFixed(2);
-    return { estGpuGb: gpuGb, estTotalGb: totalGb };
-  }, [model?.size_bytes, meta.sizeBytes, totalModelLayers, nGPULayers, ctxSize]);
+
+    // Model weights
+    const gpuWeights = sizeGb * (nGPULayers / layers);
+    const ramWeights = sizeGb * (1 - (nGPULayers / layers));
+    void ramWeights;
+
+    // KV Cache Quantization Multipliers
+    const kMult = cacheTypeK === 'q4_0' ? 0.25 : (cacheTypeK === 'q8_0' ? 0.5 : 1.0);
+    const vMult = cacheTypeV === 'q4_0' ? 0.25 : (cacheTypeV === 'q8_0' ? 0.5 : 1.0);
+    const avgKvMult = (kMult + vMult) / 2;
+
+    // KV Cache Memory
+    const baseKvGb = (ctxSize / 1024) * 0.065 * layers * avgKvMult;
+    const workingKvGb = baseKvGb * (flashAttn ? 0.75 : 1.15);
+    const gpuKv = nGPULayers > 0 ? workingKvGb * (nGPULayers / layers) : 0;
+    const ramKv = workingKvGb - gpuKv;
+    void ramKv;
+
+    // Compute / Scratch buffer
+    const computeBufferGb = (nBatch / 2048) * (flashAttn ? 0.25 : 0.65);
+
+    // Engine & Driver overhead
+    const gpuDriverOverhead = nGPULayers > 0 ? 0.35 : 0;
+    const hostOverhead = 0.40;
+
+    // Total GPU VRAM required
+    const estGpu = (gpuWeights + gpuKv + (nGPULayers > 0 ? computeBufferGb : 0) + gpuDriverOverhead).toFixed(2);
+
+    // Total System Memory required
+    const estTotal = (sizeGb + workingKvGb + computeBufferGb + gpuDriverOverhead + hostOverhead).toFixed(2);
+
+    void useMmap;
+
+    return { estGpuGb: estGpu, estTotalGb: estTotal };
+  }, [model?.size_bytes, meta.sizeBytes, totalModelLayers, nGPULayers, ctxSize, flashAttn, nBatch, cacheTypeK, cacheTypeV, useMmap]);
 
   // Determine current active status
   const isPrimary = useMemo(() => {
@@ -135,7 +168,9 @@ export const ModelInspector: React.FC<ModelInspectorProps> = ({
       nUbatch,
       flashAttn,
       useMmap,
-      temperature
+      temperature,
+      cacheTypeK,
+      cacheTypeV
     });
   };
 
@@ -395,8 +430,14 @@ export const ModelInspector: React.FC<ModelInspectorProps> = ({
                 </div>
 
                 <div className="bg-[#141416] border border-white/10 rounded-xl p-3">
-                  <span className="text-xs font-medium text-zinc-400 block">Last Modified</span>
-                  <div className="text-xs font-semibold text-zinc-100 font-mono mt-1">{meta.modified}</div>
+                  <span className="text-xs font-medium text-zinc-400 block">Max Context</span>
+                  <div className="text-xs font-semibold text-zinc-100 font-mono mt-1">
+                    {maxContextSupported >= 1048576
+                      ? `${(maxContextSupported / 1048576).toFixed(0)}M tokens`
+                      : maxContextSupported >= 1024
+                        ? `${maxContextSupported.toLocaleString()} tokens (${Math.round(maxContextSupported / 1024)}K)`
+                        : `${maxContextSupported} tokens`}
+                  </div>
                 </div>
               </div>
             </div>
@@ -502,14 +543,27 @@ export const ModelInspector: React.FC<ModelInspectorProps> = ({
                   Estimated VRAM and system memory required to run this model with selected settings.
                 </span>
               </div>
-              <div className="flex items-center gap-2.5 font-mono text-xs shrink-0">
-                <div className="px-3 py-1.5 rounded-lg bg-zinc-900 border border-white/10 flex items-center gap-1.5">
-                  <span className="text-zinc-400 text-[11px]">GPU:</span>
-                  <span className="text-emerald-400 font-bold">{estGpuGb} GB</span>
+              <div className="flex items-center gap-2.5 font-mono text-xs shrink-0 flex-wrap">
+                <div
+                  className={`px-3 py-1.5 rounded-lg flex items-center gap-1.5 font-bold ${
+                    parseFloat(estGpuGb) > availVramGb
+                      ? 'bg-rose-500/15 text-rose-400 border border-rose-500/30'
+                      : 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
+                  }`}
+                >
+                  <span>GPU: {estGpuGb} / {availVramGb.toFixed(1)} GB VRAM</span>
+                  {parseFloat(estGpuGb) > availVramGb && (
+                    <span className="text-[10px] font-semibold ml-1">⚠️ Exceeds VRAM</span>
+                  )}
                 </div>
-                <div className="px-3 py-1.5 rounded-lg bg-zinc-900 border border-white/10 flex items-center gap-1.5">
-                  <span className="text-zinc-400 text-[11px]">Total:</span>
-                  <span className="text-white font-bold">{estTotalGb} GB</span>
+                <div
+                  className={`px-3 py-1.5 rounded-lg flex items-center gap-1.5 font-bold ${
+                    parseFloat(estTotalGb) > availRamGb
+                      ? 'bg-rose-500/15 text-rose-400 border border-rose-500/30'
+                      : 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
+                  }`}
+                >
+                  <span>Total: {estTotalGb} / {totalRamGb.toFixed(1)} GB RAM</span>
                 </div>
               </div>
             </div>
@@ -518,12 +572,7 @@ export const ModelInspector: React.FC<ModelInspectorProps> = ({
             <div className="bg-[#141416] border border-white/10 rounded-xl p-4 space-y-3">
               <div className="flex items-center justify-between">
                 <div>
-                  <div className="flex items-center gap-2">
-                    <label className="text-xs font-semibold text-zinc-100 block">Context Length</label>
-                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-300 border border-white/10">
-                      Model supports up to {maxContextSupported.toLocaleString()} tokens
-                    </span>
-                  </div>
+                  <label className="text-xs font-semibold text-zinc-100 block">Context Length</label>
                   <span className="text-xs text-zinc-400 mt-0.5 font-normal block">
                     Maximum token window for prompt & code context
                   </span>
@@ -757,7 +806,54 @@ export const ModelInspector: React.FC<ModelInspectorProps> = ({
               </div>
             </div>
 
-            {/* 6. Sampling Temperature */}
+            {/* 6. KV Cache Quantization Type [Experimental] */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {/* K Cache Quantization Type [Experimental] */}
+              <div className="bg-[#141416] border border-white/10 rounded-xl p-4 space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-semibold text-zinc-100 block">K Cache Quantization Type</label>
+                  <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20 font-semibold">
+                    Experimental
+                  </span>
+                </div>
+                <span className="text-[11px] text-zinc-400 block">
+                  Quantize Key tensor cache to compress memory footprint
+                </span>
+                <select
+                  value={cacheTypeK}
+                  onChange={(e) => setCacheTypeK(e.target.value as 'f16' | 'q8_0' | 'q4_0')}
+                  className="w-full mt-1 bg-zinc-900 border border-white/15 rounded-lg px-2.5 py-1.5 font-mono text-xs text-white focus:outline-none focus:border-white/40 cursor-pointer"
+                >
+                  <option value="f16">f16 (Default - FP16 Unquantized)</option>
+                  <option value="q8_0">q8_0 (8-bit Quantized - ~50% VRAM Savings)</option>
+                  <option value="q4_0">q4_0 (4-bit Quantized - ~75% VRAM Savings)</option>
+                </select>
+              </div>
+
+              {/* V Cache Quantization Type [Experimental] */}
+              <div className="bg-[#141416] border border-white/10 rounded-xl p-4 space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-semibold text-zinc-100 block">V Cache Quantization Type</label>
+                  <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20 font-semibold">
+                    Experimental
+                  </span>
+                </div>
+                <span className="text-[11px] text-zinc-400 block">
+                  Quantize Value tensor cache to compress memory footprint
+                </span>
+                <select
+                  value={cacheTypeV}
+                  onChange={(e) => setCacheTypeV(e.target.value as 'f16' | 'q8_0' | 'q4_0')}
+                  className="w-full mt-1 bg-zinc-900 border border-white/15 rounded-lg px-2.5 py-1.5 font-mono text-xs text-white focus:outline-none focus:border-white/40 cursor-pointer"
+                >
+                  <option value="f16">f16 (Default - FP16 Unquantized)</option>
+                  <option value="q8_0">q8_0 (8-bit Quantized - ~50% VRAM Savings)</option>
+                  <option value="q4_0">q4_0 (4-bit Quantized - ~75% VRAM Savings)</option>
+                </select>
+              </div>
+            </div>
+
+            {/* 7. Sampling Temperature */}
             <div className="bg-[#141416] border border-white/10 rounded-xl p-4 space-y-3">
               <div className="flex items-center justify-between">
                 <div>
@@ -787,7 +883,7 @@ export const ModelInspector: React.FC<ModelInspectorProps> = ({
               </div>
             </div>
 
-            {/* 7. Commit Button */}
+            {/* 8. Commit Button */}
             <div className="pt-2">
               <button
                 type="button"
