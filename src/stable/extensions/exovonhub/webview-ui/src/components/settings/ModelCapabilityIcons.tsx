@@ -48,9 +48,9 @@ export const HammerIcon: React.FC<ModelCapabilityProps> = ({
     role="img"
   >
     {title && <title>{title}</title>}
-    <path d="M15 12l-8.5 8.5a2.121 2.121 0 01-3-3L12 9" />
-    <path d="M17.64 4.36a3 3 0 00-4.24 0L12 5.76l4.24 4.24 1.4-1.4a3 3 0 000-4.24z" />
-    <path d="M7 14l3 3" />
+    <path d="m15 12-8.373 8.373a1 1 0 1 1-3-3L12 9" />
+    <path d="m18 15 4-4" />
+    <path d="m21.5 11.5-1.914-1.914A2 2 0 0 1 19 8.172V7l-2.26-2.26a6 6 0 0 0-4.202-1.756L9 2.96l.92.82A6.18 6.18 0 0 1 12 8.4V10l2 2h1.172a2 2 0 0 1 1.414.586L18.5 14.5" />
   </svg>
 );
 
@@ -73,13 +73,15 @@ export const BrainIcon: React.FC<ModelCapabilityProps> = ({
     role="img"
   >
     {title && <title>{title}</title>}
-    <path d="M9.5 2A2.5 2.5 0 007 4.5v.08A3.5 3.5 0 004 8c0 1.15.55 2.16 1.4 2.8A3 3 0 005 13a3.5 3.5 0 002.5 3.36V17a3 3 0 003 3h1.5" />
-    <path d="M14.5 2A2.5 2.5 0 0117 4.5v.08A3.5 3.5 0 0120 8c0 1.15-.55 2.16-1.4 2.8A3 3 0 0119 13a3.5 3.5 0 01-2.5 3.36V17a3 3 0 01-3 3H12" />
-    <path d="M12 2v18" />
-    <path d="M7 9a2 2 0 012-2h1" />
-    <path d="M17 9a2 2 0 00-2-2h-1" />
-    <path d="M8 15a2 2 0 002 2" />
-    <path d="M16 15a2 2 0 01-2 2" />
+    <path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z" />
+    <path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z" />
+    <path d="M15 13a4.5 4.5 0 0 1-3-4 4.5 4.5 0 0 1-3 4" />
+    <path d="M17.599 6.5a3 3 0 0 0 .399-1.375" />
+    <path d="M6.003 5.125A3 3 0 0 0 6.401 6.5" />
+    <path d="M3.477 10.896a4 4 0 0 1 .585-.396" />
+    <path d="M19.938 10.5a4 4 0 0 1 .585.396" />
+    <path d="M6 18a4 4 0 0 1-1.967-.516" />
+    <path d="M19.967 17.484A4 4 0 0 1 18 18" />
   </svg>
 );
 
@@ -164,7 +166,7 @@ export const ModelCapabilityBadges: React.FC<ModelCapabilityBadgesProps> = ({
       {/* 1. Vision Multimodal */}
       {isVision && (
         <span
-          className="p-1 rounded-md bg-zinc-800/90 hover:bg-zinc-700/90 text-amber-300 hover:text-amber-200 border border-amber-500/20 transition-colors flex items-center justify-center shrink-0 cursor-help"
+          className="p-1 rounded-md bg-zinc-800/80 hover:bg-zinc-700/80 text-zinc-300 hover:text-white border border-white/10 transition-colors flex items-center justify-center shrink-0 cursor-help"
           title="Vision Multimodal (Image Understanding)"
         >
           <EyeIcon className="w-3.5 h-3.5" title="Vision Multimodal (Image Understanding)" />
@@ -174,7 +176,7 @@ export const ModelCapabilityBadges: React.FC<ModelCapabilityBadgesProps> = ({
       {/* 2. Reasoning / Thinking */}
       {isReasoning && (
         <span
-          className="p-1 rounded-md bg-zinc-800/90 hover:bg-zinc-700/90 text-purple-300 hover:text-purple-200 border border-purple-500/20 transition-colors flex items-center justify-center shrink-0 cursor-help"
+          className="p-1 rounded-md bg-zinc-800/80 hover:bg-zinc-700/80 text-zinc-300 hover:text-white border border-white/10 transition-colors flex items-center justify-center shrink-0 cursor-help"
           title="Deep Reasoning & Chain-of-Thought"
         >
           <BrainIcon className="w-3.5 h-3.5" title="Deep Reasoning & Chain-of-Thought" />
@@ -184,7 +186,7 @@ export const ModelCapabilityBadges: React.FC<ModelCapabilityBadgesProps> = ({
       {/* 3. Tool Calling / Agents */}
       {isToolUse && (
         <span
-          className="p-1 rounded-md bg-zinc-800/90 hover:bg-zinc-700/90 text-sky-300 hover:text-sky-200 border border-sky-500/20 transition-colors flex items-center justify-center shrink-0 cursor-help"
+          className="p-1 rounded-md bg-zinc-800/80 hover:bg-zinc-700/80 text-zinc-300 hover:text-white border border-white/10 transition-colors flex items-center justify-center shrink-0 cursor-help"
           title="Tool Calling & Agent Functions"
         >
           <HammerIcon className="w-3.5 h-3.5" title="Tool Calling & Agent Functions" />
@@ -194,7 +196,7 @@ export const ModelCapabilityBadges: React.FC<ModelCapabilityBadgesProps> = ({
       {/* 4. Image Generation / Diffusion */}
       {isImageGen && (
         <span
-          className="p-1 rounded-md bg-zinc-800/90 hover:bg-zinc-700/90 text-emerald-300 hover:text-emerald-200 border border-emerald-500/20 transition-colors flex items-center justify-center shrink-0 cursor-help"
+          className="p-1 rounded-md bg-zinc-800/80 hover:bg-zinc-700/80 text-zinc-300 hover:text-white border border-white/10 transition-colors flex items-center justify-center shrink-0 cursor-help"
           title="Diffusion & Image Synthesis"
         >
           <ImageIcon className="w-3.5 h-3.5" title="Diffusion & Image Synthesis" />
@@ -204,7 +206,7 @@ export const ModelCapabilityBadges: React.FC<ModelCapabilityBadgesProps> = ({
       {/* 5. Voice / Audio / TTS */}
       {isAudio && (
         <span
-          className="p-1 rounded-md bg-zinc-800/90 hover:bg-zinc-700/90 text-rose-300 hover:text-rose-200 border border-rose-500/20 transition-colors flex items-center justify-center shrink-0 cursor-help"
+          className="p-1 rounded-md bg-zinc-800/80 hover:bg-zinc-700/80 text-zinc-300 hover:text-white border border-white/10 transition-colors flex items-center justify-center shrink-0 cursor-help"
           title="Voice, Speech & TTS"
         >
           <MicrophoneIcon className="w-3.5 h-3.5" title="Voice, Speech & TTS" />
