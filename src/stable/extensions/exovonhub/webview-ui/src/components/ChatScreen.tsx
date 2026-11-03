@@ -912,8 +912,13 @@ export function ChatScreen({
                         <span className="truncate">
                           <span className="text-zinc-300 font-medium">{((msg.metrics.total_tokens ?? ((msg.metrics.prompt_tokens || 0) + (msg.metrics.completion_tokens || 0)))).toLocaleString()}</span> tokens
                           <span className="text-zinc-500 font-normal ml-1.5">
-                            ({(msg.metrics.prompt_tokens || 0).toLocaleString()} in · {(msg.metrics.completion_tokens || 0).toLocaleString()} out
-                            {msg.metrics.completion_tps ? ` · ${msg.metrics.completion_tps.toFixed(1)} t/s` : ''})
+                            ({(msg.metrics.prompt_tokens || 0).toLocaleString()} in · {(msg.metrics.completion_tokens || 0).toLocaleString()} out)
+                            {(() => {
+                              const tps = msg.metrics.completion_tps ?? msg.metrics.tps;
+                              if (tps === undefined || tps === null || isNaN(tps) || tps <= 0) return null;
+                              const formatted = tps < 10 ? tps.toFixed(1) : Math.round(tps);
+                              return ` · ${formatted} tps`;
+                            })()}
                           </span>
                         </span>
                       ) : msg.promptTokens ? (

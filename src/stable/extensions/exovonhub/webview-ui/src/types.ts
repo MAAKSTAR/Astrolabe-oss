@@ -33,6 +33,7 @@ export interface InferenceMetrics {
   completion_tokens?: number;
   completion_time_ms?: number;
   completion_tps?: number;
+  tps?: number;
   total_time_ms?: number;
   total_tokens?: number;
 }

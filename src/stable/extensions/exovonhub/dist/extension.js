@@ -2701,6 +2701,7 @@ MANDATORY RULES:
             const MAX_CONSECUTIVE_SAME_TOOL = 25;
             let nudgeCount = 0;
             let lastStreamingText = '';
+            let lastMeasuredTps;
             // UNLIMITED REASONING STEPS: The agent continues until finished or cancelled.
             // Terminated strictly if the same tool is invoked 25+ times consecutively with no other tools.
             while (!completed) {
@@ -3113,6 +3114,8 @@ MANDATORY RULES:
                 // 3. AGGREGATE TEXT CHUNKS & FUNCTION CALLS FROM STREAM
                 let modelParts = [];
                 let streamingText = '';
+                let genStartTime;
+                let totalGeneratedTokens = 0;
                 for await (const chunk of responseStream) {
                     if (this._cancelled) {
                         break;
@@ -3122,6 +3125,10 @@ MANDATORY RULES:
                         for (const part of candidate.content.parts) {
                             modelParts.push(part);
                             if (part.text) {
+                                if (!genStartTime && part.text) {
+                                    genStartTime = Date.now();
+                                }
+                                totalGeneratedTokens += Math.max(1, Math.round(part.text.length / 3.8));
                                 streamingText += part.text;
                                 // Live stream tokens as reasoning
                                 this.onUpdate({ type: 'reasoning', text: part.text });
@@ -3146,15 +3153,24 @@ MANDATORY RULES:
                     }
                     if (chunk.usage) {
                         const prompt_tokens = chunk.usage.prompt_tokens ?? chunk.prompt_tokens;
-                        const completion_tokens = chunk.usage.completion_tokens;
+                        const completion_tokens = chunk.usage.completion_tokens ?? (totalGeneratedTokens > 0 ? totalGeneratedTokens : undefined);
                         const total_tokens = chunk.usage.total_tokens || ((prompt_tokens || 0) + (completion_tokens || 0));
+                        let completion_tps = chunk.usage.completion_tps;
+                        if (completion_tps === undefined && genStartTime && (completion_tokens || 0) > 0) {
+                            const elapsedSec = Math.max(0.05, (Date.now() - genStartTime) / 1000);
+                            const measuredTps = Math.round(((completion_tokens || 0) / elapsedSec) * 10) / 10;
+                            completion_tps = measuredTps;
+                        }
+                        if (completion_tps !== undefined) {
+                            lastMeasuredTps = completion_tps;
+                        }
                         this.onUpdate({
                             type: 'metrics',
                             metrics: {
                                 prompt_tokens,
                                 completion_tokens,
                                 total_tokens,
-                                completion_tps: chunk.usage.completion_tps
+                                completion_tps: completion_tps ?? lastMeasuredTps
                             }
                         });
                         if (total_tokens) {
@@ -3163,8 +3179,15 @@ MANDATORY RULES:
                     }
                     if (chunk.usageMetadata) {
                         const prompt_tokens = chunk.usageMetadata.promptTokenCount;
-                        const completion_tokens = chunk.usageMetadata.candidatesTokenCount;
-                        const total_tokens = chunk.usageMetadata.totalTokenCount;
+                        const completion_tokens = chunk.usageMetadata.candidatesTokenCount ?? (totalGeneratedTokens > 0 ? totalGeneratedTokens : undefined);
+                        const total_tokens = chunk.usageMetadata.totalTokenCount || ((prompt_tokens || 0) + (completion_tokens || 0));
+                        let completion_tps;
+                        if (genStartTime && (completion_tokens || 0) > 0) {
+                            const elapsedSec = Math.max(0.05, (Date.now() - genStartTime) / 1000);
+                            const measuredTps = Math.round(((completion_tokens || 0) / elapsedSec) * 10) / 10;
+                            completion_tps = measuredTps;
+                            lastMeasuredTps = completion_tps;
+                        }
                         this.onUpdate({
                             type: 'usage',
                             totalTokens: total_tokens
@@ -3174,9 +3197,17 @@ MANDATORY RULES:
                             metrics: {
                                 prompt_tokens,
                                 completion_tokens,
-                                total_tokens
+                                total_tokens,
+                                completion_tps: completion_tps ?? lastMeasuredTps
                             }
                         });
+                    }
+                }
+                if (genStartTime && totalGeneratedTokens > 0) {
+                    const elapsedSec = Math.max(0.05, (Date.now() - genStartTime) / 1000);
+                    const measuredTps = Math.round((totalGeneratedTokens / elapsedSec) * 10) / 10;
+                    if (lastMeasuredTps === undefined) {
+                        lastMeasuredTps = measuredTps;
                     }
                 }
                 // --- PHASE 5 STALE-DATA GUARD & LOCAL MODEL TOOL CALL PARSER ---
@@ -3960,7 +3991,8 @@ MANDATORY RULES:
                 metrics: {
                     prompt_tokens: fallbackPromptTokens,
                     completion_tokens: fallbackCompletionTokens,
-                    total_tokens: fallbackPromptTokens + fallbackCompletionTokens
+                    total_tokens: fallbackPromptTokens + fallbackCompletionTokens,
+                    completion_tps: lastMeasuredTps
                 }
             });
             // Trigger Phase 1 Permanent Memory Summarization in the background using the active working model
