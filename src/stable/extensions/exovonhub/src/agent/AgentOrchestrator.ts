@@ -647,13 +647,15 @@ MANDATORY RULES:
       let completed = false;
       let loopCount = 0;
       let totalToolsExecuted = 0;
-      let consecutiveFailures = 0;
       let lastExecutedToolName: string | null = null;
       let consecutiveSameToolCount = 0;
       const MAX_CONSECUTIVE_SAME_TOOL = 25;
       let nudgeCount = 0;
       let lastStreamingText = '';
       let lastMeasuredTps: number | undefined;
+      let turnTotalCompletionTokens = 0;
+      let turnTotalGenerationTimeMs = 0;
+      let stepTpsList: number[] = [];
 
       // UNLIMITED REASONING STEPS: The agent continues until finished or cancelled.
       // Terminated strictly if the same tool is invoked 25+ times consecutively with no other tools.
@@ -1074,10 +1076,21 @@ MANDATORY RULES:
         let streamingText = '';
         let genStartTime: number | undefined;
         let totalGeneratedTokens = 0;
+        let stepRecordedHardwareTimings = false;
+        let stepCompletionTokens = 0;
 
         for await (const chunk of responseStream) {
           if (this._cancelled) {
              break;
+          }
+          if (chunk.timings?.predicted_per_second && !stepRecordedHardwareTimings) {
+            stepTpsList.push(chunk.timings.predicted_per_second);
+            if (chunk.timings.predicted_ms) turnTotalGenerationTimeMs += chunk.timings.predicted_ms;
+            if (chunk.timings.predicted_n) {
+              turnTotalCompletionTokens += chunk.timings.predicted_n;
+              stepCompletionTokens = chunk.timings.predicted_n;
+            }
+            stepRecordedHardwareTimings = true;
           }
           const candidate = chunk.candidates?.[0];
           if (candidate?.content?.parts) {
@@ -1114,6 +1127,9 @@ MANDATORY RULES:
           if (chunk.usage) {
             const prompt_tokens = chunk.usage.prompt_tokens ?? chunk.prompt_tokens;
             const completion_tokens = chunk.usage.completion_tokens ?? (totalGeneratedTokens > 0 ? totalGeneratedTokens : undefined);
+            if (completion_tokens) {
+              stepCompletionTokens = completion_tokens;
+            }
             const total_tokens = chunk.usage.total_tokens || ((prompt_tokens || 0) + (completion_tokens || 0));
             let completion_tps = chunk.usage.completion_tps;
             if (completion_tps === undefined && genStartTime && (completion_tokens || 0) > 0) {
@@ -1140,6 +1156,9 @@ MANDATORY RULES:
           if (chunk.usageMetadata) {
              const prompt_tokens = chunk.usageMetadata.promptTokenCount;
              const completion_tokens = chunk.usageMetadata.candidatesTokenCount ?? (totalGeneratedTokens > 0 ? totalGeneratedTokens : undefined);
+             if (completion_tokens) {
+               stepCompletionTokens = completion_tokens;
+             }
              const total_tokens = chunk.usageMetadata.totalTokenCount || ((prompt_tokens || 0) + (completion_tokens || 0));
              let completion_tps: number | undefined;
              if (genStartTime && (completion_tokens || 0) > 0) {
@@ -1164,12 +1183,22 @@ MANDATORY RULES:
           }
         }
 
-        if (genStartTime && totalGeneratedTokens > 0) {
-          const elapsedSec = Math.max(0.05, (Date.now() - genStartTime) / 1000);
-          const measuredTps = Math.round((totalGeneratedTokens / elapsedSec) * 10) / 10;
+        if (!stepCompletionTokens && totalGeneratedTokens > 0) {
+          stepCompletionTokens = totalGeneratedTokens;
+        }
+
+        if (!stepRecordedHardwareTimings && genStartTime && stepCompletionTokens > 0) {
+          const stepElapsedMs = Math.max(50, Date.now() - genStartTime);
+          turnTotalGenerationTimeMs += stepElapsedMs;
+          turnTotalCompletionTokens += stepCompletionTokens;
+          const measuredTps = Math.round((stepCompletionTokens / (stepElapsedMs / 1000)) * 10) / 10;
+          stepTpsList.push(measuredTps);
           if (lastMeasuredTps === undefined) {
             lastMeasuredTps = measuredTps;
           }
+        } else if (genStartTime && totalGeneratedTokens > 0 && lastMeasuredTps === undefined) {
+          const elapsedSec = Math.max(0.05, (Date.now() - genStartTime) / 1000);
+          lastMeasuredTps = Math.round((totalGeneratedTokens / elapsedSec) * 10) / 10;
         }
         
         // --- PHASE 5 STALE-DATA GUARD & LOCAL MODEL TOOL CALL PARSER ---
@@ -1801,11 +1830,6 @@ MANDATORY RULES:
             }
 
             const isFailure = result.startsWith('Error') || result.startsWith('Rejected') || result.includes('"success":false');
-            if (isFailure) {
-              consecutiveFailures++;
-            } else {
-              consecutiveFailures = 0;
-            }
 
             this.onUpdate({
               type: 'agentToolComplete',
@@ -1843,13 +1867,6 @@ MANDATORY RULES:
                 response: { result }
               }
             });
-          }
-
-          if (consecutiveFailures >= 3) {
-            this.onUpdate({ type: 'log', text: '🛑 Loop Breaker triggered: 3 consecutive tool failures. Pausing to prevent API credit burn.', logType: 'error' });
-            completed = true;
-            this.onUpdate({ type: 'finalAnswer', text: "I have encountered 3 consecutive errors while executing tools. I am pausing execution to prevent an infinite loop and save API credits. Please review the trace and advise on how to proceed." });
-            break;
           }
 
           // Add the tools' outputs as a single message to history
@@ -1917,14 +1934,22 @@ MANDATORY RULES:
       const promptChars = JSON.stringify(messages).length;
       const completionChars = (lastStreamingText || '').length;
       const fallbackPromptTokens = Math.max(1, Math.round(promptChars / 3.8));
-      const fallbackCompletionTokens = Math.max(1, Math.round(completionChars / 3.8));
+      const fallbackCompletionTokens = turnTotalCompletionTokens > 0 ? turnTotalCompletionTokens : Math.max(1, Math.round(completionChars / 3.8));
+
+      let finalAvgTps: number | undefined;
+      if (turnTotalGenerationTimeMs > 0 && turnTotalCompletionTokens > 0) {
+        finalAvgTps = Math.round((turnTotalCompletionTokens / (turnTotalGenerationTimeMs / 1000)) * 10) / 10;
+      } else if (stepTpsList.length > 0) {
+        finalAvgTps = Math.round((stepTpsList.reduce((a, b) => a + b, 0) / stepTpsList.length) * 10) / 10;
+      }
+
       this.onUpdate({
         type: 'metrics',
         metrics: {
           prompt_tokens: fallbackPromptTokens,
           completion_tokens: fallbackCompletionTokens,
           total_tokens: fallbackPromptTokens + fallbackCompletionTokens,
-          completion_tps: lastMeasuredTps
+          completion_tps: finalAvgTps ?? lastMeasuredTps
         }
       });
 
@@ -2585,6 +2610,15 @@ ${transcript.slice(-15000)}
             if (data.usage) {
               formattedChunk.usage = data.usage;
             }
+            if (data.timings) {
+              formattedChunk.timings = data.timings;
+              if (data.timings.predicted_per_second) {
+                formattedChunk.usage = formattedChunk.usage || {};
+                formattedChunk.usage.completion_tps = data.timings.predicted_per_second;
+                if (data.timings.predicted_n) formattedChunk.usage.completion_tokens = data.timings.predicted_n;
+                if (data.timings.prompt_n) formattedChunk.usage.prompt_tokens = data.timings.prompt_n;
+              }
+            }
             
             if (delta?.content) {
               formattedChunk.candidates[0].content.parts.push({ text: delta.content });
@@ -2608,7 +2642,7 @@ ${transcript.slice(-15000)}
               }
             }
 
-            if (formattedChunk.candidates[0].content.parts.length > 0 || formattedChunk.prompt_tokens || formattedChunk.usage) {
+            if (formattedChunk.candidates[0].content.parts.length > 0 || formattedChunk.prompt_tokens || formattedChunk.usage || formattedChunk.timings) {
               yield formattedChunk;
             }
 

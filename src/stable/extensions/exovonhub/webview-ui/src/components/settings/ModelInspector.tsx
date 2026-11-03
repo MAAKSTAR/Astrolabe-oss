@@ -71,32 +71,40 @@ export const ModelInspector: React.FC<ModelInspectorProps> = ({
     const sizeGb = rawSizeBytes / (1024 * 1024 * 1024);
     const layers = totalModelLayers || 33;
 
-    // Model weights
-    const gpuWeights = sizeGb * (nGPULayers / layers);
-    const ramWeights = sizeGb * (1 - (nGPULayers / layers));
+    // 1. Model Weights
+    const gpuRatio = Math.min(1, Math.max(0, nGPULayers / layers));
+    const gpuWeights = sizeGb * gpuRatio;
+    const ramWeights = sizeGb * (1 - gpuRatio);
     void ramWeights;
 
-    // KV Cache Quantization Multipliers
-    const kMult = cacheTypeK === 'q4_0' ? 0.25 : (cacheTypeK === 'q8_0' ? 0.5 : 1.0);
-    const vMult = cacheTypeV === 'q4_0' ? 0.25 : (cacheTypeV === 'q8_0' ? 0.5 : 1.0);
+    // 2. KV Cache Quantization Multipliers (q8_0 = 50% memory, q4_0 = 25% memory / 75% savings)
+    const kMult = cacheTypeK === 'q4_0' ? 0.25 : (cacheTypeK === 'q8_0' ? 0.50 : 1.0);
+    const vMult = cacheTypeV === 'q4_0' ? 0.25 : (cacheTypeV === 'q8_0' ? 0.50 : 1.0);
     const avgKvMult = (kMult + vMult) / 2;
 
-    // KV Cache Memory
-    const baseKvGb = (ctxSize / 1024) * 0.065 * layers * avgKvMult;
-    const workingKvGb = baseKvGb * (flashAttn ? 0.75 : 1.15);
-    const gpuKv = nGPULayers > 0 ? workingKvGb * (nGPULayers / layers) : 0;
-    const ramKv = workingKvGb - gpuKv;
-    void ramKv;
+    // 3. Architecture-Aware KV Cache (2 * layers * d_kv * sizeof(elem))
+    // Baseline GQA: ~0.125 GB per 1024 tokens for 32 layers
+    const isDeepSeekMla = /deepseek/i.test(meta.architecture || '') || /deepseek/i.test(meta.displayName || '');
+    const mlaMultiplier = isDeepSeekMla ? 0.18 : 1.0;
 
-    // Compute / Scratch buffer
-    const computeBufferGb = (nBatch / 2048) * (flashAttn ? 0.25 : 0.65);
+    const baseKvGb = (ctxSize / 1024) * (layers / 32) * 0.125 * avgKvMult * mlaMultiplier;
+    // Flash Attention avoids unrolled KV buffer copies, saving ~15% working memory
+    const workingKvGb = baseKvGb * (flashAttn ? 0.85 : 1.0);
+    const gpuKv = gpuRatio > 0 ? workingKvGb * gpuRatio : 0;
 
-    // Engine & Driver overhead
-    const gpuDriverOverhead = nGPULayers > 0 ? 0.35 : 0;
-    const hostOverhead = 0.40;
+    // 4. Compute / Activation Scratch Buffer
+    // Flash Attention slashes the O(N^2) attention matrix from multiple GBs down to ~0.40 GB constant SRAM tiling
+    const computeBufferGb = flashAttn
+      ? 0.25 + (nBatch / 2048) * 0.15
+      : 0.50 + (ctxSize / 8192) * 0.60 + (nBatch / 2048) * 0.30;
+    const gpuCompute = gpuRatio > 0 ? computeBufferGb : 0.10;
+
+    // 5. Vulkan Runtime Driver Overhead (~0.30 GB)
+    const gpuDriverOverhead = gpuRatio > 0 ? 0.30 : 0;
+    const hostOverhead = 0.35;
 
     // Total GPU VRAM required
-    const estGpu = (gpuWeights + gpuKv + (nGPULayers > 0 ? computeBufferGb : 0) + gpuDriverOverhead).toFixed(2);
+    const estGpu = (gpuWeights + gpuKv + gpuCompute + gpuDriverOverhead).toFixed(2);
 
     // Total System Memory required
     const estTotal = (sizeGb + workingKvGb + computeBufferGb + gpuDriverOverhead + hostOverhead).toFixed(2);
@@ -104,7 +112,7 @@ export const ModelInspector: React.FC<ModelInspectorProps> = ({
     void useMmap;
 
     return { estGpuGb: estGpu, estTotalGb: estTotal };
-  }, [model?.size_bytes, meta.sizeBytes, totalModelLayers, nGPULayers, ctxSize, flashAttn, nBatch, cacheTypeK, cacheTypeV, useMmap]);
+  }, [model?.size_bytes, meta.sizeBytes, meta.architecture, meta.displayName, totalModelLayers, nGPULayers, ctxSize, flashAttn, nBatch, cacheTypeK, cacheTypeV, useMmap]);
 
   // Determine current active status
   const isPrimary = useMemo(() => {
