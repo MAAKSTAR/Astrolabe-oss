@@ -38,10 +38,13 @@ export class ExovonSidebarProvider implements vscode.WebviewViewProvider {
   private _inspectorProxy?: InspectorProxy;
   private _currentTargetPort: number | null = null;
   private _statusBarItem: vscode.StatusBarItem;
+  private _cachedLocalModelName: string = '';
+  private _cachedDiffusionModelName: string = '';
 
   public updateActiveModel(modelName: string | null, ctxSize?: number) {
     const config = vscode.workspace.getConfiguration('exovonhub');
     if (modelName) {
+      this._cachedLocalModelName = modelName;
       config.update('localLlmModelName', modelName, vscode.ConfigurationTarget.Global);
       this.postMessage({
         type: 'settingsState',
@@ -50,6 +53,7 @@ export class ExovonSidebarProvider implements vscode.WebviewViewProvider {
         ctx_size: ctxSize || 8192
       });
     } else {
+      this._cachedLocalModelName = '';
       config.update('localLlmModelName', '', vscode.ConfigurationTarget.Global);
       this.postMessage({
         type: 'modelUnloaded'
@@ -64,12 +68,14 @@ export class ExovonSidebarProvider implements vscode.WebviewViewProvider {
 
   public updateDiffusionModel(modelName: string | null) {
     if (modelName) {
+      this._cachedDiffusionModelName = modelName;
       this.postMessage({
         type: 'settingsState',
         activeDiffusionModel: modelName,
         model: `diffusion:${modelName}`
       });
     } else {
+      this._cachedDiffusionModelName = '';
       this.postMessage({
         type: 'settingsState',
         activeDiffusionModel: '',
@@ -534,7 +540,13 @@ export class ExovonSidebarProvider implements vscode.WebviewViewProvider {
             if (res.ok) {
               const data = await res.json() as any;
               if (data.ctx_size) activeCtxSize = data.ctx_size;
-              if (data.active_model) liveActiveModel = data.active_model;
+              if (data.active_model) {
+                liveActiveModel = data.active_model;
+                this._cachedLocalModelName = path.basename(data.active_model);
+              } else {
+                liveActiveModel = null;
+                this._cachedLocalModelName = '';
+              }
             }
             // Check Diffusion Engine on Port 47992
             try {
@@ -543,6 +555,10 @@ export class ExovonSidebarProvider implements vscode.WebviewViewProvider {
                 const diffData = await diffRes.json() as any;
                 if (diffData?.active_config?.model_path) {
                   liveDiffusionModel = diffData.active_config.model_path;
+                  this._cachedDiffusionModelName = path.basename(diffData.active_config.model_path);
+                } else {
+                  liveDiffusionModel = null;
+                  this._cachedDiffusionModelName = '';
                 }
               }
             } catch {}
@@ -555,10 +571,19 @@ export class ExovonSidebarProvider implements vscode.WebviewViewProvider {
                 availableLocalModels = modelsData.data;
               }
             }
-          } catch {}
+          } catch {
+            // Health probe timed out or failed (daemon busy generating/prefilling)
+            // Use cached model name instead of falsely wiping to NO MODEL LOADED
+            if (this._cachedLocalModelName) {
+              liveActiveModel = this._cachedLocalModelName;
+            }
+            if (this._cachedDiffusionModelName) {
+              liveDiffusionModel = this._cachedDiffusionModelName;
+            }
+          }
 
-          const resolvedLocalName = liveActiveModel ? path.basename(liveActiveModel) : '';
-          const resolvedDiffusionName = liveDiffusionModel ? path.basename(liveDiffusionModel) : '';
+          const resolvedLocalName = liveActiveModel ? path.basename(liveActiveModel) : (this._cachedLocalModelName || '');
+          const resolvedDiffusionName = liveDiffusionModel ? path.basename(liveDiffusionModel) : (this._cachedDiffusionModelName || '');
 
           webviewView.webview.postMessage({ 
             type: 'settingsState', 
@@ -585,9 +610,11 @@ export class ExovonSidebarProvider implements vscode.WebviewViewProvider {
             if (res.ok) {
               const baseName = path.basename(data.modelId);
               if (data.target === 'diffusion') {
+                this._cachedDiffusionModelName = baseName;
                 this.updateDiffusionModel(baseName);
                 vscode.window.showInformationMessage(`Diffusion Model ${baseName} active on Port 47992`);
               } else {
+                this._cachedLocalModelName = baseName;
                 this.updateActiveModel(baseName, data.ctxSize || 8192);
                 vscode.window.showInformationMessage(`Loaded ${baseName} into memory.`);
               }
@@ -616,9 +643,11 @@ export class ExovonSidebarProvider implements vscode.WebviewViewProvider {
             });
             if (res.ok) {
               if (data.target === 'diffusion') {
+                this._cachedDiffusionModelName = '';
                 this.updateDiffusionModel(null);
                 vscode.window.showInformationMessage('Diffusion Model unloaded from memory.');
               } else {
+                this._cachedLocalModelName = '';
                 this.updateActiveModel(null);
                 vscode.window.showInformationMessage('LLM unloaded from memory. VRAM/RAM freed.');
               }

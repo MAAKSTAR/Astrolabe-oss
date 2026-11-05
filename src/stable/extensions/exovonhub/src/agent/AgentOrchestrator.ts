@@ -74,6 +74,7 @@ export class AgentOrchestrator {
   private _planApprovalResolver?: (result: { approved: boolean, feedback?: string, cancelled?: boolean }) => void;
   private _engineCtxSize?: number;
   private _currentMessageId?: string;
+  private _activeHttpRequest?: any;
   private brainCoordinator?: IBrainCoordinator; // To be injected
   private mcpRouter: McpClientRouter;
   private checkpointer?: StateGraphCheckpointer;
@@ -155,6 +156,14 @@ export class AgentOrchestrator {
    */
   public cancel() {
     this._cancelled = true;
+    if (this._activeHttpRequest) {
+      try {
+        this._activeHttpRequest.destroy();
+      } catch (e) {
+        console.warn('[AgentOrchestrator] Failed to destroy active HTTP request on cancel:', e);
+      }
+      this._activeHttpRequest = undefined;
+    }
     // Release any pending plan approval without marking it as rejected
     if (this._planApprovalResolver) {
       this._planApprovalResolver({ approved: false, cancelled: true });
@@ -1105,14 +1114,22 @@ MANDATORY RULES:
                 // Live stream tokens as reasoning
                 this.onUpdate({ type: 'reasoning', text: part.text });
                 
-                // --- INFINITE TEXT LOOP BREAKER ---
-                // Detects classic LLM loops like "Wait, I'll just... Actually, I'll just..."
-                const loopMatch = streamingText.match(/(.{20,100}?)\1\1/i);
-                if (loopMatch) {
+                // --- INFINITE TEXT LOOP BREAKER (O(1) tail scan, no regex backtracking) ---
+                if (totalGeneratedTokens % 50 === 0 && streamingText.length >= 60) {
+                  const tail = streamingText.slice(-300);
+                  let loopDetected = false;
+                  // Check if any substring of length 20-80 repeats 3x at the tail end
+                  for (let patLen = 20; patLen <= 80 && patLen * 3 <= tail.length; patLen++) {
+                    const pat = tail.slice(-patLen * 3, -patLen * 2);
+                    if (pat === tail.slice(-patLen * 2, -patLen) && pat === tail.slice(-patLen)) {
+                      loopDetected = true;
+                      break;
+                    }
+                  }
+                  if (loopDetected) {
                     this.onUpdate({ type: 'log', text: 'Agent reasoning loop detected. Intercepting...', logType: 'warning' });
-                    // Forcefully end the streaming loop by truncating the text to break the pattern
-                    streamingText = streamingText.substring(0, streamingText.indexOf(loopMatch[0]) + loopMatch[1].length);
                     break;
+                  }
                 }
               }
             }
@@ -2575,12 +2592,19 @@ ${transcript.slice(-15000)}
         if (res.statusCode && res.statusCode >= 400) {
           let errorData = '';
           res.on('data', (chunk: any) => errorData += chunk);
-          res.on('end', () => reject(new Error(`API Error ${res.statusCode}: ${errorData}`)));
+          res.on('end', () => {
+            this._activeHttpRequest = undefined;
+            reject(new Error(`API Error ${res.statusCode}: ${errorData}`));
+          });
           return;
         }
         resolve(res);
       });
-      req.on('error', reject);
+      req.on('error', (err: any) => {
+        this._activeHttpRequest = undefined;
+        reject(err);
+      });
+      this._activeHttpRequest = req;
       req.write(payload);
       req.end();
     });
@@ -2588,78 +2612,82 @@ ${transcript.slice(-15000)}
     let buffer = '';
     let activeToolCall: any = null;
 
-    for await (const chunk of responseStream) {
-      buffer += chunk.toString('utf8');
-      let lines = buffer.split('\n');
-      buffer = lines.pop() || '';
+    try {
+      for await (const chunk of responseStream) {
+        buffer += chunk.toString('utf8');
+        let lines = buffer.split('\n');
+        buffer = lines.pop() || '';
 
-      for (const line of lines) {
-        if (line.trim() === 'data: [DONE]') return;
-        if (line.startsWith('data: ')) {
-          try {
-            const data = JSON.parse(line.slice(6));
-            const delta = data.choices?.[0]?.delta;
+        for (const line of lines) {
+          if (line.trim() === 'data: [DONE]') return;
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6));
+              const delta = data.choices?.[0]?.delta;
 
-            const formattedChunk: any = { candidates: [{ content: { parts: [] } }] };
-            if (data.prompt_tokens) {
-              formattedChunk.prompt_tokens = data.prompt_tokens;
-            }
-            if (data.prompt_processed !== undefined) {
-              formattedChunk.prompt_processed = data.prompt_processed;
-            }
-            if (data.usage) {
-              formattedChunk.usage = data.usage;
-            }
-            if (data.timings) {
-              formattedChunk.timings = data.timings;
-              if (data.timings.predicted_per_second) {
-                formattedChunk.usage = formattedChunk.usage || {};
-                formattedChunk.usage.completion_tps = data.timings.predicted_per_second;
-                if (data.timings.predicted_n) formattedChunk.usage.completion_tokens = data.timings.predicted_n;
-                if (data.timings.prompt_n) formattedChunk.usage.prompt_tokens = data.timings.prompt_n;
+              const formattedChunk: any = { candidates: [{ content: { parts: [] } }] };
+              if (data.prompt_tokens) {
+                formattedChunk.prompt_tokens = data.prompt_tokens;
               }
-            }
-            
-            if (delta?.content) {
-              formattedChunk.candidates[0].content.parts.push({ text: delta.content });
-            }
-            
-            const rawReasoning = delta?.reasoning_content || delta?.reasoning || delta?.thought;
-            if (rawReasoning) {
-              formattedChunk.candidates[0].content.parts.push({ text: `<thought>${rawReasoning}</thought>` });
-            }
-            
-            if (delta?.tool_calls) {
-              for (const tc of delta.tool_calls) {
-                if (tc.function?.name) {
-                  if (activeToolCall) {
-                    yield { candidates: [{ content: { parts: [{ functionCall: { name: activeToolCall.name, args: JSON.parse(activeToolCall.arguments || '{}') } }] } }] };
-                  }
-                  activeToolCall = { name: tc.function.name, arguments: tc.function.arguments || '' };
-                } else if (tc.function?.arguments && activeToolCall) {
-                  activeToolCall.arguments += tc.function.arguments;
+              if (data.prompt_processed !== undefined) {
+                formattedChunk.prompt_processed = data.prompt_processed;
+              }
+              if (data.usage) {
+                formattedChunk.usage = data.usage;
+              }
+              if (data.timings) {
+                formattedChunk.timings = data.timings;
+                if (data.timings.predicted_per_second) {
+                  formattedChunk.usage = formattedChunk.usage || {};
+                  formattedChunk.usage.completion_tps = data.timings.predicted_per_second;
+                  if (data.timings.predicted_n) formattedChunk.usage.completion_tokens = data.timings.predicted_n;
+                  if (data.timings.prompt_n) formattedChunk.usage.prompt_tokens = data.timings.prompt_n;
                 }
               }
-            }
+              
+              if (delta?.content) {
+                formattedChunk.candidates[0].content.parts.push({ text: delta.content });
+              }
+              
+              const rawReasoning = delta?.reasoning_content || delta?.reasoning || delta?.thought;
+              if (rawReasoning) {
+                formattedChunk.candidates[0].content.parts.push({ text: `<thought>${rawReasoning}</thought>` });
+              }
+              
+              if (delta?.tool_calls) {
+                for (const tc of delta.tool_calls) {
+                  if (tc.function?.name) {
+                    if (activeToolCall) {
+                      yield { candidates: [{ content: { parts: [{ functionCall: { name: activeToolCall.name, args: JSON.parse(activeToolCall.arguments || '{}') } }] } }] };
+                    }
+                    activeToolCall = { name: tc.function.name, arguments: tc.function.arguments || '' };
+                  } else if (tc.function?.arguments && activeToolCall) {
+                    activeToolCall.arguments += tc.function.arguments;
+                  }
+                }
+              }
 
-            if (formattedChunk.candidates[0].content.parts.length > 0 || formattedChunk.prompt_tokens || formattedChunk.usage || formattedChunk.timings) {
-              yield formattedChunk;
-            }
+              if (formattedChunk.candidates[0].content.parts.length > 0 || formattedChunk.prompt_tokens || formattedChunk.usage || formattedChunk.timings) {
+                yield formattedChunk;
+              }
 
-            if (['tool_calls', 'stop'].includes(data.choices?.[0]?.finish_reason) && activeToolCall) {
-              yield { candidates: [{ content: { parts: [{ functionCall: { name: activeToolCall.name, args: JSON.parse(activeToolCall.arguments || '{}') } }] } }] };
-              activeToolCall = null;
-            }
+              if (['tool_calls', 'stop'].includes(data.choices?.[0]?.finish_reason) && activeToolCall) {
+                yield { candidates: [{ content: { parts: [{ functionCall: { name: activeToolCall.name, args: JSON.parse(activeToolCall.arguments || '{}') } }] } }] };
+                activeToolCall = null;
+              }
 
-          } catch (e) {}
+            } catch (e) {}
+          }
         }
       }
-    }
 
-    if (activeToolCall) {
-      try {
-        yield { candidates: [{ content: { parts: [{ functionCall: { name: activeToolCall.name, args: JSON.parse(activeToolCall.arguments || '{}') } }] } }] };
-      } catch (e) {}
+      if (activeToolCall) {
+        try {
+          yield { candidates: [{ content: { parts: [{ functionCall: { name: activeToolCall.name, args: JSON.parse(activeToolCall.arguments || '{}') } }] } }] };
+        } catch (e) {}
+      }
+    } finally {
+      this._activeHttpRequest = undefined;
     }
   }
 
