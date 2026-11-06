@@ -2515,6 +2515,8 @@ AGENTIC BEHAVIOR ENFORCEMENT:
 - Terminal Execution Environment: All terminal commands execute natively in the workspace root and immediately reflect your file modifications. Use terminal commands to explore the existing codebase, run tests, and verify builds after making edits.
 - TASK CHECKLIST: For complex workflows, you MUST manage a \`task.md\` file in the workspace root. Break down your steps using real markdown checkboxes (\`- [ ]\`, \`- [x]\`, do NOT use emojis). Update this file directly as you progress through your tasks.
 - PARALLEL TOOL EXECUTION: When you need multiple independent pieces of information (e.g., reading two different files, or listing a directory and reading a file), you MUST request ALL of them in the SAME response as parallel tool calls. Do NOT call them sequentially one-by-one.
+- MAX 300 LOC MODULARITY RULE: Never write more than 300 lines of code in a single file. Rather than writing 1000-2000 line monoliths, break components, utilities, and logic into clean, modular, self-contained files under 300 LOC each.
+- LINE-ACCURATE CODE INSPECTION: Always use viewFile to read code files. viewFile automatically outputs exact 1-indexed line numbers (e.g. " 1 | ...") and total line count. Do not invoke shell commands (like cat -n or wc -l) just to view code or count lines.
 
 Available tools:
 - listDir(relativePath: string): Lists files.
@@ -8135,13 +8137,17 @@ class FileSystemTools {
             const uri = vscode.Uri.file(fullPath);
             const contentBuffer = await vscode.workspace.fs.readFile(uri);
             const content = new TextDecoder('utf-8').decode(contentBuffer);
-            if (startLine !== undefined || endLine !== undefined) {
-                const lines = content.split('\n');
-                const start = startLine ? Math.max(1, startLine) - 1 : 0;
-                const end = endLine ? Math.min(lines.length, endLine) : lines.length;
-                return lines.slice(start, end).join('\n');
-            }
-            return content;
+            const lines = content.split('\n');
+            const totalLines = lines.length;
+            const start = startLine ? Math.max(1, startLine) : 1;
+            const end = endLine ? Math.min(totalLines, endLine) : totalLines;
+            const header = `File: "${relativePath}" (${totalLines} lines total)${startLine || endLine ? ` Showing lines ${start} to ${end}:` : ''}\n`;
+            const padWidth = Math.max(3, String(end).length);
+            const numberedLines = lines.slice(start - 1, end).map((line, idx) => {
+                const lineNum = String(start + idx).padStart(padWidth, ' ');
+                return `${lineNum} | ${line}`;
+            }).join('\n');
+            return header + numberedLines;
         }
         catch (error) {
             if (error.message.includes('ENOENT') || error.message.includes('EntryNotFound')) {
@@ -8892,9 +8898,9 @@ class TerminalTools {
                 active.process.stdout?.off('data', onData);
                 active.process.stderr?.off('data', onData);
                 let out = active.outputBuffer.trim();
-                const limit = 2500;
+                const limit = 50000;
                 if (out.length > limit) {
-                    out = `[TRUNCATED]:\n... ${out.slice(-limit)}`;
+                    out = `[TRUNCATED - Output exceeded ${limit} characters]:\n... ${out.slice(-limit)}`;
                 }
                 resolve(JSON.stringify({ status: 'interactive_prompt', processId, stdout: out }, null, 2));
             };
@@ -8973,9 +8979,9 @@ class TerminalTools {
                         isResolved = true;
                         clearTimeout(timeoutId);
                         let out = activeProcess.outputBuffer.trim();
-                        const limit = 2500;
+                        const limit = 50000;
                         if (out.length > limit) {
-                            out = `[TRUNCATED]:\n... ${out.slice(-limit)}`;
+                            out = `[TRUNCATED - Output exceeded ${limit} characters]:\n... ${out.slice(-limit)}`;
                         }
                         resolve(JSON.stringify({ status: 'interactive_prompt', processId, stdout: out }, null, 2));
                     }
@@ -9023,12 +9029,12 @@ class TerminalTools {
                     this.activeProcesses.delete(processId);
                     output = output.trim();
                     errors = errors.trim();
-                    const TRUNCATE_LIMIT = 2500;
+                    const TRUNCATE_LIMIT = 50000;
                     if (output.length > TRUNCATE_LIMIT) {
-                        output = `[TRUNCATED TO PRESERVE TOKEN BOUNDARIES - Last ${TRUNCATE_LIMIT} characters]:\n... ${output.slice(-TRUNCATE_LIMIT)}`;
+                        output = `[TRUNCATED - Output exceeded ${TRUNCATE_LIMIT} characters]:\n... ${output.slice(-TRUNCATE_LIMIT)}`;
                     }
                     if (errors.length > TRUNCATE_LIMIT) {
-                        errors = `[TRUNCATED TO PRESERVE TOKEN BOUNDARIES - Last ${TRUNCATE_LIMIT} characters]:\n... ${errors.slice(-TRUNCATE_LIMIT)}`;
+                        errors = `[TRUNCATED - Output exceeded ${TRUNCATE_LIMIT} characters]:\n... ${errors.slice(-TRUNCATE_LIMIT)}`;
                     }
                     if (code !== 0) {
                         resolve(JSON.stringify({
@@ -9060,9 +9066,9 @@ class TerminalTools {
             return `Error: No active process found with ID ${processId}. It may have exited.`;
         }
         let out = active.outputBuffer.trim();
-        const limit = 2500;
+        const limit = 50000;
         if (out.length > limit) {
-            out = `[TRUNCATED]:\n... ${out.slice(-limit)}`;
+            out = `[TRUNCATED - Output exceeded ${limit} characters]:\n... ${out.slice(-limit)}`;
         }
         // Clear buffer after reading
         active.outputBuffer = '';
@@ -48467,7 +48473,9 @@ To execute a tool, emit the exact tool call tag:
 3. NEVER just say "I will list the files" without writing the corresponding <call:...> tag.
 4. When you need multiple independent pieces of information, request ALL of them in the SAME response as parallel tool calls.
 5. Always wrap internal reasoning in <thought>...</thought> tags. Only text outside those tags is shown to the user.
-6. Terminal commands execute in the REAL workspace root, not the sandbox. Use them to explore existing code or verify changes.`;
+6. Terminal commands execute in the REAL workspace root, not the sandbox. Use them to explore existing code or verify changes.
+7. MAX 300 LOC MODULARITY RULE: Never write more than 300 lines of code in a single file. Rather than writing 1000-2000 line monoliths, break components, utilities, and logic into clean, modular, self-contained files under 300 LOC each.
+8. LINE-ACCURATE CODE INSPECTION: Always use viewFile to read code files. viewFile automatically outputs exact 1-indexed line numbers (e.g. " 1 | ...") and total line count. Do not invoke shell commands (like cat -n or wc -l) just to view code or count lines.`;
 
 
 /***/ }),

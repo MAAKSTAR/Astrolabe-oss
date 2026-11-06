@@ -455,16 +455,21 @@ export class FileSystemTools implements FileSystemToolsInterface {
       const uri = vscode.Uri.file(fullPath);
       const contentBuffer = await vscode.workspace.fs.readFile(uri);
       const content = new TextDecoder('utf-8').decode(contentBuffer);
+      const lines = content.split('\n');
+      const totalLines = lines.length;
 
-      if (startLine !== undefined || endLine !== undefined) {
-        const lines = content.split('\n');
-        const start = startLine ? Math.max(1, startLine) - 1 : 0;
-        const end = endLine ? Math.min(lines.length, endLine) : lines.length;
-        
-        return lines.slice(start, end).join('\n');
-      }
+      const start = startLine ? Math.max(1, startLine) : 1;
+      const end = endLine ? Math.min(totalLines, endLine) : totalLines;
 
-      return content;
+      const header = `File: "${relativePath}" (${totalLines} lines total)${startLine || endLine ? ` Showing lines ${start} to ${end}:` : ''}\n`;
+      const padWidth = Math.max(3, String(end).length);
+
+      const numberedLines = lines.slice(start - 1, end).map((line, idx) => {
+        const lineNum = String(start + idx).padStart(padWidth, ' ');
+        return `${lineNum} | ${line}`;
+      }).join('\n');
+
+      return header + numberedLines;
     } catch (error: any) {
       if (error.message.includes('ENOENT') || error.message.includes('EntryNotFound')) {
         return `File not found: "${relativePath}". Please verify the path and try again.`;

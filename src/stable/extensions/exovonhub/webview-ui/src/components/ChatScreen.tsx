@@ -325,8 +325,24 @@ function TaskProgressCard({ msg }: { msg: Message }) {
             const isCommand = event.toolName === 'runCommand' || event.toolName === 'run_command' || parsedPayload.CommandLine || parsedPayload.command;
             const commandText = parsedPayload.CommandLine || parsedPayload.command || (typeof event.content === 'string' ? event.content : '');
 
-            const cleanToolOutput = (text: string) => {
+            const formatToolOutput = (text: string) => {
               if (!text) return text;
+              try {
+                const parsed = JSON.parse(text);
+                if (parsed && typeof parsed === 'object') {
+                  if (typeof parsed.stdout === 'string' || typeof parsed.stderr === 'string') {
+                    const out = (parsed.stdout || '').trim();
+                    const err = (parsed.stderr || '').trim();
+                    if (out && err) return `${out}\n\n[stderr]:\n${err}`;
+                    if (out) return out;
+                    if (err) return `[stderr]:\n${err}`;
+                    if (parsed.status === 'success' || parsed.exitCode === 0) return 'Command finished with no output.';
+                  }
+                  if (parsed.result !== undefined) {
+                    return typeof parsed.result === 'string' ? parsed.result : JSON.stringify(parsed.result, null, 2);
+                  }
+                }
+              } catch {}
               return text
                 .replace(/^File:\s*"[^"]+"\s*\(\d+\s*lines total\)\s*(Showing lines \d+ to \d+:\s*)?/i, '')
                 .replace(/^File:\s*'[^']+'\s*\(\d+\s*lines total\)\s*(Showing lines \d+ to \d+:\s*)?/i, '')
@@ -404,62 +420,52 @@ function TaskProgressCard({ msg }: { msg: Message }) {
                       </div>
                     )
                   ) : (
-                    <div className="bg-zinc-900 border border-white/20 rounded-xl overflow-hidden shadow-lg transition-all">
-                      {/* Window Header */}
-                      <div className="bg-zinc-800 px-3 py-1.5 border-b border-white/15 flex items-center justify-between select-none gap-2">
-                        <div className="flex items-center gap-2 min-w-0">
-                          <div className="flex items-center gap-1.5 shrink-0">
-                            <span className="w-2 h-2 rounded-full bg-zinc-600"></span>
-                            <span className="w-2 h-2 rounded-full bg-zinc-600"></span>
-                            <span className="w-2 h-2 rounded-full bg-zinc-600"></span>
+                    <div className="bg-zinc-900 border border-white/15 rounded-xl overflow-hidden shadow-sm transition-all font-mono">
+                      {/* Command Bar (clean, no fake window chrome) */}
+                      {isCommand && (
+                        <div className="flex items-center justify-between px-3 py-2 bg-zinc-800/80 border-b border-white/10 text-[11.5px] text-zinc-100">
+                          <div className="flex items-center gap-2 overflow-x-auto select-all">
+                            <span className="text-emerald-400 font-bold select-none">$</span>
+                            <span className="whitespace-pre">{commandText}</span>
                           </div>
-                          <span className="text-[11px] font-mono text-zinc-300 truncate max-w-[280px]" title={rawFilePath || commandText}>
-                            {rawFilePath || (isCommand ? 'terminal' : actionVerb)}
-                          </span>
-                          {lineInfo && (
-                            <span className="text-[10px] font-mono text-zinc-500 bg-zinc-800 px-1.5 py-0.5 rounded border border-white/5">
-                              {lineInfo}
-                            </span>
-                          )}
-                        </div>
-
-                        <div className="flex items-center gap-2 shrink-0">
-                          <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded uppercase tracking-wider ${event.status === 'running' ? 'bg-cyan-950 text-cyan-200 border border-cyan-700/50' : event.status === 'failed' ? 'bg-rose-950 text-rose-200 border border-rose-700/50' : 'bg-emerald-950 text-emerald-200 border border-emerald-700/50'}`}>
-                            {event.status === 'running' ? 'Running' : event.status === 'failed' ? 'Failed' : 'Exit 0'}
-                          </span>
                           <button
                             type="button"
                             onClick={(e) => {
                               e.stopPropagation();
-                              const textToCopy = isCommand ? commandText : (event.output || event.content || '');
-                              navigator.clipboard.writeText(textToCopy);
+                              navigator.clipboard.writeText(commandText);
                               const btn = e.currentTarget;
                               const oldText = btn.textContent;
                               btn.textContent = 'Copied!';
                               setTimeout(() => btn.textContent = oldText, 1800);
                             }}
-                            className="text-[11px] font-mono text-zinc-300 hover:text-white bg-zinc-700/80 hover:bg-zinc-700 px-2 py-0.5 rounded border border-white/10 transition-colors cursor-pointer"
+                            className="text-[10px] text-zinc-400 hover:text-white px-2 py-0.5 rounded border border-white/10 hover:bg-zinc-700/60 transition-colors ml-2 shrink-0 cursor-pointer select-none"
                           >
                             Copy
                           </button>
                         </div>
-                      </div>
+                      )}
 
-                      {/* Command Input Bar (only for commands) */}
-                      {isCommand && (
-                        <div className="p-2.5 bg-zinc-850 border-b border-white/10 font-mono text-[11.5px] leading-relaxed text-zinc-100 select-all overflow-x-auto whitespace-pre">
-                          <span className="text-zinc-400 font-bold select-none mr-2">$</span>
-                          {commandText}
+                      {/* File / Tool Target Info (when not a command, e.g. viewFile lineInfo) */}
+                      {!isCommand && (rawFilePath || lineInfo) && (
+                        <div className="flex items-center justify-between px-3 py-1.5 bg-zinc-800/80 border-b border-white/10 text-[11px] text-zinc-300">
+                          <span className="truncate max-w-[320px]" title={rawFilePath}>
+                            {rawFilePath}
+                          </span>
+                          {lineInfo && (
+                            <span className="text-[10px] text-zinc-500 bg-zinc-850 px-1.5 py-0.5 rounded border border-white/5">
+                              {lineInfo}
+                            </span>
+                          )}
                         </div>
                       )}
 
-                      {/* Execution Output Console */}
+                      {/* Execution Output Console (unwrapped stdout/stderr, no raw JSON) */}
                       {event.output ? (
-                        <div className="p-3 bg-zinc-900/90 max-h-56 min-h-[48px] overflow-y-auto overflow-x-auto scrollbar-thin select-all font-mono text-[11px] leading-relaxed text-zinc-200 whitespace-pre">
-                          {cleanToolOutput(event.output)}
+                        <div className="p-3 bg-zinc-950/70 max-h-64 min-h-[40px] overflow-y-auto overflow-x-auto scrollbar-thin select-all text-[11px] leading-relaxed text-zinc-200 whitespace-pre">
+                          {formatToolOutput(event.output)}
                         </div>
                       ) : !isCommand && event.content && event.content !== '{}' ? (
-                        <div className="p-3 bg-zinc-900/90 max-h-56 min-h-[40px] overflow-y-auto overflow-x-auto scrollbar-thin select-all font-mono text-[11px] leading-relaxed text-zinc-200 whitespace-pre">
+                        <div className="p-3 bg-zinc-950/70 max-h-64 min-h-[40px] overflow-y-auto overflow-x-auto scrollbar-thin select-all text-[11px] leading-relaxed text-zinc-200 whitespace-pre">
                           {(() => {
                             try {
                               return JSON.stringify(parsedPayload, null, 2);
@@ -469,12 +475,12 @@ function TaskProgressCard({ msg }: { msg: Message }) {
                           })()}
                         </div>
                       ) : event.status === 'running' ? (
-                        <div className="p-2.5 bg-zinc-900/90 font-mono text-[11px] text-zinc-300 flex items-center gap-2">
+                        <div className="p-2.5 bg-zinc-950/70 text-[11px] text-zinc-400 flex items-center gap-2">
                           <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse"></span>
                           <span>Executing in background sandbox...</span>
                         </div>
                       ) : (
-                        <div className="p-2.5 bg-zinc-900/90 font-mono text-[10.5px] text-zinc-400 italic">
+                        <div className="p-2.5 bg-zinc-950/70 text-[10.5px] text-zinc-500 italic">
                           Execution completed with no output.
                         </div>
                       )}

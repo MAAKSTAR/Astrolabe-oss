@@ -42,8 +42,8 @@ export class TerminalTools implements TerminalToolsInterface {
         active.process.stderr?.off('data', onData);
         
         let out = active.outputBuffer.trim();
-        const limit = 2500;
-        if (out.length > limit) { out = `[TRUNCATED]:\n... ${out.slice(-limit)}`; }
+        const limit = 50000;
+        if (out.length > limit) { out = `[TRUNCATED - Output exceeded ${limit} characters]:\n... ${out.slice(-limit)}`; }
         resolve(JSON.stringify({ status: 'interactive_prompt', processId, stdout: out }, null, 2));
       };
 
@@ -137,8 +137,8 @@ export class TerminalTools implements TerminalToolsInterface {
             clearTimeout(timeoutId);
             
             let out = activeProcess.outputBuffer.trim();
-            const limit = 2500;
-            if (out.length > limit) { out = `[TRUNCATED]:\n... ${out.slice(-limit)}`; }
+            const limit = 50000;
+            if (out.length > limit) { out = `[TRUNCATED - Output exceeded ${limit} characters]:\n... ${out.slice(-limit)}`; }
             resolve(JSON.stringify({ status: 'interactive_prompt', processId, stdout: out }, null, 2));
           }
         };
@@ -188,12 +188,12 @@ export class TerminalTools implements TerminalToolsInterface {
           output = output.trim();
           errors = errors.trim();
           
-          const TRUNCATE_LIMIT = 2500;
+          const TRUNCATE_LIMIT = 50000;
           if (output.length > TRUNCATE_LIMIT) {
-            output = `[TRUNCATED TO PRESERVE TOKEN BOUNDARIES - Last ${TRUNCATE_LIMIT} characters]:\n... ${output.slice(-TRUNCATE_LIMIT)}`;
+            output = `[TRUNCATED - Output exceeded ${TRUNCATE_LIMIT} characters]:\n... ${output.slice(-TRUNCATE_LIMIT)}`;
           }
           if (errors.length > TRUNCATE_LIMIT) {
-            errors = `[TRUNCATED TO PRESERVE TOKEN BOUNDARIES - Last ${TRUNCATE_LIMIT} characters]:\n... ${errors.slice(-TRUNCATE_LIMIT)}`;
+            errors = `[TRUNCATED - Output exceeded ${TRUNCATE_LIMIT} characters]:\n... ${errors.slice(-TRUNCATE_LIMIT)}`;
           }
 
           if (code !== 0) {
@@ -227,8 +227,8 @@ export class TerminalTools implements TerminalToolsInterface {
     }
     
     let out = active.outputBuffer.trim();
-    const limit = 2500;
-    if (out.length > limit) { out = `[TRUNCATED]:\n... ${out.slice(-limit)}`; }
+    const limit = 50000;
+    if (out.length > limit) { out = `[TRUNCATED - Output exceeded ${limit} characters]:\n... ${out.slice(-limit)}`; }
     
     // Clear buffer after reading
     active.outputBuffer = '';

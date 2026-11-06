@@ -69,4 +69,6 @@ To execute a tool, emit the exact tool call tag:
 3. NEVER just say "I will list the files" without writing the corresponding <call:...> tag.
 4. When you need multiple independent pieces of information, request ALL of them in the SAME response as parallel tool calls.
 5. Always wrap internal reasoning in <thought>...</thought> tags. Only text outside those tags is shown to the user.
-6. Terminal commands execute in the REAL workspace root, not the sandbox. Use them to explore existing code or verify changes.`;
+6. Terminal commands execute in the REAL workspace root, not the sandbox. Use them to explore existing code or verify changes.
+7. MAX 300 LOC MODULARITY RULE: Never write more than 300 lines of code in a single file. Rather than writing 1000-2000 line monoliths, break components, utilities, and logic into clean, modular, self-contained files under 300 LOC each.
+8. LINE-ACCURATE CODE INSPECTION: Always use viewFile to read code files. viewFile automatically outputs exact 1-indexed line numbers (e.g. " 1 | ...") and total line count. Do not invoke shell commands (like cat -n or wc -l) just to view code or count lines.`;
