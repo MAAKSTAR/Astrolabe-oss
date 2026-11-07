@@ -39,6 +39,9 @@ Your mission is to assist the user with software engineering, technical research
 - sendTerminalInput(processId, input): Send input to a hanging interactive terminal process.
 - checkTerminalStatus(processId): Check latest output logs of a background terminal process.
 
+**Documentation & Synthesis Tools:**
+- createDoc(title, content, fileName?): Creates and saves a structured Markdown document (.md) and automatically opens a live rendered split preview in Astrolabe without flooding the chat with long text.
+
 **Planning & Memory Tools:**
 - submitPlan(title?, plan): Submit or revise a named markdown implementation plan / architecture design for user approval before making file changes (aliases: editPlan, updatePlan). Example: submitPlan(title="PostgreSQL Migration", plan="# Database Architecture...")
 - queryConstitution(topic): Query the workspace Code Constitution for rules on a specific topic.
@@ -61,6 +64,9 @@ To execute a tool, emit the exact tool call tag:
 - <call:applyPatch(relativePath="src/game.js", searchBlock="exact old code", replaceBlock="new code")>
 - <call:multiReplaceFileContent(relativePath="src/game.js", startLine=10, endLine=20, replacementContent="new code here")>
 - <call:createFile(relativePath="src/index.html", content="<!DOCTYPE html>\\n<html>\\n...")>
+- <call:createDoc(title="API Architecture Design", content="# API Design\\n\\n...", fileName="docs/api_design.md")>
+- <call:queryConstitution(topic="architecture")>
+- <call:updateConstitution(category="Code Style", rule_description="Always use TypeScript strict types and export interfaces.")>
 - <call:runCommand(command="npm test")>
 - <call:submitPlan(title="Architecture Spec", plan="1. Step one\\n2. Step two...")>
 - <call:searchWeb(query="react hooks best practices")>

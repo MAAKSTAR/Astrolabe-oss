@@ -129,6 +129,14 @@ export class AgentOrchestrator {
     return this.allSessionMessages;
   }
 
+  public getGlobalStorageDir(): string {
+    if (this.context?.globalStorageUri?.fsPath) {
+      return this.context.globalStorageUri.fsPath;
+    }
+    const homeDir = process.env.HOME || process.env.USERPROFILE || '/tmp';
+    return path.join(homeDir, '.config', 'Astrolabe', 'User', 'globalStorage', 'exovon.exovonhub');
+  }
+
   public async rollbackToCheckpoint(checkpointId: string): Promise<{ success: boolean; restoredCheckpoint: StateGraphCheckpoint | null; restoredFiles: string[]; error?: string }> {
     if (!this.checkpointer) return { success: false, restoredCheckpoint: null, restoredFiles: [], error: 'Checkpointer not available' };
     const res = await this.checkpointer.rollback(this.currentThreadId, checkpointId);
@@ -439,6 +447,9 @@ Available tools:
 - runCommand(command: string): Executes a terminal command (requires user approval).
 - searchWeb(query: string): Searches the internet for information or documentation.
 - fetchWebPage(url: string): Fetches and extracts the readable markdown/text content of any web page URL (documentation, articles, GitHub readmes, API specifications).
+- createDoc(title: string, content: string, fileName?: string): Creates a structured Markdown document (.md), saves it, and automatically opens a live split preview in Astrolabe without cluttering chat. Use this to synthesize research findings, architectural designs, user guides, or documentation.
+- queryConstitution(topic?: string): Query the workspace or global Code Constitution for permanent rules or guidelines (pass 'all' to inspect everything).
+- updateConstitution(category: string, rule_description: string): Appends a new permanent rule or preference to the Constitution for eternity.
 - submitPlan(plan: string): MANDATORY FIRST STEP. Before making ANY file modifications, you MUST call this tool with a markdown-formatted implementation plan. The plan will be shown to the user for approval. You may ONLY proceed with file edits AFTER the plan is approved. If rejected, ask the user for clarification.
 
 PLAN-BEFORE-EXECUTE PROTOCOL (CRITICAL):
@@ -465,6 +476,12 @@ Examples:
   <call:applyPatch(relativePath="src/App.tsx", searchBlock="old code", replaceBlock="new code")>
 - To create a new file:
   <call:createFile(relativePath="src/NewFile.ts", content="export const ...")>
+- To synthesize or create a rendered markdown document:
+  <call:createDoc(title="Architecture Specification", content="# Architecture\n\n...", fileName="docs/architecture.md")>
+- To query permanent Constitution rules:
+  <call:queryConstitution(topic="architecture")>
+- To save a new permanent rule to the Constitution:
+  <call:updateConstitution(category="Code Style", rule_description="Always use TypeScript strict types and export interfaces.")>
 - To submit a plan before modifying:
   <call:submitPlan(plan="1. Search for references\n2. Update files\n3. Verify build")>
 
@@ -504,13 +521,25 @@ MANDATORY RULES:
         }
 
         // Constitution TOC Injection
-        const constPath = path.join(workspaceRoot, '.exovon', 'constitution.md');
-        if (fs.existsSync(constPath)) {
+        let constPath = '';
+        const constCandidates = [
+          path.join(workspaceRoot, '.exovon', 'constitution.md'),
+          path.join(workspaceRoot, '.astrolabe', 'constitution.md'),
+          path.join(workspaceRoot, 'constitution.md'),
+          path.join(this.getGlobalStorageDir(), 'constitution.md')
+        ];
+        for (const candidate of constCandidates) {
+          if (fs.existsSync(candidate)) {
+            constPath = candidate;
+            break;
+          }
+        }
+        if (constPath) {
           try {
              const text = fs.readFileSync(constPath, 'utf8');
              const headers = text.split('\n').filter(l => l.startsWith('## ')).map(l => l.replace('## ', '').trim());
              if (headers.length > 0) {
-               constitutionContext = `\n\n<|CONSTITUTION_TOC|>\nThis workspace has a Constitution. Available topics: [${headers.join(', ')}]. You MUST use \`queryConstitution(topic)\` before making changes related to these topics.\n</|CONSTITUTION_TOC|>\n`;
+               constitutionContext = `\n\n<|CONSTITUTION_TOC|>\nCode Constitution is active. Available topics: [${headers.join(', ')}]. You can query specific rules using \`queryConstitution(topic)\` or update them using \`updateConstitution(category, rule_description)\`.\n</|CONSTITUTION_TOC|>\n`;
              }
           } catch(e) {}
         }
@@ -568,6 +597,9 @@ CRITICAL ENVIRONMENT STATUS: NO WORKSPACE FOLDER IS OPEN IN ASTROLABE.
 - Allowed Tools while no folder is open:
   - searchWeb(query): Allowed. You can freely search the web for documentation, technology research, or live information.
   - fetchWebPage(url): Allowed. You can open and read full documentation, articles, and websites.
+  - createDoc(title, content, fileName?): Allowed. You can synthesize documents, guides, specs, and research reports; they will be saved to your documents cache and rendered in the split Markdown preview for the user even when no workspace is open.
+  - queryConstitution(topic?): Allowed. Queries global developer constitution rules.
+  - updateConstitution(category, rule_description): Allowed. Saves permanent developer preferences to the global constitution.
   - openBrowserPreview(url): Allowed.
   - listAvailableTools(): Allowed.
 - If the user asks a general question, conceptual explanation, architecture question, or web research, answer directly in chat.
@@ -576,7 +608,18 @@ CRITICAL ENVIRONMENT STATUS: NO WORKSPACE FOLDER IS OPEN IN ASTROLABE.
 - You may show code examples or architecture in markdown for them to review, but explain that file operations will activate once they open a folder.
 </|NO_WORKSPACE_OPEN_ALERT|>
 `;
-        fullSystemInstruction = `${systemInstruction}\n${noWorkspaceAlert}`;
+        let globalConstTOC = '';
+        try {
+          const globalConst = path.join(this.getGlobalStorageDir(), 'constitution.md');
+          if (fs.existsSync(globalConst)) {
+            const text = fs.readFileSync(globalConst, 'utf8');
+            const headers = text.split('\n').filter(l => l.startsWith('## ')).map(l => l.replace('## ', '').trim());
+            if (headers.length > 0) {
+              globalConstTOC = `\n\n<|GLOBAL_CONSTITUTION_TOC|>\nGlobal Code Constitution is active. Available topics: [${headers.join(', ')}]. You can query rules with \`queryConstitution(topic)\`.\n</|GLOBAL_CONSTITUTION_TOC|>\n`;
+            }
+          }
+        } catch(e) {}
+        fullSystemInstruction = `${systemInstruction}\n${noWorkspaceAlert}${globalConstTOC}`;
       }
 
       // BP-6: Input Sanitization - Safely truncate prompt to prevent token limit crashes
@@ -1049,6 +1092,19 @@ CRITICAL ENVIRONMENT STATUS: NO WORKSPACE FOLDER IS OPEN IN ASTROLABE.
                     },
                     required: ['prompt']
                   }
+                },
+                {
+                  name: 'createDoc',
+                  description: 'Creates and saves a structured Markdown document (research reports, architectural synthesis, design specs, user guides, meeting notes) and automatically renders its live preview side-by-side in Astrolabe without cluttering the chat.',
+                  parameters: {
+                    type: 'OBJECT' as any,
+                    properties: {
+                      title: { type: 'STRING' as any, description: 'Title of the document (used in heading and metadata).' },
+                      content: { type: 'STRING' as any, description: 'Full Markdown content of the document.' },
+                      fileName: { type: 'STRING' as any, description: 'Optional filename or relative path (e.g. "docs/architecture.md" or "research_summary.md"). If omitted, generated from title.' }
+                    },
+                    required: ['title', 'content']
+                  }
                 }
         ];
 
@@ -1354,7 +1410,29 @@ CRITICAL ENVIRONMENT STATUS: NO WORKSPACE FOLDER IS OPEN IN ASTROLABE.
               listtools: 'listAvailableTools',
               getavailabletools: 'listAvailableTools',
               get_available_tools: 'listAvailableTools',
-              help: 'listAvailableTools'
+              help: 'listAvailableTools',
+              createdoc: 'createDoc',
+              create_doc: 'createDoc',
+              writedoc: 'createDoc',
+              write_doc: 'createDoc',
+              savedoc: 'createDoc',
+              save_doc: 'createDoc',
+              synthesizedoc: 'createDoc',
+              synthesize_doc: 'createDoc',
+              renderdoc: 'createDoc',
+              render_doc: 'createDoc',
+              queryconstitution: 'queryConstitution',
+              query_constitution: 'queryConstitution',
+              getconstitution: 'queryConstitution',
+              get_constitution: 'queryConstitution',
+              readconstitution: 'queryConstitution',
+              read_constitution: 'queryConstitution',
+              updateconstitution: 'updateConstitution',
+              update_constitution: 'updateConstitution',
+              addconstitutionrule: 'updateConstitution',
+              add_constitution_rule: 'updateConstitution',
+              saveconstitution: 'updateConstitution',
+              save_constitution: 'updateConstitution'
             };
             const lowerNoUnderscore = rawToolName.toLowerCase().replace(/[\-_]/g, '');
             const toolName = toolAliasMap[lowerNoUnderscore] || toolAliasMap[rawToolName.toLowerCase()] || rawToolName;
@@ -1664,6 +1742,7 @@ CRITICAL ENVIRONMENT STATUS: NO WORKSPACE FOLDER IS OPEN IN ASTROLABE.
                   { name: 'deployToExovonCloud', category: 'agent', description: 'Deploys workspace to Exovon Cloud.' },
                   { name: 'openBrowserPreview', category: 'browser', description: 'Opens URL in VS Code Simple Browser.' },
                   { name: 'highlightBrowserElement', category: 'browser', description: 'Highlights DOM element in live browser preview.' },
+                  { name: 'createDoc', category: 'synthesis', description: 'Creates a structured Markdown document (.md) and opens live split preview in Astrolabe without flooding chat.' },
                   { name: 'generateImage', category: 'agent', description: 'Generates an image or graphic asset using the local Multimodal Diffusion Engine.' }
                 ];
                 const filtered = category === 'all' ? allToolInfo : allToolInfo.filter(t => t.category === category);
@@ -1740,52 +1819,172 @@ CRITICAL ENVIRONMENT STATUS: NO WORKSPACE FOLDER IS OPEN IN ASTROLABE.
                   subOrchestrator.execute('', 'gemini-3.1-flash-lite', subMessages, `sub-${Date.now()}`);
                 });
               } else if (toolName === 'queryConstitution') {
-                this.onUpdate({ type: 'log', text: `📜 Querying Constitution for topic: "${call.args.topic}"`, logType: 'info' });
+                const topicQuery = (call.args.topic || call.args.category || '').trim();
+                this.onUpdate({ type: 'log', text: `📜 Querying Constitution for topic: "${topicQuery || 'all'}"`, logType: 'info' });
                 const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
-                const constPath = path.join(workspaceRoot, '.exovon', 'constitution.md');
-                if (fs.existsSync(constPath)) {
-                  const content = fs.readFileSync(constPath, 'utf8');
-                  const topicHeader = `## ${call.args.topic}`;
-                  const startIndex = content.indexOf(topicHeader);
-                  if (startIndex !== -1) {
-                    const nextHeaderIndex = content.indexOf('\n## ', startIndex + topicHeader.length);
-                    if (nextHeaderIndex !== -1) {
-                      result = content.substring(startIndex, nextHeaderIndex).trim();
-                    } else {
-                      result = content.substring(startIndex).trim();
+                
+                let constPath = '';
+                if (workspaceRoot) {
+                  const candidates = [
+                    path.join(workspaceRoot, '.exovon', 'constitution.md'),
+                    path.join(workspaceRoot, '.astrolabe', 'constitution.md'),
+                    path.join(workspaceRoot, 'constitution.md')
+                  ];
+                  for (const c of candidates) {
+                    if (fs.existsSync(c)) {
+                      constPath = c;
+                      break;
                     }
+                  }
+                }
+                if (!constPath) {
+                  const globalConst = path.join(this.getGlobalStorageDir(), 'constitution.md');
+                  if (fs.existsSync(globalConst)) {
+                    constPath = globalConst;
+                  }
+                }
+
+                if (constPath && fs.existsSync(constPath)) {
+                  const content = fs.readFileSync(constPath, 'utf8');
+                  if (!topicQuery || topicQuery.toLowerCase() === 'all' || topicQuery.toLowerCase() === 'general' || topicQuery === '*') {
+                    result = content;
                   } else {
-                    result = `Topic "${call.args.topic}" not found in Constitution.`;
+                    const lines = content.split('\n');
+                    let found = false;
+                    const sectionContent: string[] = [];
+                    const topicLower = topicQuery.toLowerCase();
+
+                    for (let i = 0; i < lines.length; i++) {
+                      const line = lines[i];
+                      if (line.startsWith('## ')) {
+                        const headerName = line.replace('## ', '').trim().toLowerCase();
+                        if (headerName.includes(topicLower) || topicLower.includes(headerName)) {
+                          found = true;
+                          sectionContent.push(line);
+                          continue;
+                        } else if (found) {
+                          break;
+                        }
+                      } else if (found) {
+                        sectionContent.push(line);
+                      }
+                    }
+
+                    if (found && sectionContent.length > 0) {
+                      result = sectionContent.join('\n').trim();
+                    } else {
+                      const availableTopics = lines.filter(l => l.startsWith('## ')).map(l => l.replace('## ', '').trim());
+                      result = `Topic "${topicQuery}" not found in Constitution.\nAvailable topics: [${availableTopics.join(', ')}].\n\nFull Constitution:\n${content}`;
+                    }
                   }
                 } else {
-                  result = "No Constitution found.";
+                  result = "No Constitution found. You can add the first permanent rules using `updateConstitution(category, rule_description)`.";
                 }
               } else if (toolName === 'updateConstitution') {
-                this.onUpdate({ type: 'log', text: `💾 Eternity Memory: Saving rule to Constitution under "${call.args.category}"`, logType: 'success' });
+                const category = (call.args.category || 'General').trim();
+                const rule = (call.args.rule_description || call.args.rule || call.args.description || '').trim();
+                this.onUpdate({ type: 'log', text: `💾 Eternity Memory: Saving rule to Constitution under "${category}"`, logType: 'success' });
+
                 const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
-                const exovonDir = path.join(workspaceRoot, '.exovon');
-                if (!fs.existsSync(exovonDir)) {
-                  fs.mkdirSync(exovonDir, { recursive: true });
+                let constPath = '';
+
+                if (workspaceRoot) {
+                  const exovonDir = path.join(workspaceRoot, '.exovon');
+                  if (!fs.existsSync(exovonDir)) {
+                    fs.mkdirSync(exovonDir, { recursive: true });
+                  }
+                  constPath = path.join(exovonDir, 'constitution.md');
+                } else {
+                  const globalDir = this.getGlobalStorageDir();
+                  if (!fs.existsSync(globalDir)) {
+                    fs.mkdirSync(globalDir, { recursive: true });
+                  }
+                  constPath = path.join(globalDir, 'constitution.md');
                 }
-                const constPath = path.join(exovonDir, 'constitution.md');
-                
+
                 let content = fs.existsSync(constPath) ? fs.readFileSync(constPath, 'utf8') : '# Code Constitution\n\n';
-                const topicHeader = `## ${call.args.category}`;
-                const startIndex = content.indexOf(topicHeader);
-                
+                const topicHeader = `## ${category}`;
+                const lowerContent = content.toLowerCase();
+                const lowerHeader = topicHeader.toLowerCase();
+                const startIndex = lowerContent.indexOf(lowerHeader);
+
                 if (startIndex !== -1) {
                   const nextHeaderIndex = content.indexOf('\n## ', startIndex + topicHeader.length);
-                  const insertStr = `\n- ${call.args.rule_description}\n`;
+                  const insertStr = `\n- ${rule}\n`;
                   if (nextHeaderIndex !== -1) {
                     content = content.substring(0, nextHeaderIndex) + insertStr + content.substring(nextHeaderIndex);
                   } else {
                     content += insertStr;
                   }
                 } else {
-                  content += `\n${topicHeader}\n- ${call.args.rule_description}\n`;
+                  content += `\n${topicHeader}\n- ${rule}\n`;
                 }
-                fs.writeFileSync(constPath, content);
-                result = "Rule successfully saved to Constitution for eternity.";
+                fs.writeFileSync(constPath, content, 'utf8');
+                result = `Rule successfully saved to Constitution under "${category}" for eternity (${constPath}).`;
+              } else if (toolName === 'createDoc') {
+                const title = (call.args.title || 'Untitled Document').trim();
+                const content = (call.args.content || '').trim();
+                let fileName = (call.args.fileName || call.args.filename || call.args.filePath || call.args.path || '').trim();
+
+                if (!fileName) {
+                  const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'document';
+                  fileName = `${slug}.md`;
+                }
+                if (!fileName.endsWith('.md') && !fileName.endsWith('.markdown')) {
+                  fileName += '.md';
+                }
+
+                const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+                let targetPath: string;
+                let relativeDisplay: string;
+
+                if (workspaceRoot) {
+                  targetPath = path.isAbsolute(fileName) ? fileName : path.join(workspaceRoot, fileName);
+                  relativeDisplay = path.relative(workspaceRoot, targetPath);
+                } else {
+                  const globalDocsDir = path.join(this.getGlobalStorageDir(), 'documents');
+                  if (!fs.existsSync(globalDocsDir)) {
+                    fs.mkdirSync(globalDocsDir, { recursive: true });
+                  }
+                  targetPath = path.join(globalDocsDir, path.basename(fileName));
+                  relativeDisplay = targetPath;
+                }
+
+                const parentDir = path.dirname(targetPath);
+                if (!fs.existsSync(parentDir)) {
+                  fs.mkdirSync(parentDir, { recursive: true });
+                }
+
+                let finalMarkdown = content;
+                if (!finalMarkdown.startsWith('# ')) {
+                  finalMarkdown = `# ${title}\n\n${finalMarkdown}`;
+                }
+
+                fs.writeFileSync(targetPath, finalMarkdown, 'utf8');
+
+                // Trigger split Markdown preview in Astrolabe
+                const docUri = vscode.Uri.file(targetPath);
+                try {
+                  await vscode.commands.executeCommand('markdown.showPreviewToSide', docUri);
+                } catch (prevErr) {
+                  try {
+                    const doc = await vscode.workspace.openTextDocument(docUri);
+                    await vscode.window.showTextDocument(doc, { preview: true, viewColumn: vscode.ViewColumn.Beside });
+                  } catch (e: any) {
+                    console.warn('[Astrolabe] Could not open preview beside:', e?.message);
+                  }
+                }
+
+                const wordCount = finalMarkdown.split(/\s+/).filter(Boolean).length;
+                const sizeKB = (Buffer.byteLength(finalMarkdown, 'utf8') / 1024).toFixed(1);
+
+                this.onUpdate({
+                  type: 'log',
+                  text: `📄 Document created & rendered: "${title}" at ${relativeDisplay} (${wordCount} words, ${sizeKB} KB)`,
+                  logType: 'success'
+                });
+
+                result = `Document "${title}" successfully created at "${relativeDisplay}" (${wordCount} words, ${sizeKB} KB) and opened in side-by-side Markdown preview for the user.`;
               } else if (toolName === 'openBrowserPreview') {
                 this.onUpdate({ type: 'log', text: `🌐 Opening VS Code Simple Browser at: ${call.args.url}`, logType: 'info' });
                 try {
