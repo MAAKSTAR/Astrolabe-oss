@@ -19,36 +19,51 @@ export class WebSearchTools {
       opts = optionsOrTavilyKey;
     }
 
-    const provider = (opts.provider || 'tavily').toLowerCase();
+    // Normalize and auto-route keys by prefix
+    const rawTinyKey = opts.tinyfishKey || (opts.tavilyKey?.startsWith('sk-tinyfish-') ? opts.tavilyKey : '') || (opts.firesearchKey?.startsWith('sk-tinyfish-') ? opts.firesearchKey : '');
+    const rawTavKey = opts.tavilyKey && !opts.tavilyKey.startsWith('sk-tinyfish-') && !opts.tavilyKey.startsWith('fc-') ? opts.tavilyKey : '';
+    const rawFireKey = opts.firesearchKey && !opts.firesearchKey.startsWith('sk-tinyfish-') ? opts.firesearchKey : (opts.tavilyKey?.startsWith('fc-') ? opts.tavilyKey : '');
+    const rawExaKey = opts.exaKey;
 
-    if (provider === 'tavily') {
-      if (!opts.tavilyKey) {
-        return `Error: No Tavily API key configured. Please set your Tavily API Key in Settings > Browser > Agent Web Tools.`;
+    let provider = (opts.provider || 'tavily').toLowerCase();
+
+    // If provider is set to tavily but user only configured a TinyFish key, auto-switch
+    if (provider === 'tavily' && !rawTavKey && rawTinyKey) {
+      provider = 'tinyfish';
+    } else if (provider === 'tavily' && !rawTavKey && rawFireKey) {
+      provider = 'firesearch';
+    }
+
+    if (provider === 'tinyfish') {
+      if (!rawTinyKey) {
+        return `Error: No TinyFish API key configured. Please set your TinyFish API Key (sk-tinyfish-...) in Settings > Browser.`;
       }
-      return this.searchTavily(query, opts.tavilyKey);
+      return this.searchTinyfish(query, rawTinyKey);
     } else if (provider === 'firesearch' || provider === 'firecrawl') {
-      if (!opts.firesearchKey) {
-        return `Error: No Firesearch API key configured. Please set your Firesearch API Key in Settings > Browser > Agent Web Tools.`;
+      if (!rawFireKey) {
+        return `Error: No Firesearch API key configured. Please set your Firesearch API Key in Settings > Browser.`;
       }
-      return this.searchFiresearch(query, opts.firesearchKey);
-    } else if (provider === 'tinyfish') {
-      if (!opts.tinyfishKey) {
-        return `Error: No TinyFish API key configured. Please set your TinyFish API Key in Settings > Browser > Agent Web Tools.`;
+      return this.searchFiresearch(query, rawFireKey);
+    } else if (provider === 'tavily') {
+      if (!rawTavKey) {
+        if (rawTinyKey) return this.searchTinyfish(query, rawTinyKey);
+        if (rawFireKey) return this.searchFiresearch(query, rawFireKey);
+        return `Error: No Tavily API key configured. Please set your Tavily API Key in Settings > Browser, or switch to TinyFish or DuckDuckGo.`;
       }
-      return this.searchTinyfish(query, opts.tinyfishKey);
+      return this.searchTavily(query, rawTavKey);
     } else if (provider === 'exa') {
-      if (!opts.exaKey) {
+      if (!rawExaKey) {
         return `Error: No Exa API key configured. Please set your Exa API Key in Settings.`;
       }
-      return this.searchExa(query, opts.exaKey);
+      return this.searchExa(query, rawExaKey);
     } else if (provider === 'duckduckgo' || provider === 'free') {
       return this.searchDuckDuckGo(query);
     } else {
       // Fallback: check which key is available
-      if (opts.tavilyKey) return this.searchTavily(query, opts.tavilyKey);
-      if (opts.firesearchKey) return this.searchFiresearch(query, opts.firesearchKey);
-      if (opts.tinyfishKey) return this.searchTinyfish(query, opts.tinyfishKey);
-      if (opts.exaKey) return this.searchExa(query, opts.exaKey);
+      if (rawTinyKey) return this.searchTinyfish(query, rawTinyKey);
+      if (rawTavKey) return this.searchTavily(query, rawTavKey);
+      if (rawFireKey) return this.searchFiresearch(query, rawFireKey);
+      if (rawExaKey) return this.searchExa(query, rawExaKey);
       return this.searchDuckDuckGo(query);
     }
   }
@@ -125,16 +140,14 @@ export class WebSearchTools {
 
   private static async searchTinyfish(query: string, apiKey: string): Promise<string> {
     try {
-      const response = await fetch('https://api.tinyfish.io/v1/search', {
-        method: 'POST',
+      const url = `https://api.search.tinyfish.ai?query=${encodeURIComponent(query)}`;
+      const response = await fetch(url, {
+        method: 'GET',
         headers: {
-          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'X-API-Key': apiKey,
           'Authorization': `Bearer ${apiKey}`
-        },
-        body: JSON.stringify({
-          query: query,
-          max_results: 5
-        })
+        }
       });
 
       if (!response.ok) {
@@ -143,11 +156,14 @@ export class WebSearchTools {
 
       const data: any = await response.json();
       const results = data.results || data.data || [];
-      if (results.length === 0) return 'No TinyFish results found.';
+      if (results.length === 0) return 'No TinyFish search results found.';
 
-      let responseStr = 'TinyFish Results:\n';
-      results.forEach((r: any) => {
-        responseStr += `- ${r.title || 'Result'} (${r.url || ''})\n  ${r.snippet || r.content || ''}\n\n`;
+      let responseStr = 'TinyFish Search Results:\n';
+      results.slice(0, 5).forEach((r: any) => {
+        const title = r.title || 'Web Result';
+        const url = r.url || '';
+        const snippet = r.snippet || r.content || '';
+        responseStr += `- ${title} (${url})\n  ${snippet}\n\n`;
       });
       return responseStr.trim();
     } catch (e: any) {

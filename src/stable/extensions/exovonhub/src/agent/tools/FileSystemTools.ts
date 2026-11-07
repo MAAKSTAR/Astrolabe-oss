@@ -371,7 +371,7 @@ export class FileSystemTools implements FileSystemToolsInterface {
     }
     // Fall through to real workspace for reads
     if (!this.workspaceRoot) {
-      throw new Error(`Error: No open workspace root found. Please open a folder first.`);
+      throw new Error(`Error: No open workspace folder found. There is currently no open project folder in Astrolabe. Please tell the user to open a workspace folder using "Open Folder" (or File > Open Folder). Coding and file-modifying tools are disabled until a folder is open.`);
     }
     const realPath = path.resolve(this.workspaceRoot, relativePath);
     const relWorkspace = path.relative(this.workspaceRoot, realPath);
@@ -391,7 +391,7 @@ export class FileSystemTools implements FileSystemToolsInterface {
       return shadowFile;
     }
     if (!this.workspaceRoot) {
-      throw new Error(`Error: No open workspace root found. Please open a folder first.`);
+      throw new Error(`Error: No open workspace folder found. There is currently no open project folder in Astrolabe. Please tell the user to open a workspace folder using "Open Folder" (or File > Open Folder). Coding and file-modifying tools are disabled until a folder is open.`);
     }
     const realPath = path.resolve(this.workspaceRoot, relativePath);
     const relWorkspace = path.relative(this.workspaceRoot, realPath);
@@ -405,6 +405,9 @@ export class FileSystemTools implements FileSystemToolsInterface {
    * List directory contents
    */
   public async listDir(relativePath: string): Promise<string> {
+    if (!this.workspaceRoot) {
+      return 'Error: No open workspace folder found. There is currently no open project folder in Astrolabe. Please tell the user to open a workspace folder using "Open Folder" (or File > Open Folder). Coding and file-modifying tools are disabled until a folder is open.';
+    }
     relativePath = this.normalizeAgentPath(relativePath);
     try {
       const realPath = path.resolve(this.workspaceRoot, relativePath);
@@ -658,6 +661,9 @@ export class FileSystemTools implements FileSystemToolsInterface {
    */
   public async semanticSearch(query: string, includePattern: string = '**/*'): Promise<string> {
     try {
+      if (!this.workspaceRoot) {
+        return 'Error: No open workspace folder found. There is currently no open project folder in Astrolabe. Please tell the user to open a workspace folder using "Open Folder" (or File > Open Folder). Coding and file-modifying tools are disabled until a folder is open.';
+      }
       const results: Array<{ file: string; type: string; name: string; matchLines: string }> = [];
       const excludePattern = '{**/node_modules/**,**/dist/**,**/.git/**,**/out/**,**/.exovon-shadow/**}';
       
@@ -721,7 +727,7 @@ export class FileSystemTools implements FileSystemToolsInterface {
   public async grepSearch(query: string, includePattern: string = '**/*'): Promise<string> {
     try {
       if (!this.workspaceRoot) {
-        return 'Error: No open workspace root found.';
+        return 'Error: No open workspace folder found. There is currently no open project folder in Astrolabe. Please tell the user to open a workspace folder using "Open Folder" (or File > Open Folder). Coding and file-modifying tools are disabled until a folder is open.';
       }
 
       const results: Array<{ file: string; line: number; content: string }> = [];

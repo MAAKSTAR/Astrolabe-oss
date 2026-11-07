@@ -2647,11 +2647,25 @@ MANDATORY RULES:
                 fullSystemInstruction = `${systemInstruction}${goalContext}${memoryContext}${constitutionContext}${agentRulesContext}`;
             }
             else {
-                if (this.brainCoordinator) {
-                    await this.brainCoordinator.forceFlushNow();
-                    brainContext = await this.brainCoordinator.contextCard(prompt);
-                }
-                fullSystemInstruction = `${systemInstruction}`;
+                const noWorkspaceAlert = `
+
+<|NO_WORKSPACE_OPEN_ALERT|>
+CRITICAL ENVIRONMENT STATUS: NO WORKSPACE FOLDER IS OPEN IN ASTROLABE.
+- The user currently has NO workspace or project folder open in the IDE (the IDE is on the Welcome screen or in an empty window).
+- Coding and file-system tools (listDir, viewFile, applyPatch, multiReplaceFileContent, createFile, deleteFile, grepSearch, semanticSearch, runCommand) are DISABLED and CANNOT execute because there is no workspace directory.
+- DO NOT attempt to call file-reading, file-writing, or terminal tools.
+- DO NOT hallucinate that a workspace exists or that files like package.json or .exovon are present.
+- Allowed Tools while no folder is open:
+  - searchWeb(query): Allowed. You can freely search the web for documentation, technology research, or live information.
+  - openBrowserPreview(url): Allowed.
+  - listAvailableTools(): Allowed.
+- If the user asks a general question, conceptual explanation, architecture question, or web research, answer directly in chat.
+- If the user asks you to write, edit, run, or inspect project code, inform them:
+  "No workspace folder is currently open in Astrolabe. Please open or create a project folder (via 'Open Folder' on the Welcome screen or File > Open Folder) before I can create or inspect files."
+- You may show code examples or architecture in markdown for them to review, but explain that file operations will activate once they open a folder.
+</|NO_WORKSPACE_OPEN_ALERT|>
+`;
+                fullSystemInstruction = `${systemInstruction}\n${noWorkspaceAlert}`;
             }
             // BP-6: Input Sanitization - Safely truncate prompt to prevent token limit crashes
             const maxPromptLength = 20000;
@@ -8109,7 +8123,7 @@ class FileSystemTools {
         }
         // Fall through to real workspace for reads
         if (!this.workspaceRoot) {
-            throw new Error(`Error: No open workspace root found. Please open a folder first.`);
+            throw new Error(`Error: No open workspace folder found. There is currently no open project folder in Astrolabe. Please tell the user to open a workspace folder using "Open Folder" (or File > Open Folder). Coding and file-modifying tools are disabled until a folder is open.`);
         }
         const realPath = path.resolve(this.workspaceRoot, relativePath);
         const relWorkspace = path.relative(this.workspaceRoot, realPath);
@@ -8128,7 +8142,7 @@ class FileSystemTools {
             return shadowFile;
         }
         if (!this.workspaceRoot) {
-            throw new Error(`Error: No open workspace root found. Please open a folder first.`);
+            throw new Error(`Error: No open workspace folder found. There is currently no open project folder in Astrolabe. Please tell the user to open a workspace folder using "Open Folder" (or File > Open Folder). Coding and file-modifying tools are disabled until a folder is open.`);
         }
         const realPath = path.resolve(this.workspaceRoot, relativePath);
         const relWorkspace = path.relative(this.workspaceRoot, realPath);
@@ -8141,6 +8155,9 @@ class FileSystemTools {
      * List directory contents
      */
     async listDir(relativePath) {
+        if (!this.workspaceRoot) {
+            return 'Error: No open workspace folder found. There is currently no open project folder in Astrolabe. Please tell the user to open a workspace folder using "Open Folder" (or File > Open Folder). Coding and file-modifying tools are disabled until a folder is open.';
+        }
         relativePath = this.normalizeAgentPath(relativePath);
         try {
             const realPath = path.resolve(this.workspaceRoot, relativePath);
@@ -8359,6 +8376,9 @@ class FileSystemTools {
      */
     async semanticSearch(query, includePattern = '**/*') {
         try {
+            if (!this.workspaceRoot) {
+                return 'Error: No open workspace folder found. There is currently no open project folder in Astrolabe. Please tell the user to open a workspace folder using "Open Folder" (or File > Open Folder). Coding and file-modifying tools are disabled until a folder is open.';
+            }
             const results = [];
             const excludePattern = '{**/node_modules/**,**/dist/**,**/.git/**,**/out/**,**/.exovon-shadow/**}';
             const files = await vscode.workspace.findFiles(includePattern, excludePattern, 1000);
@@ -8417,7 +8437,7 @@ class FileSystemTools {
     async grepSearch(query, includePattern = '**/*') {
         try {
             if (!this.workspaceRoot) {
-                return 'Error: No open workspace root found.';
+                return 'Error: No open workspace folder found. There is currently no open project folder in Astrolabe. Please tell the user to open a workspace folder using "Open Folder" (or File > Open Folder). Coding and file-modifying tools are disabled until a folder is open.';
             }
             const results = [];
             // Try native ripgrep first (bundled with VS Code)
@@ -8982,7 +9002,7 @@ class TerminalTools {
     async runCommand(command) {
         try {
             if (!this.workspaceRoot) {
-                return 'Error: No open workspace root found.';
+                return 'Error: No open workspace folder found. There is currently no open project folder in Astrolabe. Please tell the user to open a workspace folder using "Open Folder" (or File > Open Folder). Terminal commands cannot execute without a workspace.';
             }
             // Security check: Blocklist destructive commands instantly
             const blockedPatterns = [
@@ -9155,44 +9175,60 @@ class WebSearchTools {
         else if (optionsOrTavilyKey) {
             opts = optionsOrTavilyKey;
         }
-        const provider = (opts.provider || 'tavily').toLowerCase();
-        if (provider === 'tavily') {
-            if (!opts.tavilyKey) {
-                return `Error: No Tavily API key configured. Please set your Tavily API Key in Settings > Browser > Agent Web Tools.`;
+        // Normalize and auto-route keys by prefix
+        const rawTinyKey = opts.tinyfishKey || (opts.tavilyKey?.startsWith('sk-tinyfish-') ? opts.tavilyKey : '') || (opts.firesearchKey?.startsWith('sk-tinyfish-') ? opts.firesearchKey : '');
+        const rawTavKey = opts.tavilyKey && !opts.tavilyKey.startsWith('sk-tinyfish-') && !opts.tavilyKey.startsWith('fc-') ? opts.tavilyKey : '';
+        const rawFireKey = opts.firesearchKey && !opts.firesearchKey.startsWith('sk-tinyfish-') ? opts.firesearchKey : (opts.tavilyKey?.startsWith('fc-') ? opts.tavilyKey : '');
+        const rawExaKey = opts.exaKey;
+        let provider = (opts.provider || 'tavily').toLowerCase();
+        // If provider is set to tavily but user only configured a TinyFish key, auto-switch
+        if (provider === 'tavily' && !rawTavKey && rawTinyKey) {
+            provider = 'tinyfish';
+        }
+        else if (provider === 'tavily' && !rawTavKey && rawFireKey) {
+            provider = 'firesearch';
+        }
+        if (provider === 'tinyfish') {
+            if (!rawTinyKey) {
+                return `Error: No TinyFish API key configured. Please set your TinyFish API Key (sk-tinyfish-...) in Settings > Browser.`;
             }
-            return this.searchTavily(query, opts.tavilyKey);
+            return this.searchTinyfish(query, rawTinyKey);
         }
         else if (provider === 'firesearch' || provider === 'firecrawl') {
-            if (!opts.firesearchKey) {
-                return `Error: No Firesearch API key configured. Please set your Firesearch API Key in Settings > Browser > Agent Web Tools.`;
+            if (!rawFireKey) {
+                return `Error: No Firesearch API key configured. Please set your Firesearch API Key in Settings > Browser.`;
             }
-            return this.searchFiresearch(query, opts.firesearchKey);
+            return this.searchFiresearch(query, rawFireKey);
         }
-        else if (provider === 'tinyfish') {
-            if (!opts.tinyfishKey) {
-                return `Error: No TinyFish API key configured. Please set your TinyFish API Key in Settings > Browser > Agent Web Tools.`;
+        else if (provider === 'tavily') {
+            if (!rawTavKey) {
+                if (rawTinyKey)
+                    return this.searchTinyfish(query, rawTinyKey);
+                if (rawFireKey)
+                    return this.searchFiresearch(query, rawFireKey);
+                return `Error: No Tavily API key configured. Please set your Tavily API Key in Settings > Browser, or switch to TinyFish or DuckDuckGo.`;
             }
-            return this.searchTinyfish(query, opts.tinyfishKey);
+            return this.searchTavily(query, rawTavKey);
         }
         else if (provider === 'exa') {
-            if (!opts.exaKey) {
+            if (!rawExaKey) {
                 return `Error: No Exa API key configured. Please set your Exa API Key in Settings.`;
             }
-            return this.searchExa(query, opts.exaKey);
+            return this.searchExa(query, rawExaKey);
         }
         else if (provider === 'duckduckgo' || provider === 'free') {
             return this.searchDuckDuckGo(query);
         }
         else {
             // Fallback: check which key is available
-            if (opts.tavilyKey)
-                return this.searchTavily(query, opts.tavilyKey);
-            if (opts.firesearchKey)
-                return this.searchFiresearch(query, opts.firesearchKey);
-            if (opts.tinyfishKey)
-                return this.searchTinyfish(query, opts.tinyfishKey);
-            if (opts.exaKey)
-                return this.searchExa(query, opts.exaKey);
+            if (rawTinyKey)
+                return this.searchTinyfish(query, rawTinyKey);
+            if (rawTavKey)
+                return this.searchTavily(query, rawTavKey);
+            if (rawFireKey)
+                return this.searchFiresearch(query, rawFireKey);
+            if (rawExaKey)
+                return this.searchExa(query, rawExaKey);
             return this.searchDuckDuckGo(query);
         }
     }
@@ -9264,16 +9300,14 @@ class WebSearchTools {
     }
     static async searchTinyfish(query, apiKey) {
         try {
-            const response = await fetch('https://api.tinyfish.io/v1/search', {
-                method: 'POST',
+            const url = `https://api.search.tinyfish.ai?query=${encodeURIComponent(query)}`;
+            const response = await fetch(url, {
+                method: 'GET',
                 headers: {
-                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                    'X-API-Key': apiKey,
                     'Authorization': `Bearer ${apiKey}`
-                },
-                body: JSON.stringify({
-                    query: query,
-                    max_results: 5
-                })
+                }
             });
             if (!response.ok) {
                 return `TinyFish API Error: ${response.status} - ${await response.text()}`;
@@ -9281,10 +9315,13 @@ class WebSearchTools {
             const data = await response.json();
             const results = data.results || data.data || [];
             if (results.length === 0)
-                return 'No TinyFish results found.';
-            let responseStr = 'TinyFish Results:\n';
-            results.forEach((r) => {
-                responseStr += `- ${r.title || 'Result'} (${r.url || ''})\n  ${r.snippet || r.content || ''}\n\n`;
+                return 'No TinyFish search results found.';
+            let responseStr = 'TinyFish Search Results:\n';
+            results.slice(0, 5).forEach((r) => {
+                const title = r.title || 'Web Result';
+                const url = r.url || '';
+                const snippet = r.snippet || r.content || '';
+                responseStr += `- ${title} (${url})\n  ${snippet}\n\n`;
             });
             return responseStr.trim();
         }
@@ -48591,6 +48628,7 @@ Your mission is to solve software engineering tasks with high precision, robust 
 
 ### Core Agent Workflow
 1. Greetings & Conversational Queries: If the user is saying hello, asking a general question, or seeking guidance, reply directly and helpfully in chat without executing file exploration tools.
+1b. No Open Workspace: If no workspace folder is open in the IDE (e.g. user is on the Welcome screen), workspace coding tools cannot operate. DO NOT attempt to run viewFile, listDir, applyPatch, createFile, or runCommand. Inform the user to open a folder via 'Open Folder' or File > Open Folder before code files can be modified or inspected. You may answer questions and use searchWeb.
 2. Code & Engineering Tasks: When the user asks you to build, fix, edit, or analyze code:
    - Formulate a clear strategy in your internal <thought>...</thought>.
    - Explore relevant files using \`viewFile\` and directories using \`listDir\`.

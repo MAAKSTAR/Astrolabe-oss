@@ -2564,7 +2564,7 @@ export default function SettingsApp() {
                             ? 'https://tavily.com'
                             : searchProvider === 'firesearch'
                             ? 'https://firecrawl.dev'
-                            : 'https://tinyfish.io'
+                            : 'https://agent.tinyfish.ai/api-keys'
                         }
                         target="_blank"
                         rel="noreferrer"
@@ -2575,7 +2575,7 @@ export default function SettingsApp() {
                             ? 'Get Tavily API key'
                             : searchProvider === 'firesearch'
                             ? 'Get Firecrawl key'
-                            : 'Get TinyFish key'}
+                            : 'Get TinyFish key (agent.tinyfish.ai)'}
                         </span>
                         <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
@@ -2630,10 +2630,10 @@ export default function SettingsApp() {
                           type={showSearchKey ? 'text' : 'password'}
                           placeholder={
                             searchProvider === 'tavily'
-                              ? 'tvly-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'
+                              ? 'Paste Tavily API key (tvly-...)'
                               : searchProvider === 'firesearch'
-                              ? 'fc-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'
-                              : 'tf-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'
+                              ? 'Paste Firecrawl API key (fc-...)'
+                              : 'Paste TinyFish API key (sk-tinyfish-...)'
                           }
                           value={
                             searchProvider === 'tavily'
@@ -2643,10 +2643,21 @@ export default function SettingsApp() {
                               : tinyfishApiKey
                           }
                           onChange={(e) => {
-                            const val = e.target.value;
-                            if (searchProvider === 'tavily') setTavilyApiKey(val);
-                            else if (searchProvider === 'firesearch') setFiresearchApiKey(val);
-                            else setTinyfishApiKey(val);
+                            const val = e.target.value.trim();
+                            if (val.startsWith('sk-tinyfish-') || val.startsWith('tf-')) {
+                              setSearchProvider('tinyfish');
+                              setTinyfishApiKey(val);
+                            } else if (val.startsWith('tvly-')) {
+                              setSearchProvider('tavily');
+                              setTavilyApiKey(val);
+                            } else if (val.startsWith('fc-')) {
+                              setSearchProvider('firesearch');
+                              setFiresearchApiKey(val);
+                            } else {
+                              if (searchProvider === 'tavily') setTavilyApiKey(val);
+                              else if (searchProvider === 'firesearch') setFiresearchApiKey(val);
+                              else setTinyfishApiKey(val);
+                            }
                             setIsSearchKeySaved(false);
                           }}
                           className="w-full bg-zinc-950 border border-white/15 rounded-lg px-3 py-2 text-xs font-mono text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-orange-500 transition-colors pr-14"

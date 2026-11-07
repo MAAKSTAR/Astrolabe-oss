@@ -72,7 +72,7 @@ export class TerminalTools implements TerminalToolsInterface {
   public async runCommand(command: string): Promise<string> {
     try {
       if (!this.workspaceRoot) {
-        return 'Error: No open workspace root found.';
+        return 'Error: No open workspace folder found. There is currently no open project folder in Astrolabe. Please tell the user to open a workspace folder using "Open Folder" (or File > Open Folder). Terminal commands cannot execute without a workspace.';
       }
 
       // Security check: Blocklist destructive commands instantly

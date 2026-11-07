@@ -556,11 +556,25 @@ MANDATORY RULES:
         // Keep system instruction 100% static across all turns to preserve KV cache prefix hit rate
         fullSystemInstruction = `${systemInstruction}${goalContext}${memoryContext}${constitutionContext}${agentRulesContext}`;
       } else {
-        if (this.brainCoordinator) {
-          await this.brainCoordinator.forceFlushNow();
-          brainContext = await this.brainCoordinator.contextCard(prompt);
-        }
-        fullSystemInstruction = `${systemInstruction}`;
+        const noWorkspaceAlert = `
+
+<|NO_WORKSPACE_OPEN_ALERT|>
+CRITICAL ENVIRONMENT STATUS: NO WORKSPACE FOLDER IS OPEN IN ASTROLABE.
+- The user currently has NO workspace or project folder open in the IDE (the IDE is on the Welcome screen or in an empty window).
+- Coding and file-system tools (listDir, viewFile, applyPatch, multiReplaceFileContent, createFile, deleteFile, grepSearch, semanticSearch, runCommand) are DISABLED and CANNOT execute because there is no workspace directory.
+- DO NOT attempt to call file-reading, file-writing, or terminal tools.
+- DO NOT hallucinate that a workspace exists or that files like package.json or .exovon are present.
+- Allowed Tools while no folder is open:
+  - searchWeb(query): Allowed. You can freely search the web for documentation, technology research, or live information.
+  - openBrowserPreview(url): Allowed.
+  - listAvailableTools(): Allowed.
+- If the user asks a general question, conceptual explanation, architecture question, or web research, answer directly in chat.
+- If the user asks you to write, edit, run, or inspect project code, inform them:
+  "No workspace folder is currently open in Astrolabe. Please open or create a project folder (via 'Open Folder' on the Welcome screen or File > Open Folder) before I can create or inspect files."
+- You may show code examples or architecture in markdown for them to review, but explain that file operations will activate once they open a folder.
+</|NO_WORKSPACE_OPEN_ALERT|>
+`;
+        fullSystemInstruction = `${systemInstruction}\n${noWorkspaceAlert}`;
       }
 
       // BP-6: Input Sanitization - Safely truncate prompt to prevent token limit crashes
