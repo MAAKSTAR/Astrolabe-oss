@@ -1968,32 +1968,18 @@ CRITICAL ENVIRONMENT STATUS: NO WORKSPACE FOLDER IS OPEN IN ASTROLABE.
           const sanitized = this.sanitizeModelOutput(streamingText);
 
           // Silent background action-nudge:
-          // If the model wrote thoughts about inspecting/editing/planning/searching but emitted no tool call:
-          const hasToolIntent = /viewFile|readFile|listDir|runCommand|search|fetch|read|edit|patch|create|check|examine|inspect|look at|open|explore/i.test(sanitized.thought || streamingText);
-          if (nudgeCount < 2 && (!sanitized.cleanText || sanitized.thought.length > 20)) {
-            if (hasToolIntent) {
-              nudgeCount++;
-              messages.push({
-                role: 'model',
-                parts: [{ text: streamingText }]
-              });
-              messages.push({
-                role: 'user',
-                parts: [{ text: "You described your plan and intentions in your thoughts, but you did not emit an executable tool call. You must invoke the appropriate tool now using <call:toolName(...)> (e.g. searchWeb, fetchWebPage, viewFile, listDir, runCommand), or write your final response for the user outside of <thought> tags." }]
-              });
-              continue;
-            } else if (!sanitized.cleanText && sanitized.thought.length > 0) {
-              nudgeCount++;
-              messages.push({
-                role: 'model',
-                parts: [{ text: streamingText }]
-              });
-              messages.push({
-                role: 'user',
-                parts: [{ text: "Please provide your final answer or summary to the user directly outside of <thought> tags." }]
-              });
-              continue;
-            }
+          // ONLY nudge if the model produced ZERO clean text for the user:
+          if (!sanitized.cleanText && nudgeCount < 2) {
+            nudgeCount++;
+            messages.push({
+              role: 'model',
+              parts: [{ text: streamingText }]
+            });
+            messages.push({
+              role: 'user',
+              parts: [{ text: "Please respond to the user outside of <thought> tags (or emit the appropriate <call:toolName(...)> tag if an action is needed)." }]
+            });
+            continue;
           }
 
           completed = true;

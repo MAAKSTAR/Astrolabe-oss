@@ -546,6 +546,17 @@ export class SettingsProvider {
               const hfToken = config.get<string>('huggingFaceToken') || undefined;
               const useMirror = config.get<boolean>('useHfMirror', false);
 
+              // Auto-ensure exovon-daemon is alive before initiating download
+              const { DaemonManager } = require('./agent/DaemonManager');
+              const daemon = DaemonManager.getInstance();
+              if (!await daemon.isAlive()) {
+                await daemon.startDaemon(this._context);
+                for (let i = 0; i < 8; i++) {
+                  if (await daemon.isAlive()) break;
+                  await new Promise(r => setTimeout(r, 250));
+                }
+              }
+
               vscode.window.showInformationMessage(`Starting download for ${data.filename}... Priority 16-channel streaming active.`);
               const res = await fetch('http://127.0.0.1:47990/v1/models/download', {
                 method: 'POST',
@@ -559,10 +570,22 @@ export class SettingsProvider {
               });
               
               if (!res.ok) {
-                vscode.window.showErrorMessage(`Failed to initiate download for ${data.filename}`);
+                const errText = await res.text();
+                vscode.window.showErrorMessage(`Failed to initiate download for ${data.filename}: ${errText}`);
+              } else {
+                // Immediately trigger active downloads refresh to the webview
+                setTimeout(async () => {
+                  try {
+                    const dlRes = await fetch('http://127.0.0.1:47990/v1/models/downloads');
+                    if (dlRes.ok) {
+                      const dlBody = await dlRes.json() as any;
+                      this._panel?.webview.postMessage({ type: 'activeDownloads', downloads: dlBody.downloads || [] });
+                    }
+                  } catch {}
+                }, 300);
               }
-            } catch (e) {
-              vscode.window.showErrorMessage('Failed to connect to local daemon.');
+            } catch (e: any) {
+              vscode.window.showErrorMessage(`Failed to connect to local daemon: ${e.message}`);
             }
             break;
           }

@@ -4069,33 +4069,18 @@ CRITICAL ENVIRONMENT STATUS: NO WORKSPACE FOLDER IS OPEN IN ASTROLABE.
                     // No more tool calls; check if model merely thought without emitting an executable action
                     const sanitized = this.sanitizeModelOutput(streamingText);
                     // Silent background action-nudge:
-                    // If the model wrote thoughts about inspecting/editing/planning/searching but emitted no tool call:
-                    const hasToolIntent = /viewFile|readFile|listDir|runCommand|search|fetch|read|edit|patch|create|check|examine|inspect|look at|open|explore/i.test(sanitized.thought || streamingText);
-                    if (nudgeCount < 2 && (!sanitized.cleanText || sanitized.thought.length > 20)) {
-                        if (hasToolIntent) {
-                            nudgeCount++;
-                            messages.push({
-                                role: 'model',
-                                parts: [{ text: streamingText }]
-                            });
-                            messages.push({
-                                role: 'user',
-                                parts: [{ text: "You described your plan and intentions in your thoughts, but you did not emit an executable tool call. You must invoke the appropriate tool now using <call:toolName(...)> (e.g. searchWeb, fetchWebPage, viewFile, listDir, runCommand), or write your final response for the user outside of <thought> tags." }]
-                            });
-                            continue;
-                        }
-                        else if (!sanitized.cleanText && sanitized.thought.length > 0) {
-                            nudgeCount++;
-                            messages.push({
-                                role: 'model',
-                                parts: [{ text: streamingText }]
-                            });
-                            messages.push({
-                                role: 'user',
-                                parts: [{ text: "Please provide your final answer or summary to the user directly outside of <thought> tags." }]
-                            });
-                            continue;
-                        }
+                    // ONLY nudge if the model produced ZERO clean text for the user:
+                    if (!sanitized.cleanText && nudgeCount < 2) {
+                        nudgeCount++;
+                        messages.push({
+                            role: 'model',
+                            parts: [{ text: streamingText }]
+                        });
+                        messages.push({
+                            role: 'user',
+                            parts: [{ text: "Please respond to the user outside of <thought> tags (or emit the appropriate <call:toolName(...)> tag if an action is needed)." }]
+                        });
+                        continue;
                     }
                     completed = true;
                     if (totalToolsExecuted > 0) {
@@ -51268,6 +51253,17 @@ class SettingsProvider {
                         const config = vscode.workspace.getConfiguration('exovonhub');
                         const hfToken = config.get('huggingFaceToken') || undefined;
                         const useMirror = config.get('useHfMirror', false);
+                        // Auto-ensure exovon-daemon is alive before initiating download
+                        const { DaemonManager } = __webpack_require__(277);
+                        const daemon = DaemonManager.getInstance();
+                        if (!await daemon.isAlive()) {
+                            await daemon.startDaemon(this._context);
+                            for (let i = 0; i < 8; i++) {
+                                if (await daemon.isAlive())
+                                    break;
+                                await new Promise(r => setTimeout(r, 250));
+                            }
+                        }
                         vscode.window.showInformationMessage(`Starting download for ${data.filename}... Priority 16-channel streaming active.`);
                         const res = await fetch('http://127.0.0.1:47990/v1/models/download', {
                             method: 'POST',
@@ -51280,11 +51276,25 @@ class SettingsProvider {
                             })
                         });
                         if (!res.ok) {
-                            vscode.window.showErrorMessage(`Failed to initiate download for ${data.filename}`);
+                            const errText = await res.text();
+                            vscode.window.showErrorMessage(`Failed to initiate download for ${data.filename}: ${errText}`);
+                        }
+                        else {
+                            // Immediately trigger active downloads refresh to the webview
+                            setTimeout(async () => {
+                                try {
+                                    const dlRes = await fetch('http://127.0.0.1:47990/v1/models/downloads');
+                                    if (dlRes.ok) {
+                                        const dlBody = await dlRes.json();
+                                        this._panel?.webview.postMessage({ type: 'activeDownloads', downloads: dlBody.downloads || [] });
+                                    }
+                                }
+                                catch { }
+                            }, 300);
                         }
                     }
                     catch (e) {
-                        vscode.window.showErrorMessage('Failed to connect to local daemon.');
+                        vscode.window.showErrorMessage(`Failed to connect to local daemon: ${e.message}`);
                     }
                     break;
                 }

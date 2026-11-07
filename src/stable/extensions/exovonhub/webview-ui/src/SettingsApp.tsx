@@ -2106,6 +2106,19 @@ export default function SettingsApp() {
                                 type="button"
                                 onClick={() => {
                                   if (selectedQuant) {
+                                    setActiveDownloads(prev => [
+                                      ...prev.filter(d => d.model_name !== selectedQuant.filename),
+                                      {
+                                        model_name: selectedQuant.filename,
+                                        downloaded_bytes: 0,
+                                        total_bytes: Math.round((selectedQuant.sizeGB || 1) * 1024 * 1024 * 1024),
+                                        percent: 0,
+                                        speed_bytes_per_sec: 0,
+                                        speed_display: 'Connecting...',
+                                        status: 'starting',
+                                        url: selectedQuant.directUrl
+                                      }
+                                    ]);
                                     vscodeApi?.postMessage({ command: 'downloadLocalModel', url: selectedQuant.directUrl, filename: selectedQuant.filename });
                                     vscodeApi?.postMessage({ command: 'showNotification', message: `Started accelerated download for ${selectedQuant.filename}` });
                                     setIsDownloadsTrayOpen(true);
