@@ -1,20 +1,20 @@
 export interface PlanStep {
   id: string;
   text: string;
-  status: 'pending' | 'running' | 'success' | 'failed';
+  status: 'pending' | 'running' | 'success' | 'failed' | 'stopped';
 }
 
 export interface ToolCall {
   id: string;
   name: string;
   args: string;
-  status: 'running' | 'success' | 'failed';
+  status: 'running' | 'success' | 'failed' | 'stopped';
 }
 
 export interface TimelineEvent {
   id: string;
   type: 'think' | 'tool' | 'log';
-  status: 'running' | 'success' | 'failed' | 'pending';
+  status: 'running' | 'success' | 'failed' | 'pending' | 'stopped';
   title?: string;
   content?: string;
   toolName?: string;
@@ -60,6 +60,7 @@ export interface Message {
   filePathToApprove?: string;
   fileDetailsToApprove?: string;
   isHistory?: boolean;
+  isCancelled?: boolean;
   isPlanReview?: boolean;
   planMarkdown?: string;
   startTime?: number;

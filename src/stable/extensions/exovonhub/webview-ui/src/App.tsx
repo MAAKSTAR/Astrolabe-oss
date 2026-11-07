@@ -596,31 +596,75 @@ export default function App() {
           ]);
           break;
 
-        case 'agentComplete':
+        case 'agentCancelled':
           setIsAgentThinking(false);
           setStopClicks(0);
           setMessages(prev => {
             const copy = [...prev];
-            // Sweep ALL messages to force any stuck 'running' states to 'failed' or complete
-            let updated = false;
-            for (let i = 0; i < copy.length; i++) {
+            for (let i = copy.length - 1; i >= 0; i--) {
               if (copy[i].sender === 'agent') {
-                const msgCopy = { ...copy[i] };
+                const msgCopy = { ...copy[i], isCancelled: true, endTime: Date.now() };
                 if (msgCopy.toolCalls) {
                   msgCopy.toolCalls = msgCopy.toolCalls.map(t => {
-                    if (t.status === 'running') { updated = true; return { ...t, status: 'failed' }; }
+                    if (t.status === 'running') return { ...t, status: 'stopped' };
                     return t;
                   });
                 }
                 if (msgCopy.planSteps) {
                   msgCopy.planSteps = msgCopy.planSteps.map(p => {
-                    if (p.status === 'running') { updated = true; return { ...p, status: 'success' }; }
+                    if (p.status === 'running') return { ...p, status: 'stopped' };
                     return p;
                   });
                 }
                 if (msgCopy.timeline) {
                   msgCopy.timeline = msgCopy.timeline.map(e => {
-                    if (e.status === 'running') { updated = true; return { ...e, status: e.type === 'think' ? 'success' : 'failed' }; }
+                    if (e.status === 'running') return { ...e, status: 'stopped' };
+                    return e;
+                  });
+                }
+                copy[i] = msgCopy;
+                break;
+              }
+            }
+            return copy;
+          });
+          break;
+
+        case 'agentComplete':
+          setIsAgentThinking(false);
+          setStopClicks(0);
+          setMessages(prev => {
+            const copy = [...prev];
+            // Sweep ALL messages to force any stuck 'running' states to clean final states
+            let updated = false;
+            for (let i = 0; i < copy.length; i++) {
+              if (copy[i].sender === 'agent') {
+                const msgCopy = { ...copy[i] };
+                const wasCancelled = Boolean(msgCopy.isCancelled);
+                if (msgCopy.toolCalls) {
+                  msgCopy.toolCalls = msgCopy.toolCalls.map(t => {
+                    if (t.status === 'running') {
+                      updated = true;
+                      return { ...t, status: wasCancelled ? 'stopped' : 'failed' };
+                    }
+                    return t;
+                  });
+                }
+                if (msgCopy.planSteps) {
+                  msgCopy.planSteps = msgCopy.planSteps.map(p => {
+                    if (p.status === 'running') {
+                      updated = true;
+                      return { ...p, status: wasCancelled ? 'stopped' : 'success' };
+                    }
+                    return p;
+                  });
+                }
+                if (msgCopy.timeline) {
+                  msgCopy.timeline = msgCopy.timeline.map(e => {
+                    if (e.status === 'running') {
+                      updated = true;
+                      return { ...e, status: wasCancelled ? 'stopped' : (e.type === 'think' ? 'success' : 'failed') };
+                    }
                     return e;
                   });
                 }

@@ -156,17 +156,18 @@ interface ChatScreenProps {
 
 function TaskProgressCard({ msg }: { msg: Message }) {
   // 1. Robust Working State Detection
+  const isCancelled = Boolean(msg.isCancelled);
   const hasTimeline = Boolean(msg.timeline && msg.timeline.length > 0);
   const hasRunningTimelineEvent = Boolean(hasTimeline && msg.timeline?.some((e: any) => e.status === 'running' || e.status === 'pending'));
   const hasRunningPlanStep = Boolean(msg.planSteps && msg.planSteps.some((s: any) => s.status === 'running' || s.status === 'pending'));
   
-  // Active if message is not ended yet or has running events
-  const isWorking = !msg.endTime && (hasRunningTimelineEvent || hasRunningPlanStep || !msg.text);
+  // Active if message is not ended yet or has running events (and not stopped by user)
+  const isWorking = !isCancelled && !msg.endTime && (hasRunningTimelineEvent || hasRunningPlanStep || !msg.text);
 
   // 2. Robust Error Detection across Timeline Events and Plan Steps
-  const hasFailedEvent = Boolean(hasTimeline && msg.timeline?.some((e: any) => 
-    e.status === 'failed' || 
-    e.status === 'error' ||
+  // If stopped by user, do not scream failure or treat aborts as system errors
+  const hasFailedEvent = Boolean(!isCancelled && hasTimeline && msg.timeline?.some((e: any) => 
+    (e.status === 'failed' || e.status === 'error') && 
     (e.content && (
       e.content.includes('❌') || 
       e.content.includes('API ERROR') || 
@@ -183,25 +184,25 @@ function TaskProgressCard({ msg }: { msg: Message }) {
     ))
   ));
 
-  const hasFailedPlanStep = Boolean(msg.planSteps && msg.planSteps.some((s: any) => s.status === 'failed'));
-  const hasError = hasFailedEvent || hasFailedPlanStep;
+  const hasFailedPlanStep = Boolean(!isCancelled && msg.planSteps && msg.planSteps.some((s: any) => s.status === 'failed'));
+  const hasError = !isCancelled && (hasFailedEvent || hasFailedPlanStep);
 
   // 3. Card Collapsed State
-  // Card is EXPANDED while actively working, AUTOMATICALLY COLLAPSED when finished or errored
+  // Card is EXPANDED while actively working, AUTOMATICALLY COLLAPSED when finished, stopped, or errored
   const [isCollapsed, setIsCollapsed] = React.useState(!isWorking);
 
   React.useEffect(() => {
     if (isWorking) {
       setIsCollapsed(false); // Stay expanded while agent is actively working
     } else {
-      setIsCollapsed(true);  // Automatically collapse when finished or errored
+      setIsCollapsed(true);  // Automatically collapse when finished or stopped
     }
-  }, [isWorking, msg.endTime]);
+  }, [isWorking, msg.endTime, isCancelled]);
 
   // 4. Progress Calculations
   const timelineCount = msg.timeline ? msg.timeline.length : 0;
   const completedTimelineCount = msg.timeline ? msg.timeline.filter((e: any) => e.status === 'success' || e.status === 'done').length : 0;
-  const failedTimelineCount = msg.timeline ? msg.timeline.filter((e: any) => 
+  const failedTimelineCount = !isCancelled && msg.timeline ? msg.timeline.filter((e: any) => 
     e.status === 'failed' || 
     e.status === 'error' || 
     (e.content && e.content.includes('❌'))
@@ -215,10 +216,20 @@ function TaskProgressCard({ msg }: { msg: Message }) {
         className="flex items-center justify-between px-4 py-2.5 bg-white/10 border-b border-white/20 hover:bg-white/15 cursor-pointer select-none transition-colors"
       >
         <div className="flex items-center gap-2">
-          <StepStatusBadge status={isWorking ? 'running' : hasError ? 'failed' : 'success'} />
-          <span className={`text-[12px] font-bold ${isWorking ? 'glass-text-reflection text-cyan-200' : hasError ? 'text-rose-400' : 'text-emerald-400'}`}>
+          <StepStatusBadge status={isWorking ? 'running' : isCancelled ? 'stopped' : hasError ? 'failed' : 'success'} />
+          <span className={`text-[12px] font-bold ${
+            isWorking 
+              ? 'glass-text-reflection text-cyan-200' 
+              : isCancelled
+              ? 'text-amber-400/90'
+              : hasError 
+              ? 'text-rose-400' 
+              : 'text-emerald-400'
+          }`}>
             {isWorking 
               ? 'Task in progress' 
+              : isCancelled
+              ? 'Agent Stopped by User'
               : hasError 
               ? `Task Failed (${failedTimelineCount > 0 ? `${failedTimelineCount} errors` : 'Error'})` 
               : 'Task Completed'} ({completedTimelineCount}/{timelineCount})
@@ -444,7 +455,7 @@ function TaskProgressCard({ msg }: { msg: Message }) {
                       {event.content?.replace(/<\/?[a-zA-Z0-9_|-]+[^>]*>/gi, '').trim()}
                     </div>
                   ) : event.type === 'log' ? (
-                    event.content?.includes('❌') || event.content?.includes('Failed') || event.content?.includes('SYNTAX ERROR') ? (
+                    !isCancelled && !event.content?.includes('stopped') && !event.content?.includes('aborted') && (event.content?.includes('❌') || event.content?.includes('Failed') || event.content?.includes('SYNTAX ERROR')) ? (
                       <div className="bg-rose-950/40 border border-rose-800/60 rounded-xl p-3 text-[11.5px] font-mono text-rose-200 overflow-x-auto whitespace-pre-wrap leading-relaxed shadow-lg">
                         <div className="flex items-center gap-1.5 mb-1 text-rose-300 font-bold text-xs">
                           <span>⚠️ Error Diagnostic</span>

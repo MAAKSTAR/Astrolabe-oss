@@ -938,6 +938,8 @@ Developer Action Request: "${finalPrompt}"
                 webviewView.webview.postMessage({ type: 'agentComplete', messageId });
                 // We keep _activeOrchestrator alive here so the user can still interact with speculative diffs
                 this._pendingApprovals.clear();
+              } else if (update.type === 'cancelled') {
+                webviewView.webview.postMessage({ type: 'agentCancelled', messageId, text: update.text });
               } else if (update.type === 'reasoning') {
                 webviewView.webview.postMessage({ type: 'agentReasoning', text: update.text, messageId });
               } else if (update.type === 'promptProgress') {
@@ -1089,6 +1091,7 @@ Developer Action Request: "${finalPrompt}"
             // A5: Keep orchestrator alive so user can still accept/reject diffs after cancel
             this._pendingApprovals.clear();
           }
+          webviewView.webview.postMessage({ type: 'agentCancelled' });
           break;
         }
 

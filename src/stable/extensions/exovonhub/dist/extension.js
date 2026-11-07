@@ -1473,6 +1473,9 @@ Developer Action Request: "${finalPrompt}"
                             // We keep _activeOrchestrator alive here so the user can still interact with speculative diffs
                             this._pendingApprovals.clear();
                         }
+                        else if (update.type === 'cancelled') {
+                            webviewView.webview.postMessage({ type: 'agentCancelled', messageId, text: update.text });
+                        }
                         else if (update.type === 'reasoning') {
                             webviewView.webview.postMessage({ type: 'agentReasoning', text: update.text, messageId });
                         }
@@ -1625,6 +1628,7 @@ Developer Action Request: "${finalPrompt}"
                         // A5: Keep orchestrator alive so user can still accept/reject diffs after cancel
                         this._pendingApprovals.clear();
                     }
+                    webviewView.webview.postMessage({ type: 'agentCancelled' });
                     break;
                 }
                 case 'respondToPlanApproval': {
@@ -2289,7 +2293,8 @@ class AgentOrchestrator {
             this._planApprovalResolver({ approved: false, cancelled: true });
             this._planApprovalResolver = undefined;
         }
-        this.onUpdate({ type: 'log', text: 'Agent execution cancelled by user.', logType: 'warning' });
+        this.onUpdate({ type: 'log', text: '⏹️ Agent execution stopped by user.', logType: 'info' });
+        this.onUpdate({ type: 'cancelled', text: 'Agent execution stopped by user.' });
         this.onUpdate({ type: 'complete' });
     }
     /**
@@ -4096,6 +4101,24 @@ MANDATORY RULES:
             this.onUpdate({ type: 'complete' });
         }
         catch (error) {
+            const raw = error?.message || String(error);
+            const isCancellation = this._cancelled ||
+                raw.toLowerCase().includes('aborted') ||
+                raw.includes('AbortError') ||
+                raw.toLowerCase().includes('canceled') ||
+                raw.toLowerCase().includes('cancelled') ||
+                raw.includes('socket hang up') ||
+                raw.includes('ECONNRESET');
+            if (isCancellation) {
+                this.onUpdate({
+                    type: 'log',
+                    text: '⏹️ Agent execution stopped by user.',
+                    logType: 'info'
+                });
+                this.onUpdate({ type: 'cancelled', text: 'Agent execution stopped by user.' });
+                this.onUpdate({ type: 'complete' });
+                return;
+            }
             const { userText, notificationText, actions } = this.formatAgentErrorMessage(error, resolvedModel);
             this.onUpdate({
                 type: 'log',
@@ -4106,17 +4129,19 @@ MANDATORY RULES:
                 type: 'finalAnswer',
                 text: `Error: ${userText}`
             });
-            vscode.window.showErrorMessage(notificationText, ...actions).then(action => {
-                if (action === 'Restart Engine') {
-                    vscode.commands.executeCommand('exovon.restartDaemon');
-                }
-                else if (action === 'View Logs') {
-                    vscode.commands.executeCommand('vscode.open', vscode.Uri.file('/tmp/exovon_daemon_spawn.log'));
-                }
-                else if (action === 'Open Settings') {
-                    vscode.commands.executeCommand('exovon.openSettings');
-                }
-            });
+            if (notificationText) {
+                vscode.window.showErrorMessage(notificationText, ...actions).then(action => {
+                    if (action === 'Restart Engine') {
+                        vscode.commands.executeCommand('exovon.restartDaemon');
+                    }
+                    else if (action === 'View Logs') {
+                        vscode.commands.executeCommand('vscode.open', vscode.Uri.file('/tmp/exovon_daemon_spawn.log'));
+                    }
+                    else if (action === 'Open Settings') {
+                        vscode.commands.executeCommand('exovon.openSettings');
+                    }
+                });
+            }
             this.onUpdate({ type: 'complete' });
         }
         finally {
@@ -4129,6 +4154,13 @@ MANDATORY RULES:
     formatAgentErrorMessage(error, model) {
         const raw = error?.message || String(error);
         const isLocal = model.startsWith('local:') || model.startsWith('diffusion:') || model === 'local-custom-model';
+        if (raw.toLowerCase().includes('aborted') || raw.toLowerCase().includes('canceled') || raw.toLowerCase().includes('cancelled')) {
+            return {
+                userText: 'Agent execution stopped by user.',
+                notificationText: '',
+                actions: []
+            };
+        }
         if (model.startsWith('diffusion:')) {
             return {
                 userText: `Diffusion Engine Error: ${raw}`,

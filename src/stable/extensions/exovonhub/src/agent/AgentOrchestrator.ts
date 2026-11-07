@@ -43,7 +43,7 @@ export interface PlanStep {
 }
 
 export interface AgentUpdate {
-  type: 'log' | 'toolStart' | 'agentToolComplete' | 'complete' | 'plan' | 'reasoning' | 'finalAnswer' | 'planReview' | 'diffs' | 'usage' | 'chat' | 'preemptingQueue' | 'agentFocusNodes' | 'promptProgress' | 'metrics' | 'checkpointCreated' | 'checkpointRollbackComplete';
+  type: 'log' | 'toolStart' | 'agentToolComplete' | 'complete' | 'cancelled' | 'plan' | 'reasoning' | 'finalAnswer' | 'planReview' | 'diffs' | 'usage' | 'chat' | 'preemptingQueue' | 'agentFocusNodes' | 'promptProgress' | 'metrics' | 'checkpointCreated' | 'checkpointRollbackComplete';
   text?: string;
   logType?: string;
   toolId?: string;
@@ -169,7 +169,8 @@ export class AgentOrchestrator {
       this._planApprovalResolver({ approved: false, cancelled: true });
       this._planApprovalResolver = undefined;
     }
-    this.onUpdate({ type: 'log', text: 'Agent execution cancelled by user.', logType: 'warning' });
+    this.onUpdate({ type: 'log', text: '⏹️ Agent execution stopped by user.', logType: 'info' });
+    this.onUpdate({ type: 'cancelled', text: 'Agent execution stopped by user.' });
     this.onUpdate({ type: 'complete' });
   }
 
@@ -2002,6 +2003,26 @@ MANDATORY RULES:
       this.onUpdate({ type: 'complete' });
 
     } catch (error: any) {
+      const raw = error?.message || String(error);
+      const isCancellation = this._cancelled ||
+        raw.toLowerCase().includes('aborted') ||
+        raw.includes('AbortError') ||
+        raw.toLowerCase().includes('canceled') ||
+        raw.toLowerCase().includes('cancelled') ||
+        raw.includes('socket hang up') ||
+        raw.includes('ECONNRESET');
+
+      if (isCancellation) {
+        this.onUpdate({
+          type: 'log',
+          text: '⏹️ Agent execution stopped by user.',
+          logType: 'info'
+        });
+        this.onUpdate({ type: 'cancelled', text: 'Agent execution stopped by user.' });
+        this.onUpdate({ type: 'complete' });
+        return;
+      }
+
       const { userText, notificationText, actions } = this.formatAgentErrorMessage(error, resolvedModel);
       
       this.onUpdate({
@@ -2013,18 +2034,20 @@ MANDATORY RULES:
         type: 'finalAnswer',
         text: `Error: ${userText}`
       });
-      vscode.window.showErrorMessage(
-        notificationText,
-        ...actions
-      ).then(action => {
-        if (action === 'Restart Engine') {
-          vscode.commands.executeCommand('exovon.restartDaemon');
-        } else if (action === 'View Logs') {
-          vscode.commands.executeCommand('vscode.open', vscode.Uri.file('/tmp/exovon_daemon_spawn.log'));
-        } else if (action === 'Open Settings') {
-          vscode.commands.executeCommand('exovon.openSettings');
-        }
-      });
+      if (notificationText) {
+        vscode.window.showErrorMessage(
+          notificationText,
+          ...actions
+        ).then(action => {
+          if (action === 'Restart Engine') {
+            vscode.commands.executeCommand('exovon.restartDaemon');
+          } else if (action === 'View Logs') {
+            vscode.commands.executeCommand('vscode.open', vscode.Uri.file('/tmp/exovon_daemon_spawn.log'));
+          } else if (action === 'Open Settings') {
+            vscode.commands.executeCommand('exovon.openSettings');
+          }
+        });
+      }
       this.onUpdate({ type: 'complete' });
     } finally {
       this.isExecuting = false;
@@ -2037,6 +2060,14 @@ MANDATORY RULES:
   private formatAgentErrorMessage(error: any, model: string): { userText: string; notificationText: string; actions: string[] } {
     const raw = error?.message || String(error);
     const isLocal = model.startsWith('local:') || model.startsWith('diffusion:') || model === 'local-custom-model';
+
+    if (raw.toLowerCase().includes('aborted') || raw.toLowerCase().includes('canceled') || raw.toLowerCase().includes('cancelled')) {
+      return {
+        userText: 'Agent execution stopped by user.',
+        notificationText: '',
+        actions: []
+      };
+    }
 
     if (model.startsWith('diffusion:')) {
       return {

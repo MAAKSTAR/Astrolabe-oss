@@ -183,12 +183,22 @@ export function LogIcon({ status = 'running', className = 'w-4 h-4' }: ToolIconP
 /**
  * Animated Vector Checkmark drawn on step completion
  */
-export function StepStatusBadge({ status }: { status: 'running' | 'success' | 'failed' | 'pending' | string }) {
+export function StepStatusBadge({ status }: { status: 'running' | 'success' | 'failed' | 'pending' | 'stopped' | string }) {
   if (status === 'running') {
     return (
       <span className="relative flex h-2.5 w-2.5">
         <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-70" />
         <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-white shadow-[0_0_8px_rgba(255,255,255,0.8)]" />
+      </span>
+    );
+  }
+
+  if (status === 'stopped' || status === 'cancelled') {
+    return (
+      <span className="flex items-center justify-center text-amber-400" title="Stopped by user">
+        <svg className="w-3 h-3" viewBox="0 0 16 16" fill="currentColor">
+          <rect x="3.5" y="3.5" width="9" height="9" rx="1.5" />
+        </svg>
       </span>
     );
   }
