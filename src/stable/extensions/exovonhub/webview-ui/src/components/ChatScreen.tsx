@@ -58,32 +58,32 @@ function TypewriterMarkdown({ content, chatEndRef, disableAnimation }: { content
         remarkPlugins={[remarkGfm]}
         rehypePlugins={[rehypeRaw, rehypeHighlight]}
         components={{
-          h1: ({ children }) => <h1 className="text-base font-bold text-white mt-4 mb-2 pb-1 border-b border-white/10">{children}</h1>,
-          h2: ({ children }) => <h2 className="text-sm font-bold text-white mt-3 mb-1.5 pb-0.5 border-b border-white/5">{children}</h2>,
-          h3: ({ children }) => <h3 className="text-[13px] font-semibold text-zinc-100 mt-2.5 mb-1">{children}</h3>,
-          h4: ({ children }) => <h4 className="text-xs font-semibold text-zinc-200 mt-2 mb-1">{children}</h4>,
-          p: ({ children }) => <p className="text-[13px] leading-relaxed mb-2.5 last:mb-0 text-zinc-300 font-sans">{children}</p>,
-          ul: ({ children }) => <ul className="list-disc list-inside space-y-1 my-2 text-[13px] text-zinc-300 pl-1">{children}</ul>,
-          ol: ({ children }) => <ol className="list-decimal list-inside space-y-1 my-2 text-[13px] text-zinc-300 pl-1">{children}</ol>,
-          li: ({ children }) => <li className="text-[13px] leading-relaxed text-zinc-300">{children}</li>,
-          blockquote: ({ children }) => <blockquote className="my-2.5 border-l-2 border-cyan-500/60 bg-zinc-900/60 py-1.5 px-3 rounded-r-md text-zinc-400 text-xs italic">{children}</blockquote>,
+          h1: ({ children }) => <h1 className="text-lg font-bold text-white mt-5 mb-2 pb-1.5 border-b border-white/10">{children}</h1>,
+          h2: ({ children }) => <h2 className="text-base font-bold text-white mt-4 mb-2 pb-1 border-b border-white/5">{children}</h2>,
+          h3: ({ children }) => <h3 className="text-[14.5px] font-semibold text-zinc-100 mt-3 mb-1.5">{children}</h3>,
+          h4: ({ children }) => <h4 className="text-sm font-semibold text-zinc-200 mt-2.5 mb-1">{children}</h4>,
+          p: ({ children }) => <p className="text-[14px] leading-[1.65] mb-3 last:mb-0 text-zinc-200 font-sans">{children}</p>,
+          ul: ({ children }) => <ul className="list-disc list-inside space-y-1.5 my-2.5 text-[14px] text-zinc-200 pl-1 leading-relaxed">{children}</ul>,
+          ol: ({ children }) => <ol className="list-decimal list-inside space-y-1.5 my-2.5 text-[14px] text-zinc-200 pl-1 leading-relaxed">{children}</ol>,
+          li: ({ children }) => <li className="text-[14px] leading-relaxed text-zinc-200">{children}</li>,
+          blockquote: ({ children }) => <blockquote className="my-3 border-l-2 border-cyan-500/70 bg-zinc-900/60 py-2 px-3.5 rounded-r-lg text-zinc-300 text-sm italic">{children}</blockquote>,
           table: ({ children }) => (
-            <div className="my-2.5 overflow-x-auto rounded-lg border border-white/10 bg-zinc-950/60">
-              <table className="w-full text-left text-xs border-collapse font-sans">{children}</table>
+            <div className="my-3 overflow-x-auto rounded-xl border border-white/10 bg-zinc-950/60">
+              <table className="w-full text-left text-[13px] border-collapse font-sans">{children}</table>
             </div>
           ),
-          thead: ({ children }) => <thead className="bg-zinc-900 border-b border-white/10 text-zinc-300 font-semibold uppercase text-[10px]">{children}</thead>,
+          thead: ({ children }) => <thead className="bg-zinc-900 border-b border-white/10 text-zinc-200 font-semibold uppercase text-xs tracking-wider">{children}</thead>,
           tbody: ({ children }) => <tbody className="divide-y divide-white/5 text-zinc-300">{children}</tbody>,
           tr: ({ children }) => <tr className="hover:bg-white/5 transition-colors">{children}</tr>,
-          th: ({ children }) => <th className="px-3 py-2 font-medium">{children}</th>,
-          td: ({ children }) => <td className="px-3 py-2 text-zinc-300">{children}</td>,
+          th: ({ children }) => <th className="px-3.5 py-2.5 font-medium">{children}</th>,
+          td: ({ children }) => <td className="px-3.5 py-2.5 text-zinc-200">{children}</td>,
           hr: () => <hr className="my-4 border-white/10" />,
           code({ inline, className, children, ...props }: React.ComponentPropsWithoutRef<'code'> & { inline?: boolean; node?: unknown }) {
             const match = /language-(\w+)/.exec(className || '');
             return !inline && match ? (
-              <div className="relative group mt-2 mb-2 border border-zinc-800 rounded-lg overflow-hidden bg-zinc-950">
-                <div className="flex items-center justify-between bg-zinc-900 border-b border-zinc-800 px-3 py-1.5 select-none">
-                  <span className="text-[9px] font-mono text-zinc-400 uppercase tracking-wider">{match[1]}</span>
+              <div className="relative group mt-2.5 mb-2.5 border border-zinc-800 rounded-xl overflow-hidden bg-zinc-950">
+                <div className="flex items-center justify-between bg-zinc-900 border-b border-zinc-800 px-3.5 py-2 select-none">
+                  <span className="text-[11px] font-mono text-zinc-400 uppercase tracking-wider">{match[1]}</span>
                   <button
                     onClick={(e) => {
                       navigator.clipboard.writeText(String(children).replace(/\n$/, ''));
@@ -91,19 +91,19 @@ function TypewriterMarkdown({ content, chatEndRef, disableAnimation }: { content
                       btn.textContent = 'Copied!';
                       setTimeout(() => btn.textContent = 'Copy', 2000);
                     }}
-                    className="text-[9px] text-zinc-500 hover:text-zinc-300 font-mono transition-colors cursor-pointer"
+                    className="text-[11px] text-zinc-400 hover:text-zinc-200 font-mono transition-colors cursor-pointer px-2 py-0.5 rounded hover:bg-white/5"
                   >
                     Copy
                   </button>
                 </div>
-                <div className="p-3 overflow-x-auto scrollbar-thin text-[11px] font-mono">
+                <div className="p-3.5 overflow-x-auto scrollbar-thin text-[12.5px] font-mono leading-relaxed text-zinc-200">
                   <code className={className} {...props}>
                     {children}
                   </code>
                 </div>
               </div>
             ) : (
-              <code className="bg-zinc-900 px-1.5 py-0.5 rounded border border-zinc-800 text-sky-300 font-mono text-[10.5px]" {...props}>
+              <code className="bg-zinc-850 px-2 py-0.5 rounded border border-white/10 text-sky-300 font-mono text-[12px] font-medium" {...props}>
                 {children}
               </code>
             );
@@ -888,8 +888,9 @@ export function ChatScreen({
         role="log"
         aria-live="polite"
         onScroll={handleScroll}
-        className="flex-1 overflow-y-auto space-y-3.5 pr-1 min-h-0 py-2 scrollbar-thin"
+        className="flex-1 overflow-y-auto pr-1 min-h-0 py-2 scrollbar-thin"
       >
+        <div className="max-w-4xl mx-auto w-full px-2 space-y-4">
         {messages.map((msg, idx) => {
           const isPrefilling = msg.sender === 'agent' &&
             !msg.text &&
@@ -976,14 +977,14 @@ export function ChatScreen({
                   {msg.text && !msg.isCommandApproval && !msg.isFileApproval && !msg.isPlanReview && (msg.sender === 'agent' ? (
                     <TypewriterMarkdown content={msg.text} chatEndRef={chatEndRef} disableAnimation={Boolean(msg.isHistory || msg.endTime || idx < messages.length - 1)} />
                   ) : (
-                    <div className="text-zinc-200 text-[13px] leading-relaxed">
+                    <div className="text-zinc-200 text-sm leading-relaxed">
                       <ReactMarkdown
                         remarkPlugins={[remarkGfm]}
                         rehypePlugins={[rehypeRaw]}
                         components={{
-                          p: ({ children }) => <p className="mb-1.5 last:mb-0 text-zinc-200">{children}</p>,
+                          p: ({ children }) => <p className="mb-2 last:mb-0 text-zinc-200 text-sm leading-relaxed">{children}</p>,
                           code: ({ inline, className, children, ...props }: React.ComponentPropsWithoutRef<'code'> & { inline?: boolean; node?: unknown }) => (
-                            <code className="bg-zinc-800/80 px-1.5 py-0.5 rounded border border-white/5 text-sky-300 font-mono text-[10.5px]" {...props}>
+                            <code className="bg-zinc-800/80 px-2 py-0.5 rounded border border-white/10 text-sky-300 font-mono text-[12px] font-medium" {...props}>
                               {children}
                             </code>
                           )
@@ -1281,6 +1282,7 @@ export function ChatScreen({
 
 
         <div ref={chatEndRef} />
+        </div>
       </div>
 
       {/* Full-Screen Review Modal */}
@@ -1419,7 +1421,8 @@ export function ChatScreen({
       )}
 
       {/* INTERACTIVE INPUT CONTROL BOX */}
-      <div className="bg-[#1a1a1c] border border-white/10 rounded-2xl p-2.5 flex flex-col shadow-md shrink-0 transition-all focus-within:border-sky-500/40 focus-within:ring-1 focus-within:ring-sky-500/20">
+      <div className="w-full max-w-4xl mx-auto px-2 pb-1 shrink-0">
+        <div className="bg-[#1a1a1c] border border-white/10 rounded-2xl p-2.5 flex flex-col shadow-md shrink-0 transition-all focus-within:border-sky-500/40 focus-within:ring-1 focus-within:ring-sky-500/20">
         {!autoScroll && (
           <div className="absolute bottom-32 right-4 z-10 flex flex-col gap-2">
             <button
@@ -1458,7 +1461,7 @@ export function ChatScreen({
             }
           }}
           placeholder={isAgentThinking ? "Astrolabe is thinking & analyzing..." : "Ask Astrolabe anything, or command it to build & edit code..."}
-          className="w-full bg-transparent p-2 resize-none text-[13px] font-sans leading-relaxed text-zinc-100 placeholder:text-zinc-400 !outline-none !ring-0 !border-none focus:!outline-none focus:!ring-0 focus:!border-none scrollbar-thin shadow-none"
+          className="w-full bg-transparent p-2 resize-none text-sm font-sans leading-relaxed text-zinc-100 placeholder:text-zinc-400 !outline-none !ring-0 !border-none focus:!outline-none focus:!ring-0 focus:!border-none scrollbar-thin shadow-none"
           style={{ boxShadow: 'none' }}
         />
 
@@ -2152,6 +2155,7 @@ export function ChatScreen({
             </button>
           )}
         </div>
+      </div>
       </div>
 
     </div>

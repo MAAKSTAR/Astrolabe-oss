@@ -152,6 +152,65 @@ export class AgentOrchestrator {
     return res;
   }
 
+  private static activeDecorations: vscode.TextEditorDecorationType[] = [];
+
+  private async revealFileInEditor(relPath: string, startLine?: number, endLine?: number, isEdit: boolean = false): Promise<void> {
+    try {
+      const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      let fullPath = relPath;
+      if (workspaceRoot && !path.isAbsolute(relPath)) {
+        fullPath = path.join(workspaceRoot, relPath);
+      }
+      if (!fs.existsSync(fullPath)) {
+        return;
+      }
+
+      const docUri = vscode.Uri.file(fullPath);
+      const doc = await vscode.workspace.openTextDocument(docUri);
+      const editor = await vscode.window.showTextDocument(doc, {
+        viewColumn: vscode.ViewColumn.One,
+        preview: isEdit ? false : true,
+        preserveFocus: true
+      });
+
+      if (startLine !== undefined && !isNaN(Number(startLine))) {
+        const s = Math.max(0, Number(startLine) - 1);
+        const e = (endLine !== undefined && !isNaN(Number(endLine))) 
+          ? Math.max(s, Number(endLine) - 1) 
+          : s;
+        const lineCount = doc.lineCount;
+        const safeStart = Math.min(s, Math.max(0, lineCount - 1));
+        const safeEnd = Math.min(e, Math.max(0, lineCount - 1));
+        const endChar = doc.lineAt(safeEnd).text.length;
+        const range = new vscode.Range(safeStart, 0, safeEnd, endChar);
+
+        editor.revealRange(range, vscode.TextEditorRevealType.InCenter);
+
+        // Apply visual highlight decoration to the lines read or edited
+        const decType = vscode.window.createTextEditorDecorationType({
+          backgroundColor: isEdit ? 'rgba(52, 211, 153, 0.16)' : 'rgba(56, 189, 248, 0.15)',
+          border: isEdit ? '1px solid rgba(52, 211, 153, 0.45)' : '1px solid rgba(56, 189, 248, 0.4)',
+          borderRadius: '4px',
+          isWholeLine: true
+        });
+
+        editor.setDecorations(decType, [range]);
+        AgentOrchestrator.activeDecorations.push(decType);
+
+        // Clear decoration after 4.5 seconds to leave editor clean
+        setTimeout(() => {
+          try {
+            decType.dispose();
+            const idx = AgentOrchestrator.activeDecorations.indexOf(decType);
+            if (idx !== -1) AgentOrchestrator.activeDecorations.splice(idx, 1);
+          } catch (e) {}
+        }, 4500);
+      }
+    } catch (err: any) {
+      console.warn('[Astrolabe] Could not reveal file in editor:', err?.message);
+    }
+  }
+
   private onUpdate(update: AgentUpdate) {
     if (this._currentMessageId) {
       update.messageId = this._currentMessageId;
@@ -1547,6 +1606,7 @@ CRITICAL ENVIRONMENT STATUS: NO WORKSPACE FOLDER IS OPEN IN ASTROLABE.
                 if (typeof startLine === 'string') startLine = parseInt(startLine, 10);
                 if (typeof endLine === 'string') endLine = parseInt(endLine, 10);
                 result = await this.fsTools.viewFile(relPath, isNaN(startLine) ? undefined : startLine, isNaN(endLine) ? undefined : endLine);
+                await this.revealFileInEditor(relPath, isNaN(startLine) ? undefined : startLine, isNaN(endLine) ? undefined : endLine, false);
               } else if (toolName === 'applyPatch') {
                 const patchPath = call.args.relativePath || call.args.path || call.args.file || call.args.filePath || call.args.target_file || relPath;
                 const searchBlock = call.args.searchBlock ?? call.args.search ?? call.args.search_block ?? call.args.old_str ?? call.args.oldStr ?? call.args.target ?? call.args.find ?? call.args.before;
@@ -1567,6 +1627,20 @@ CRITICAL ENVIRONMENT STATUS: NO WORKSPACE FOLDER IS OPEN IN ASTROLABE.
                 }
                 this.modifiedFiles.add(patchPath);
                 this.onUpdate({ type: 'log', text: `Applied patch to: "${patchPath}"`, logType: 'info' });
+                try {
+                  const fullPath = path.isAbsolute(patchPath) ? patchPath : path.join(vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '', patchPath);
+                  if (fs.existsSync(fullPath)) {
+                    const text = fs.readFileSync(fullPath, 'utf8');
+                    const idx = text.indexOf(replaceBlock);
+                    if (idx !== -1) {
+                      const line = text.substring(0, idx).split('\n').length;
+                      const endLine = line + replaceBlock.split('\n').length - 1;
+                      await this.revealFileInEditor(patchPath, line, endLine, true);
+                    } else {
+                      await this.revealFileInEditor(patchPath, undefined, undefined, true);
+                    }
+                  }
+                } catch (e) {}
               } else if (toolName === 'multiReplaceFileContent') {
                 const replacePath = call.args.relativePath || call.args.path || call.args.file || call.args.filePath || relPath;
                 const startLine = call.args.startLine ?? call.args.StartLine ?? call.args.start_line ?? call.args.fromLine ?? 1;
@@ -1582,6 +1656,7 @@ CRITICAL ENVIRONMENT STATUS: NO WORKSPACE FOLDER IS OPEN IN ASTROLABE.
                 }
                 this.modifiedFiles.add(replacePath);
                 this.onUpdate({ type: 'log', text: `Modified lines ${startLine}-${endLine} of: "${replacePath}"`, logType: 'info' });
+                await this.revealFileInEditor(replacePath, Number(startLine), Number(endLine), true);
               } else if (toolName === 'createFile') {
                 const createPath = call.args.relativePath || call.args.path || call.args.file || call.args.filePath || relPath;
                 const fileContent = call.args.content ?? call.args.contents ?? call.args.text ?? call.args.code ?? call.args.replacementContent ?? '';
@@ -1595,6 +1670,7 @@ CRITICAL ENVIRONMENT STATUS: NO WORKSPACE FOLDER IS OPEN IN ASTROLABE.
                 }
                 this.modifiedFiles.add(createPath);
                 this.onUpdate({ type: 'log', text: `Created file: "${createPath}"`, logType: 'info' });
+                await this.revealFileInEditor(createPath, 1, Math.min(30, fileContent.split('\n').length), true);
               } else if (toolName === 'deleteFile') {
                 const deletePath = call.args.relativePath || call.args.path || call.args.file || relPath;
                 result = await this.fsTools.deleteFile(deletePath);
@@ -1962,17 +2038,19 @@ CRITICAL ENVIRONMENT STATUS: NO WORKSPACE FOLDER IS OPEN IN ASTROLABE.
 
                 fs.writeFileSync(targetPath, finalMarkdown, 'utf8');
 
-                // Trigger split Markdown preview in Astrolabe
+                // Open the document directly in Monaco Text Editor for instant editing
                 const docUri = vscode.Uri.file(targetPath);
                 try {
+                  const doc = await vscode.workspace.openTextDocument(docUri);
+                  await vscode.window.showTextDocument(doc, { 
+                    viewColumn: vscode.ViewColumn.One, 
+                    preview: false, 
+                    preserveFocus: false 
+                  });
+                  // Also dock live rendered Markdown preview to the side
                   await vscode.commands.executeCommand('markdown.showPreviewToSide', docUri);
-                } catch (prevErr) {
-                  try {
-                    const doc = await vscode.workspace.openTextDocument(docUri);
-                    await vscode.window.showTextDocument(doc, { preview: true, viewColumn: vscode.ViewColumn.Beside });
-                  } catch (e: any) {
-                    console.warn('[Astrolabe] Could not open preview beside:', e?.message);
-                  }
+                } catch (prevErr: any) {
+                  console.warn('[Astrolabe] Could not show text document / preview beside:', prevErr?.message);
                 }
 
                 const wordCount = finalMarkdown.split(/\s+/).filter(Boolean).length;
@@ -2048,6 +2126,11 @@ CRITICAL ENVIRONMENT STATUS: NO WORKSPACE FOLDER IS OPEN IN ASTROLABE.
                     if (b64Data) {
                       fs.writeFileSync(fullOutputPath, Buffer.from(b64Data, 'base64'));
                       const relPath = path.relative(workspaceRoot, fullOutputPath);
+                      try {
+                        await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(fullOutputPath));
+                      } catch (imgOpenErr: any) {
+                        console.warn('[Astrolabe] Could not open generated image in editor:', imgOpenErr?.message);
+                      }
                       result = `Image successfully generated and saved to ${relPath}.\n\n![${prompt}](file://${fullOutputPath})`;
                     } else {
                       result = `Diffusion engine responded without image data: ${JSON.stringify(data)}`;
