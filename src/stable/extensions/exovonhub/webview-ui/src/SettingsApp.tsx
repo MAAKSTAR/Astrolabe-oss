@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, memo, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
+import rehypeRaw from 'rehype-raw';
 import rehypeHighlight from 'rehype-highlight';
 import remarkGfm from 'remark-gfm';
 import { ModelOrgAvatar, KNOWN_ORG_LOGOS } from './components/settings/ModelOrgAvatar';
@@ -11,7 +12,7 @@ import { LocalModelsView } from './components/settings/LocalModelsView';
 export { ModelOrgAvatar, KNOWN_ORG_LOGOS, TrustedBadge, isTrustedPublisher, ModelCapabilityBadges };
 
 const REMARK_PLUGINS = [remarkGfm];
-const REHYPE_PLUGINS = [rehypeHighlight];
+const REHYPE_PLUGINS = [rehypeRaw, rehypeHighlight];
 
 const MARKDOWN_COMPONENTS = {
   h1: ({ node, ...props }: any) => <h1 className="text-base font-bold text-white mt-5 mb-2 pb-1 border-b border-white/10" {...props} />,
@@ -30,6 +31,21 @@ const MARKDOWN_COMPONENTS = {
   ),
   th: ({ node, ...props }: any) => <th className="p-2 bg-zinc-800/80 font-bold border-b border-white/10 text-white font-mono text-[11px]" {...props} />,
   td: ({ node, ...props }: any) => <td className="p-2 border-b border-white/5 font-mono text-[11px]" {...props} />,
+  img: ({ node, src, alt, ...props }: any) => (
+    <img 
+      src={src} 
+      alt={alt || 'Model illustration'} 
+      className="max-w-full h-auto rounded-xl my-3 border border-white/10 shadow-lg object-contain block" 
+      loading="lazy" 
+      onError={(e) => {
+        // Hide broken image links gracefully
+        (e.target as HTMLElement).style.display = 'none';
+      }}
+      {...props} 
+    />
+  ),
+  details: ({ node, ...props }: any) => <details className="my-2 p-2 bg-zinc-950/60 rounded-xl border border-white/10 text-xs text-zinc-300" {...props} />,
+  summary: ({ node, ...props }: any) => <summary className="cursor-pointer font-semibold text-zinc-200 hover:text-white select-none py-1" {...props} />,
   code: ({ node, className, children, ...props }: any) => {
     const match = /language-(\w+)/.exec(className || '');
     return match ? (
@@ -46,10 +62,25 @@ const MARKDOWN_COMPONENTS = {
   }
 };
 
-const ModelReadmeViewer = memo(function ModelReadmeViewer({ content }: { content: string }) {
+const ModelReadmeViewer = memo(function ModelReadmeViewer({ content, modelId }: { content: string; modelId?: string }) {
   const sanitized = useMemo(() => {
-    return content.replace(/^---[\s\S]*?---\s*/, '');
-  }, [content]);
+    let text = (content || '').replace(/^---[\s\S]*?---\s*/, '');
+    if (modelId) {
+      // Resolve relative images to HuggingFace CDN: src="assets/..." or src="./assets/..."
+      text = text.replace(/<img\b([^>]*?)src=["'](?:\.\/)?([^"':]+)["']([^>]*?)>/gi, (match, prefix, src, suffix) => {
+        if (src.startsWith('http://') || src.startsWith('https://') || src.startsWith('data:')) return match;
+        const resolved = `https://huggingface.co/${modelId}/resolve/main/${src.replace(/^\/+/, '')}`;
+        return `<img ${prefix}src="${resolved}"${suffix}>`;
+      });
+      // Resolve markdown relative images: ![alt](assets/...)
+      text = text.replace(/!\[([^\]]*)\]\((?:\.\/)?([^):]+)\)/gi, (match, alt, src) => {
+        if (src.startsWith('http://') || src.startsWith('https://') || src.startsWith('data:')) return match;
+        const resolved = `https://huggingface.co/${modelId}/resolve/main/${src.replace(/^\/+/, '')}`;
+        return `![${alt}](${resolved})`;
+      });
+    }
+    return text;
+  }, [content, modelId]);
 
   return (
     <ReactMarkdown
@@ -2148,7 +2179,7 @@ export default function SettingsApp() {
 
                           <div className="bg-zinc-900/60 border border-white/10 rounded-2xl p-6 text-xs text-zinc-200 leading-relaxed font-sans">
                             {modelReadme ? (
-                              <ModelReadmeViewer content={modelReadme} />
+                              <ModelReadmeViewer content={modelReadme} modelId={selectedModelDetails?.id} />
                             ) : (
                               <span className="text-zinc-500 italic">No README content available for this model repository.</span>
                             )}
