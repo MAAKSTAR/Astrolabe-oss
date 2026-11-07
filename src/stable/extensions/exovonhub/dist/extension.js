@@ -47,13 +47,13 @@ const path = __importStar(__webpack_require__(3));
 const ExovonSidebarProvider_1 = __webpack_require__(4);
 const SettingsProvider_1 = __webpack_require__(284);
 const BrainCoordinator_1 = __webpack_require__(285);
-const LlamaEngine_1 = __webpack_require__(291);
-const CopilotProvider_1 = __webpack_require__(293);
-const AuthService_1 = __webpack_require__(295);
+const LlamaEngine_1 = __webpack_require__(292);
+const CopilotProvider_1 = __webpack_require__(294);
+const AuthService_1 = __webpack_require__(296);
 const PlanReviewProvider_1 = __webpack_require__(280);
-const PlanCommentController_1 = __webpack_require__(296);
-const ProblemCodeActionProvider_1 = __webpack_require__(297);
-const ApiService_1 = __webpack_require__(298);
+const PlanCommentController_1 = __webpack_require__(297);
+const ProblemCodeActionProvider_1 = __webpack_require__(298);
+const ApiService_1 = __webpack_require__(299);
 const EngineStatusBarManager_1 = __webpack_require__(276);
 const DaemonManager_1 = __webpack_require__(277);
 let sidebarProvider;
@@ -426,12 +426,12 @@ async function activate(context) {
         context.subscriptions.push(rejectDiffDisposable);
         const compileMotionDisposable = vscode.commands.registerCommand('exovon.compileMotion', async (uri, rawTheatreJson) => {
             const targetUri = uri || vscode.window.activeTextEditor?.document.uri;
-            const { MotionCompiler } = __webpack_require__(299);
+            const { MotionCompiler } = __webpack_require__(300);
             await MotionCompiler.getInstance().compileAndApply(targetUri, rawTheatreJson || {}, brainCoordinator);
         });
         context.subscriptions.push(compileMotionDisposable);
         const openMotionStudioDisposable = vscode.commands.registerCommand('exovon.openMotionStudio', async () => {
-            const { MotionStudioServer } = __webpack_require__(307);
+            const { MotionStudioServer } = __webpack_require__(308);
             const server = MotionStudioServer.getInstance();
             server.setBrainCoordinator(brainCoordinator);
             await server.startAndOpen();
@@ -709,7 +709,7 @@ class ExovonSidebarProvider {
         if (this._authService) {
             this._authService.onDidChangeAuthState(async (token) => {
                 if (token) {
-                    const { ApiService } = await Promise.resolve(/* import() */).then(__webpack_require__.bind(__webpack_require__, 298));
+                    const { ApiService } = await Promise.resolve(/* import() */).then(__webpack_require__.bind(__webpack_require__, 299));
                     const profile = await ApiService.getUserProfile(token);
                     this.postMessage({
                         type: 'workspaceInfo',
@@ -840,7 +840,7 @@ class ExovonSidebarProvider {
             const token = this._authService.getToken();
             isLoggedIn = !!token;
             if (isLoggedIn) {
-                const { ApiService } = await Promise.resolve(/* import() */).then(__webpack_require__.bind(__webpack_require__, 298));
+                const { ApiService } = await Promise.resolve(/* import() */).then(__webpack_require__.bind(__webpack_require__, 299));
                 const profile = await ApiService.getUserProfile(token);
                 tokenQuota = profile.remaining;
                 profilePic = profile.profilePic || '';
@@ -926,7 +926,7 @@ class ExovonSidebarProvider {
                         const token = this._authService.getToken();
                         isLoggedIn = !!token;
                         if (isLoggedIn) {
-                            const { ApiService } = await Promise.resolve(/* import() */).then(__webpack_require__.bind(__webpack_require__, 298));
+                            const { ApiService } = await Promise.resolve(/* import() */).then(__webpack_require__.bind(__webpack_require__, 299));
                             const profile = await ApiService.getUserProfile(token);
                             tokenQuota = profile.remaining;
                             modelRates = profile.modelRates;
@@ -1087,7 +1087,7 @@ class ExovonSidebarProvider {
                     let liveDiffusionModel = null;
                     let availableLocalModels = [];
                     try {
-                        const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 309))).default;
+                        const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 310))).default;
                         const res = await fetch('http://127.0.0.1:47990/v1/health');
                         if (res.ok) {
                             const data = await res.json();
@@ -1153,7 +1153,7 @@ class ExovonSidebarProvider {
                 }
                 case 'loadLocalModel': {
                     try {
-                        const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 309))).default;
+                        const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 310))).default;
                         const targetPort = data.target === 'diffusion' ? 47992 : 47990;
                         const res = await fetch(`http://127.0.0.1:${targetPort}/v1/models/load`, {
                             method: 'POST',
@@ -1188,7 +1188,7 @@ class ExovonSidebarProvider {
                 }
                 case 'unloadLocalModel': {
                     try {
-                        const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 309))).default;
+                        const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 310))).default;
                         const targetPort = data.target === 'diffusion' ? 47992 : 47990;
                         const res = await fetch(`http://127.0.0.1:${targetPort}/v1/models/unload`, {
                             method: 'POST',
@@ -1269,7 +1269,7 @@ class ExovonSidebarProvider {
                             prompt: data.prompt
                         });
                         try {
-                            const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 309))).default;
+                            const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 310))).default;
                             const genRes = await fetch('http://127.0.0.1:47992/v1/images/generations', {
                                 method: 'POST',
                                 headers: { 'Content-Type': 'application/json' },
@@ -1725,7 +1725,7 @@ Developer Action Request: "${finalPrompt}"
                 }
                 case 'getDaemonHealth': {
                     try {
-                        const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 309))).default;
+                        const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 310))).default;
                         const controller = new AbortController();
                         const timeout = setTimeout(() => { controller.abort(); }, 3000);
                         const res = await fetch('http://127.0.0.1:47990/v1/health', { signal: controller.signal });
@@ -1746,7 +1746,7 @@ Developer Action Request: "${finalPrompt}"
                 }
                 case 'getLocalModels': {
                     try {
-                        const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 309))).default;
+                        const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 310))).default;
                         const controller = new AbortController();
                         const timeout = setTimeout(() => { controller.abort(); }, 8000);
                         const res = await fetch('http://127.0.0.1:47990/v1/models', { signal: controller.signal });
@@ -1800,7 +1800,7 @@ Developer Action Request: "${finalPrompt}"
                 case 'searchHuggingFace': {
                     if (data.query) {
                         try {
-                            const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 309))).default;
+                            const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 310))).default;
                             const controller = new AbortController();
                             const timeout = setTimeout(() => { controller.abort(); }, 8000);
                             const res = await fetch(`http://127.0.0.1:47990/v1/models/search?q=${encodeURIComponent(data.query)}`, { signal: controller.signal });
@@ -1828,7 +1828,7 @@ Developer Action Request: "${finalPrompt}"
                                 break;
                             }
                             vscode.window.showInformationMessage(`Starting download for ${data.filename}... Check the terminal for progress if attached.`);
-                            const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 309))).default;
+                            const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 310))).default;
                             fetch('http://127.0.0.1:47990/v1/models/download', {
                                 method: 'POST',
                                 headers: { 'Content-Type': 'application/json' },
@@ -1858,7 +1858,7 @@ Developer Action Request: "${finalPrompt}"
                 case 'installSGLang': {
                     vscode.window.showInformationMessage('Starting SGLang installation... This may take a few minutes.');
                     try {
-                        const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 309))).default;
+                        const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 310))).default;
                         const res = await fetch('http://127.0.0.1:47990/v1/system/install_sglang', {
                             method: 'POST'
                         });
@@ -2351,7 +2351,7 @@ class AgentOrchestrator {
                 if (this.apiKey) {
                     try {
                         if (!GoogleGenAIClass) {
-                            const sdk = await __webpack_require__.e(/* import() */ 4).then(__webpack_require__.bind(__webpack_require__, 340));
+                            const sdk = await __webpack_require__.e(/* import() */ 4).then(__webpack_require__.bind(__webpack_require__, 341));
                             GoogleGenAIClass = sdk.GoogleGenAI;
                         }
                         const gatewayUrl = config.get('apiGatewayUrl') || 'https://exovon.in';
@@ -3674,7 +3674,7 @@ CRITICAL ENVIRONMENT STATUS: NO WORKSPACE FOLDER IS OPEN IN ASTROLABE.
                                         const outputDir = call.args.outputDir || 'dist';
                                         this.onUpdate({ type: 'log', text: `🚀 Deploying workspace to Exovon Cloud (${projectId})...`, logType: 'info' });
                                         try {
-                                            const { ExovonClient } = await Promise.resolve(/* import() */).then(__webpack_require__.t.bind(__webpack_require__, 440, 23));
+                                            const { ExovonClient } = await Promise.resolve(/* import() */).then(__webpack_require__.t.bind(__webpack_require__, 441, 23));
                                             const client = new ExovonClient({ apiKey: token, baseUrl: 'https://exovon-orchestrator-911388870180.asia-south1.run.app/api' });
                                             const { deployId } = await client.deployments.deploy({
                                                 projectId,
@@ -3909,7 +3909,7 @@ CRITICAL ENVIRONMENT STATUS: NO WORKSPACE FOLDER IS OPEN IN ASTROLABE.
                             else if (toolName === 'generateImage') {
                                 this.onUpdate({ type: 'log', text: `🎨 Synthesizing visual asset with Diffusion Engine: "${call.args.prompt}"`, logType: 'info' });
                                 try {
-                                    const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 309))).default;
+                                    const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 310))).default;
                                     const prompt = call.args.prompt || 'Generated Graphic';
                                     const outputPath = call.args.outputPath || `assets/generated_${Date.now()}.png`;
                                     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '/tmp';
@@ -4416,7 +4416,7 @@ ${transcript.slice(-15000)}
             return;
         try {
             const { EngineStatusBarManager } = __webpack_require__(276);
-            const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 309))).default;
+            const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 310))).default;
             const getMetrics = async () => {
                 try {
                     const res = await fetch('http://127.0.0.1:47990/v1/health');
@@ -4659,7 +4659,7 @@ ${transcript.slice(-15000)}
                 const userPrompt = typeof lastUserMsg?.content === 'string'
                     ? lastUserMsg.content
                     : (Array.isArray(lastUserMsg?.content) ? lastUserMsg.content.map((c) => c.text || '').join(' ') : 'a creative artwork');
-                const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 309))).default;
+                const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 310))).default;
                 const genRes = await fetch('http://127.0.0.1:47992/v1/images/generations', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -49013,7 +49013,7 @@ class EngineStatusBarManager {
     }
     async checkHealth() {
         try {
-            const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 309))).default;
+            const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 310))).default;
             const controller = new AbortController();
             const timeout = setTimeout(() => controller.abort(), 2000);
             const res = await fetch('http://127.0.0.1:47990/v1/health', {
@@ -49255,7 +49255,7 @@ class EngineStatusBarManager {
     }
     async promptSelectGhostModel() {
         try {
-            const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 309))).default;
+            const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 310))).default;
             const res = await fetch('http://127.0.0.1:47990/v1/models');
             if (!res.ok) {
                 vscode.window.showWarningMessage('Daemon offline. Start the engine to select local models.');
@@ -49341,7 +49341,7 @@ class EngineStatusBarManager {
         }, async () => {
             const start = Date.now();
             try {
-                const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 309))).default;
+                const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 310))).default;
                 const res = await fetch('http://127.0.0.1:47990/v1/chat/completions', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -49522,7 +49522,7 @@ class EngineStatusBarManager {
     }
     async showModelSelector() {
         try {
-            const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 309))).default;
+            const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 310))).default;
             const res = await fetch('http://127.0.0.1:47990/v1/models');
             if (!res.ok) {
                 vscode.window.showWarningMessage('Failed to fetch local model list from daemon.');
@@ -49601,7 +49601,7 @@ class EngineStatusBarManager {
     }
     async unloadModel() {
         try {
-            const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 309))).default;
+            const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 310))).default;
             const res = await fetch('http://127.0.0.1:47990/v1/models/unload', { method: 'POST' });
             if (res.ok) {
                 vscode.window.showInformationMessage('Model unloaded from memory. VRAM freed.');
@@ -49940,7 +49940,7 @@ class DaemonManager {
      */
     async isAlive() {
         try {
-            const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 309))).default;
+            const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 310))).default;
             const controller = new AbortController();
             const timeout = setTimeout(() => controller.abort(), 1200);
             const res = await fetch('http://127.0.0.1:47990/v1/health', { signal: controller.signal });
@@ -50821,7 +50821,7 @@ class SettingsProvider {
                     await config.update('inlineGhostModel', data.model, vscode.ConfigurationTarget.Global);
                     vscode.window.showInformationMessage(`Inline Ghost Model set to: ${path.basename(data.model)}`);
                     try {
-                        const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 309))).default;
+                        const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 310))).default;
                         await fetch('http://127.0.0.1:47990/v1/models/load', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
@@ -50879,7 +50879,7 @@ class SettingsProvider {
                 }
                 case 'getDaemonHealth': {
                     try {
-                        const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 309))).default;
+                        const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 310))).default;
                         const controller = new AbortController();
                         const timeout = setTimeout(() => { controller.abort(); }, 3000);
                         const res = await fetch('http://127.0.0.1:47990/v1/health', { signal: controller.signal });
@@ -50900,7 +50900,7 @@ class SettingsProvider {
                 }
                 case 'getLocalModels': {
                     try {
-                        const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 309))).default;
+                        const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 310))).default;
                         const controller = new AbortController();
                         const timeout = setTimeout(() => { controller.abort(); }, 8000);
                         const res = await fetch('http://127.0.0.1:47990/v1/models', { signal: controller.signal });
@@ -50921,7 +50921,7 @@ class SettingsProvider {
                 }
                 case 'getActiveDownloads': {
                     try {
-                        const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 309))).default;
+                        const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 310))).default;
                         const res = await fetch('http://127.0.0.1:47990/v1/models/downloads');
                         if (res.ok) {
                             const body = await res.json();
@@ -51026,7 +51026,7 @@ class SettingsProvider {
                 }
                 case 'loadLocalModel': {
                     try {
-                        const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 309))).default;
+                        const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 310))).default;
                         const payload = { model_path: data.modelId };
                         if (data.ctxSize !== undefined)
                             payload.ctx_size = data.ctxSize;
@@ -51155,7 +51155,7 @@ class SettingsProvider {
                 }
                 case 'unloadLocalModel': {
                     try {
-                        const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 309))).default;
+                        const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 310))).default;
                         const res = await fetch('http://127.0.0.1:47990/v1/models/unload', { method: 'POST' });
                         if (res.ok) {
                             vscode.window.showInformationMessage(`Model unloaded from memory.`);
@@ -51174,7 +51174,7 @@ class SettingsProvider {
                 }
                 case 'searchHuggingFace': {
                     try {
-                        const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 309))).default;
+                        const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 310))).default;
                         const page = data.page || 0;
                         const res = await fetch(`http://127.0.0.1:47990/v1/models/search?q=${encodeURIComponent(data.query)}&page=${page}`);
                         if (res.ok) {
@@ -51194,7 +51194,7 @@ class SettingsProvider {
                 case 'getHfRepoTree': {
                     try {
                         if (data.repo) {
-                            const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 309))).default;
+                            const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 310))).default;
                             const res = await fetch(`http://127.0.0.1:47990/v1/models/tree?repo=${encodeURIComponent(data.repo)}`);
                             if (res.ok) {
                                 const body = await res.json();
@@ -51216,7 +51216,7 @@ class SettingsProvider {
                         await config.update('huggingFaceToken', data.token || '', vscode.ConfigurationTarget.Global);
                         this._panel.webview.postMessage({ type: 'settingsState', huggingFaceToken: data.token || '' });
                         vscode.window.showInformationMessage('Hugging Face Token saved.');
-                        const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 309))).default;
+                        const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 310))).default;
                         await fetch('http://127.0.0.1:47990/v1/system/config', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
@@ -51235,7 +51235,7 @@ class SettingsProvider {
                         await config.update('useHfMirror', next, vscode.ConfigurationTarget.Global);
                         this._panel.webview.postMessage({ type: 'settingsState', useHfMirror: next });
                         vscode.window.showInformationMessage(`High-Speed CDN Mirror ${next ? 'Enabled' : 'Disabled'}.`);
-                        const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 309))).default;
+                        const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 310))).default;
                         await fetch('http://127.0.0.1:47990/v1/system/config', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
@@ -51249,7 +51249,7 @@ class SettingsProvider {
                 }
                 case 'downloadLocalModel': {
                     try {
-                        const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 309))).default;
+                        const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 310))).default;
                         const config = vscode.workspace.getConfiguration('exovonhub');
                         const hfToken = config.get('huggingFaceToken') || undefined;
                         const useMirror = config.get('useHfMirror', false);
@@ -51390,7 +51390,7 @@ class SettingsProvider {
                 }
                 case 'controlDownload': {
                     try {
-                        const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 309))).default;
+                        const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 310))).default;
                         await fetch('http://127.0.0.1:47990/v1/models/downloads/control', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
@@ -51408,7 +51408,7 @@ class SettingsProvider {
                 }
                 case 'clearKvCache': {
                     try {
-                        const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 309))).default;
+                        const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 310))).default;
                         await fetch('http://127.0.0.1:47990/v1/models/clear_kv', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' }
@@ -51643,23 +51643,114 @@ const crypto = __importStar(__webpack_require__(27));
 const GraphIndexer_1 = __webpack_require__(287);
 let DatabaseConstructor = null;
 let sqliteVecModule = null;
+// 1. Prefer Node.js 22.5+ / Node 24 native built-in SQLite engine (DatabaseSync)
+// Zero external native C++ compilation, zero NODE_MODULE_VERSION mismatches across Electron
 try {
-    DatabaseConstructor = __webpack_require__(288);
+    const nodeSqlite = __webpack_require__(288);
+    if (nodeSqlite && nodeSqlite.DatabaseSync) {
+        DatabaseConstructor = class extends nodeSqlite.DatabaseSync {
+            constructor(filename, options) {
+                super(filename, options || {});
+                if (!this.pragma) {
+                    this.pragma = (str) => this.exec(`PRAGMA ${str}`);
+                }
+                if (!this.transaction) {
+                    this.transaction = (fn) => {
+                        return (...args) => {
+                            this.exec('BEGIN IMMEDIATE');
+                            try {
+                                const res = fn(...args);
+                                this.exec('COMMIT');
+                                return res;
+                            }
+                            catch (e) {
+                                try {
+                                    this.exec('ROLLBACK');
+                                }
+                                catch (_) { }
+                                throw e;
+                            }
+                        };
+                    };
+                }
+            }
+        };
+        console.log('[Astrolabe Brain] Successfully initialized native node:sqlite engine.');
+    }
 }
 catch (e) {
-    console.warn('[Astrolabe Brain] better-sqlite3 native driver not loaded:', e?.message || e);
+    // Not available
+}
+// 2. Fallback to better-sqlite3 if node:sqlite is unavailable
+if (!DatabaseConstructor) {
+    try {
+        DatabaseConstructor = __webpack_require__(289);
+        console.log('[Astrolabe Brain] Loaded better-sqlite3 native driver.');
+    }
+    catch (e) {
+        console.warn('[Astrolabe Brain] Native SQLite drivers unavailable:', e?.message || e);
+    }
 }
 try {
-    sqliteVecModule = __webpack_require__(289);
+    sqliteVecModule = __webpack_require__(290);
 }
 catch (e) {
-    console.warn('[Astrolabe Brain] sqlite-vec not loaded:', e?.message || e);
+    // Vector search optional
 }
-class InMemoryDb {
+class PersistentJsonDb {
     threads = new Map();
     messages = new Map();
     symbols = new Map();
     metadata = new Map();
+    backupFile;
+    saveDebounce = null;
+    constructor(filePath) {
+        this.backupFile = filePath;
+        this.loadFromDisk();
+    }
+    loadFromDisk() {
+        try {
+            if (fs.existsSync(this.backupFile)) {
+                const raw = fs.readFileSync(this.backupFile, 'utf8');
+                const data = JSON.parse(raw);
+                if (Array.isArray(data.threads)) {
+                    for (const t of data.threads)
+                        this.threads.set(t.id, t);
+                }
+                if (data.messages && typeof data.messages === 'object') {
+                    for (const [tid, list] of Object.entries(data.messages)) {
+                        if (Array.isArray(list))
+                            this.messages.set(tid, list);
+                    }
+                }
+                console.log(`[Astrolabe Brain] Loaded ${this.threads.size} threads from fallback JSON store.`);
+            }
+        }
+        catch (e) {
+            console.warn('[Astrolabe Brain] Failed to load JSON fallback:', e);
+        }
+    }
+    persist() {
+        if (this.saveDebounce)
+            clearTimeout(this.saveDebounce);
+        this.saveDebounce = setTimeout(() => {
+            try {
+                const data = {
+                    threads: Array.from(this.threads.values()),
+                    messages: Object.fromEntries(this.messages.entries())
+                };
+                const dir = path.dirname(this.backupFile);
+                if (!fs.existsSync(dir))
+                    fs.mkdirSync(dir, { recursive: true });
+                const tmp = this.backupFile + '.tmp';
+                fs.writeFileSync(tmp, JSON.stringify(data, null, 2), 'utf8');
+                fs.renameSync(tmp, this.backupFile);
+            }
+            catch (e) {
+                console.warn('[Astrolabe Brain] Failed to write JSON backup:', e);
+            }
+        }, 150);
+    }
     exec(_sql) { }
     pragma(_sql) { }
     transaction(fn) { return fn; }
@@ -51671,7 +51762,14 @@ class InMemoryDb {
                     return { c: this.symbols.size };
                 if (s.includes('from brain_metadata'))
                     return { value: this.metadata.get(args[0]) || '1.0.0' };
+                if (s.includes('from chat_threads')) {
+                    return this.threads.get(args[0]) || null;
+                }
                 if (s.includes('from chat_messages')) {
+                    if (s.includes('order by timestamp asc')) {
+                        const list = this.messages.get(args[0]) || [];
+                        return list.find(m => m.sender === 'user' && m.text && m.text.trim().length > 3) || list[0] || null;
+                    }
                     const list = this.messages.get(args[0]) || [];
                     return list[0] || null;
                 }
@@ -51679,7 +51777,16 @@ class InMemoryDb {
             },
             all: (...args) => {
                 if (s.includes('from chat_threads')) {
-                    return Array.from(this.threads.values()).sort((a, b) => b.updated_at - a.updated_at);
+                    return Array.from(this.threads.values()).map(t => {
+                        const list = this.messages.get(t.id) || [];
+                        const nonWelcome = list.filter(m => m.id !== 'welcome');
+                        const previewMsg = [...nonWelcome].reverse().find(m => m.text && m.text.trim().length > 0);
+                        return {
+                            ...t,
+                            message_count: nonWelcome.length,
+                            preview: previewMsg?.text || ''
+                        };
+                    }).sort((a, b) => (b.updated_at || 0) - (a.updated_at || 0));
                 }
                 if (s.includes('from chat_messages')) {
                     return this.messages.get(args[0]) || [];
@@ -51690,31 +51797,98 @@ class InMemoryDb {
                 return [];
             },
             run: (...args) => {
-                if (s.includes('insert into chat_threads') || s.includes('replace into chat_threads')) {
+                if (s.includes('insert into chat_threads') || s.includes('replace into chat_threads') || s.includes('insert or ignore into chat_threads')) {
                     const [id, title, created_at, updated_at, workspace_path] = args;
-                    this.threads.set(id, { id, title, created_at, updated_at, workspace_path });
+                    if (!this.threads.has(id) || !s.includes('ignore')) {
+                        const existing = this.threads.get(id);
+                        this.threads.set(id, {
+                            id,
+                            title: title || existing?.title || 'New Chat',
+                            created_at: created_at || existing?.created_at || Date.now(),
+                            updated_at: updated_at || Date.now(),
+                            workspace_path: workspace_path || existing?.workspace_path || ''
+                        });
+                        this.persist();
+                    }
                 }
-                else if (s.includes('update chat_threads set title')) {
-                    const [title, id] = args;
-                    const t = this.threads.get(id);
-                    if (t) {
-                        t.title = title;
+                else if (s.includes('update chat_threads set')) {
+                    if (s.includes('title = ?, updated_at = ?')) {
+                        const [title, updated_at, id] = args;
+                        const t = this.threads.get(id);
+                        if (t) {
+                            t.title = title;
+                            t.updated_at = updated_at;
+                            this.persist();
+                        }
+                    }
+                    else if (s.includes('updated_at = ?, title = ?')) {
+                        const [updated_at, title, id] = args;
+                        const t = this.threads.get(id);
+                        if (t) {
+                            t.title = title;
+                            t.updated_at = updated_at;
+                            this.persist();
+                        }
+                    }
+                    else if (s.includes('title = ? where id = ?')) {
+                        const [title, id] = args;
+                        const t = this.threads.get(id);
+                        if (t) {
+                            t.title = title;
+                            this.persist();
+                        }
+                    }
+                    else if (s.includes('updated_at = ? where id = ?')) {
+                        const [updated_at, id] = args;
+                        const t = this.threads.get(id);
+                        if (t) {
+                            t.updated_at = updated_at;
+                            this.persist();
+                        }
                     }
                 }
                 else if (s.includes('delete from chat_threads')) {
                     this.threads.delete(args[0]);
                     this.messages.delete(args[0]);
+                    this.persist();
                 }
-                else if (s.includes('insert into chat_messages')) {
-                    const [id, thread_id, sender, text, data, timestamp] = args;
+                else if (s.includes('insert into chat_messages') || s.includes('insert or replace into chat_messages')) {
+                    const [id, thread_id, sender, text, reasoning, timestamp, plan_steps, tool_calls, meta] = args;
                     const list = this.messages.get(thread_id) || [];
-                    list.push({ id, thread_id, sender, text, data, timestamp });
+                    const idx = list.findIndex(m => m.id === id);
+                    const msgObj = {
+                        id,
+                        thread_id,
+                        sender,
+                        text,
+                        reasoning,
+                        timestamp,
+                        plan_steps,
+                        tool_calls,
+                        meta
+                    };
+                    if (idx >= 0) {
+                        list[idx] = msgObj;
+                    }
+                    else {
+                        list.push(msgObj);
+                    }
                     this.messages.set(thread_id, list);
+                    this.persist();
                 }
                 else if (s.includes('delete from chat_messages')) {
-                    const [thread_id, id] = args;
-                    const list = (this.messages.get(thread_id) || []).filter(m => m.id !== id);
-                    this.messages.set(thread_id, list);
+                    if (args.length === 2) {
+                        const [thread_id, id] = args;
+                        const list = (this.messages.get(thread_id) || []).filter(m => m.id !== id);
+                        this.messages.set(thread_id, list);
+                    }
+                    else if (args.length === 1) {
+                        this.messages.delete(args[0]);
+                    }
+                    else {
+                        this.messages.clear();
+                    }
+                    this.persist();
                 }
                 return { changes: 1 };
             }
@@ -51751,22 +51925,33 @@ class BrainCoordinator {
     constructor(context, onSyncStateChange) {
         this.context = context;
         this.onSyncStateChange = onSyncStateChange;
-        const storagePath = context.storageUri?.fsPath || context.globalStorageUri.fsPath;
-        this.dbPath = path.join(storagePath, '.exovon_brain.db');
+        const globalStorage = context.globalStorageUri.fsPath;
+        this.dbPath = path.join(globalStorage, '.astrolabe_unified.db');
+        const jsonBackupPath = path.join(globalStorage, 'astrolabe_chat_history.json');
+        // Ensure global directory exists
+        try {
+            if (!fs.existsSync(globalStorage)) {
+                fs.mkdirSync(globalStorage, { recursive: true });
+            }
+        }
+        catch (e) {
+            console.warn('[Astrolabe Brain] Failed creating globalStorage dir:', e);
+        }
         if (!DatabaseConstructor) {
             this.lastError = null;
             this.status = 'ready';
-            this.db = new InMemoryDb();
+            this.db = new PersistentJsonDb(jsonBackupPath);
             return;
         }
         try {
-            // Ensure directory exists
-            if (!fs.existsSync(storagePath)) {
-                fs.mkdirSync(storagePath, { recursive: true });
-            }
             this.db = new DatabaseConstructor(this.dbPath);
             if (sqliteVecModule && typeof sqliteVecModule.load === 'function') {
-                sqliteVecModule.load(this.db);
+                try {
+                    sqliteVecModule.load(this.db);
+                }
+                catch (vecErr) {
+                    console.warn('[Astrolabe Brain] sqlite-vec load skipped:', vecErr);
+                }
             }
             // Concurrency optimization
             this.db.pragma('journal_mode = WAL');
@@ -51774,10 +51959,10 @@ class BrainCoordinator {
             this.status = 'ready';
         }
         catch (err) {
-            console.warn('[Astrolabe Brain] Falling back to In-Memory Engine:', err?.message || err);
+            console.warn('[Astrolabe Brain] Falling back to Persistent JSON Store:', err?.message || err);
             this.lastError = null;
             this.status = 'ready';
-            this.db = new InMemoryDb();
+            this.db = new PersistentJsonDb(jsonBackupPath);
         }
         // Delta Cache Version Control
         const CURRENT_ENGINE_VERSION = '1.0.0';
@@ -51872,7 +52057,90 @@ class BrainCoordinator {
         catch (e) {
             // vec0 might already exist
         }
+        // Seamlessly import all legacy chat history from old workspace databases into the unified DB
+        this.migrateLegacyDatabases();
         this.initializeWorkers();
+    }
+    migrateLegacyDatabases() {
+        try {
+            const globalStorage = this.context.globalStorageUri.fsPath;
+            const userDir = path.resolve(globalStorage, '../..'); // ~/.config/Astrolabe/User
+            const workspaceStorageDir = path.join(userDir, 'workspaceStorage');
+            if (!fs.existsSync(workspaceStorageDir))
+                return;
+            const entries = fs.readdirSync(workspaceStorageDir);
+            let totalMigratedThreads = 0;
+            let totalMigratedMessages = 0;
+            for (const entry of entries) {
+                const oldDbPath = path.join(workspaceStorageDir, entry, 'exovon.exovonhub', '.exovon_brain.db');
+                if (fs.existsSync(oldDbPath) && oldDbPath !== this.dbPath) {
+                    try {
+                        const oldDb = new DatabaseConstructor(oldDbPath);
+                        if (!oldDb.pragma)
+                            oldDb.pragma = (s) => oldDb.exec(`PRAGMA ${s}`);
+                        const oldThreads = oldDb.prepare('SELECT * FROM chat_threads').all();
+                        const insertThread = this.db.prepare(`
+              INSERT OR IGNORE INTO chat_threads (id, title, created_at, updated_at, workspace_path)
+              VALUES (?, ?, ?, ?, ?)
+            `);
+                        for (const t of oldThreads) {
+                            insertThread.run(t.id, t.title || 'Chat', t.created_at || Date.now(), t.updated_at || Date.now(), t.workspace_path || '');
+                            totalMigratedThreads++;
+                        }
+                        const oldMessages = oldDb.prepare('SELECT * FROM chat_messages').all();
+                        const insertMsg = this.db.prepare(`
+              INSERT OR IGNORE INTO chat_messages (id, thread_id, sender, text, reasoning, timestamp, plan_steps, tool_calls, meta)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `);
+                        for (const m of oldMessages) {
+                            insertMsg.run(m.id, m.thread_id, m.sender, m.text, m.reasoning || null, m.timestamp, m.plan_steps || null, m.tool_calls || null, m.meta || null);
+                            totalMigratedMessages++;
+                        }
+                        if (typeof oldDb.close === 'function') {
+                            oldDb.close();
+                        }
+                    }
+                    catch (migrateErr) {
+                        // Ignore corrupted or incompatible legacy DB
+                    }
+                }
+            }
+            // Also migrate from legacy global database if present
+            const legacyGlobalDbPath = path.join(globalStorage, '.exovon_brain.db');
+            if (fs.existsSync(legacyGlobalDbPath) && legacyGlobalDbPath !== this.dbPath) {
+                try {
+                    const oldDb = new DatabaseConstructor(legacyGlobalDbPath);
+                    const oldThreads = oldDb.prepare('SELECT * FROM chat_threads').all();
+                    const insertThread = this.db.prepare(`
+            INSERT OR IGNORE INTO chat_threads (id, title, created_at, updated_at, workspace_path)
+            VALUES (?, ?, ?, ?, ?)
+          `);
+                    for (const t of oldThreads) {
+                        insertThread.run(t.id, t.title || 'Chat', t.created_at || Date.now(), t.updated_at || Date.now(), t.workspace_path || '');
+                        totalMigratedThreads++;
+                    }
+                    const oldMessages = oldDb.prepare('SELECT * FROM chat_messages').all();
+                    const insertMsg = this.db.prepare(`
+            INSERT OR IGNORE INTO chat_messages (id, thread_id, sender, text, reasoning, timestamp, plan_steps, tool_calls, meta)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `);
+                    for (const m of oldMessages) {
+                        insertMsg.run(m.id, m.thread_id, m.sender, m.text, m.reasoning || null, m.timestamp, m.plan_steps || null, m.tool_calls || null, m.meta || null);
+                        totalMigratedMessages++;
+                    }
+                    if (typeof oldDb.close === 'function') {
+                        oldDb.close();
+                    }
+                }
+                catch (e) { }
+            }
+            if (totalMigratedThreads > 0 || totalMigratedMessages > 0) {
+                console.log(`[Astrolabe Brain] Successfully migrated ${totalMigratedThreads} threads and ${totalMigratedMessages} messages into unified database.`);
+            }
+        }
+        catch (e) {
+            console.warn('[Astrolabe Brain] Legacy chat migration notice:', e);
+        }
     }
     initializeWorkers() {
         const totalMemGB = os_1.default.totalmem() / 1024 / 1024 / 1024;
@@ -52574,7 +52842,6 @@ class BrainCoordinator {
     // --- CHAT PERSISTENCE METHODS ---
     getChatThreads() {
         try {
-            const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
             const threads = this.db.prepare(`
         SELECT 
           ct.id, 
@@ -52583,9 +52850,9 @@ class BrainCoordinator {
           (SELECT COUNT(*) FROM chat_messages cm WHERE cm.thread_id = ct.id AND cm.id != 'welcome') as message_count,
           (SELECT text FROM chat_messages cm WHERE cm.thread_id = ct.id AND cm.id != 'welcome' AND cm.text IS NOT NULL AND TRIM(cm.text) != '' ORDER BY cm.timestamp DESC, cm.id DESC LIMIT 1) as preview
         FROM chat_threads ct 
-        WHERE ct.workspace_path = ? 
         ORDER BY ct.updated_at DESC
-      `).all(workspaceRoot);
+        LIMIT 200
+      `).all();
             // Auto-repair stale generic titles (e.g. 'HI', 'hi', 'hello', 'New Chat')
             for (const t of threads) {
                 const lower = (t.title || '').toLowerCase().trim();
@@ -52659,12 +52926,8 @@ class BrainCoordinator {
     }
     clearAllChatThreads() {
         try {
-            const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
-            const threads = this.db.prepare('SELECT id FROM chat_threads WHERE workspace_path = ?').all(workspaceRoot);
-            for (const t of threads) {
-                this.db.prepare('DELETE FROM chat_messages WHERE thread_id = ?').run(t.id);
-            }
-            this.db.prepare('DELETE FROM chat_threads WHERE workspace_path = ?').run(workspaceRoot);
+            this.db.prepare('DELETE FROM chat_messages').run();
+            this.db.prepare('DELETE FROM chat_threads').run();
         }
         catch (e) {
             console.error('clearAllChatThreads error:', e);
@@ -52672,6 +52935,12 @@ class BrainCoordinator {
     }
     saveChatMessage(threadId, message) {
         try {
+            const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
+            // Ensure parent thread exists (satisfies foreign key constraint unconditionally)
+            this.db.prepare(`
+        INSERT OR IGNORE INTO chat_threads (id, title, created_at, updated_at, workspace_path)
+        VALUES (?, 'New Chat', ?, ?, ?)
+      `).run(threadId, Date.now(), Date.now(), workspaceRoot);
             this.db.prepare(`
         INSERT OR REPLACE INTO chat_messages 
         (id, thread_id, sender, text, reasoning, timestamp, plan_steps, tool_calls, meta)
@@ -52788,7 +53057,7 @@ class BrainCoordinator {
         }
         try {
             const { exec } = __webpack_require__(31);
-            const util = __webpack_require__(290);
+            const util = __webpack_require__(291);
             const execAsync = util.promisify(exec);
             const { stdout } = await execAsync(`git diff --name-status ${oldCommit} ${newCommit}`, { cwd: workspaceRoot });
             const lines = stdout.trim().split('\n');
@@ -52832,7 +53101,7 @@ class BrainCoordinator {
             let diffFiles = [];
             if (workspaceRoot) {
                 const childProcess = __webpack_require__(31);
-                const util = __webpack_require__(290);
+                const util = __webpack_require__(291);
                 const exec = util.promisify(childProcess.exec);
                 try {
                     const { stdout } = await exec(`git diff HEAD~1 HEAD --name-only`, { cwd: workspaceRoot });
@@ -52957,24 +53226,31 @@ exports.GraphIndexer = GraphIndexer;
 /***/ ((module) => {
 
 "use strict";
-module.exports = require("better-sqlite3");
+module.exports = require("node:sqlite");
 
 /***/ }),
 /* 289 */
 /***/ ((module) => {
 
 "use strict";
-module.exports = require("sqlite-vec");
+module.exports = require("better-sqlite3");
 
 /***/ }),
 /* 290 */
 /***/ ((module) => {
 
 "use strict";
-module.exports = require("util");
+module.exports = require("sqlite-vec");
 
 /***/ }),
 /* 291 */
+/***/ ((module) => {
+
+"use strict";
+module.exports = require("util");
+
+/***/ }),
+/* 292 */
 /***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 "use strict";
@@ -53015,7 +53291,7 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.LlamaEngine = void 0;
 const vscode = __importStar(__webpack_require__(1));
-const FimIntentAnalyzer_1 = __webpack_require__(292);
+const FimIntentAnalyzer_1 = __webpack_require__(293);
 class LlamaEngine {
     storageUri;
     ready = false;
@@ -53041,7 +53317,7 @@ class LlamaEngine {
         const enabled = config.get('enableGhostText', true);
         const assignedGhostModel = config.get('inlineGhostModel') || null;
         try {
-            const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 309))).default;
+            const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 310))).default;
             const start = Date.now();
             const controller = new AbortController();
             const timeout = setTimeout(() => controller.abort(), 2000);
@@ -53080,7 +53356,7 @@ class LlamaEngine {
         const ghostModel = config.get('inlineGhostModel') || undefined;
         const startTime = Date.now();
         try {
-            const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 309))).default;
+            const fetch = (await __webpack_require__.e(/* import() */ 3).then(__webpack_require__.bind(__webpack_require__, 310))).default;
             const controller = new AbortController();
             token.onCancellationRequested(() => controller.abort());
             // Analyze intent: directive comments, fuzzy spelling fixes, structural skeletons, or native FIM
@@ -53200,7 +53476,7 @@ exports.LlamaEngine = LlamaEngine;
 
 
 /***/ }),
-/* 292 */
+/* 293 */
 /***/ ((__unused_webpack_module, exports) => {
 
 "use strict";
@@ -53380,7 +53656,7 @@ exports.FimIntentAnalyzer = FimIntentAnalyzer;
 
 
 /***/ }),
-/* 293 */
+/* 294 */
 /***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 "use strict";
@@ -53421,7 +53697,7 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.CopilotProvider = void 0;
 const vscode = __importStar(__webpack_require__(1));
-const NeighborContextRetriever_1 = __webpack_require__(294);
+const NeighborContextRetriever_1 = __webpack_require__(295);
 class CopilotProvider {
     engine;
     debounceTimer = null;
@@ -53487,7 +53763,7 @@ exports.CopilotProvider = CopilotProvider;
 
 
 /***/ }),
-/* 294 */
+/* 295 */
 /***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 "use strict";
@@ -53616,7 +53892,7 @@ exports.NeighborContextRetriever = NeighborContextRetriever;
 
 
 /***/ }),
-/* 295 */
+/* 296 */
 /***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 "use strict";
@@ -53751,7 +54027,7 @@ exports.AuthService = AuthService;
 
 
 /***/ }),
-/* 296 */
+/* 297 */
 /***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 "use strict";
@@ -53859,7 +54135,7 @@ exports.PlanCommentController = PlanCommentController;
 
 
 /***/ }),
-/* 297 */
+/* 298 */
 /***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 "use strict";
@@ -53923,7 +54199,7 @@ exports.ProblemCodeActionProvider = ProblemCodeActionProvider;
 
 
 /***/ }),
-/* 298 */
+/* 299 */
 /***/ ((__unused_webpack_module, exports) => {
 
 "use strict";
@@ -54047,7 +54323,7 @@ exports.ApiService = ApiService;
 
 
 /***/ }),
-/* 299 */
+/* 300 */
 /***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 "use strict";
@@ -54093,8 +54369,8 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.MotionCompiler = void 0;
 const vscode = __importStar(__webpack_require__(1));
-const MotionWorker_1 = __webpack_require__(300);
-const MotionOnboarding_1 = __webpack_require__(306);
+const MotionWorker_1 = __webpack_require__(301);
+const MotionOnboarding_1 = __webpack_require__(307);
 class MotionCompiler {
     static instance;
     static getInstance() {
@@ -54168,7 +54444,7 @@ class MotionCompiler {
             const targetUri = vscode.Uri.file(targetFilePath);
             const document = await vscode.workspace.openTextDocument(targetUri);
             const fileContent = document.getText();
-            const { Project, SyntaxKind } = __webpack_require__(304);
+            const { Project, SyntaxKind } = __webpack_require__(305);
             const project = new Project({ useInMemoryFileSystem: true });
             const sourceFile = project.createSourceFile(targetFilePath, fileContent);
             const validStyles = Object.entries(styles).filter(([_, v]) => v !== undefined && v !== null && v !== '');
@@ -54235,7 +54511,7 @@ exports.MotionCompiler = MotionCompiler;
 
 
 /***/ }),
-/* 300 */
+/* 301 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -54248,14 +54524,14 @@ exports.MotionCompiler = MotionCompiler;
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.processMotionCompile = processMotionCompile;
 const worker_threads_1 = __webpack_require__(286);
-const MotionIR_1 = __webpack_require__(301);
-const InsertionResolver_1 = __webpack_require__(302);
-const MotionEmitter_1 = __webpack_require__(303);
-const RecompilePolicy_1 = __webpack_require__(305);
+const MotionIR_1 = __webpack_require__(302);
+const InsertionResolver_1 = __webpack_require__(303);
+const MotionEmitter_1 = __webpack_require__(304);
+const RecompilePolicy_1 = __webpack_require__(306);
 function processMotionCompile(request) {
     try {
         const ir = (0, MotionIR_1.parseTheatreJsonToMotionIR)(request.rawTheatreJson);
-        const { Project } = __webpack_require__(304);
+        const { Project } = __webpack_require__(305);
         const project = new Project({ useInMemoryFileSystem: true });
         const sourceFile = project.createSourceFile(request.targetFilePath, request.fileContent);
         const strategy = (0, InsertionResolver_1.analyzeInsertionStrategy)(sourceFile, ir);
@@ -54290,7 +54566,7 @@ if (!worker_threads_1.isMainThread && worker_threads_1.parentPort) {
 
 
 /***/ }),
-/* 301 */
+/* 302 */
 /***/ ((__unused_webpack_module, exports) => {
 
 "use strict";
@@ -54405,7 +54681,7 @@ function mapTheatreEasingToGSAP(handles) {
 
 
 /***/ }),
-/* 302 */
+/* 303 */
 /***/ ((__unused_webpack_module, exports) => {
 
 "use strict";
@@ -54481,7 +54757,7 @@ function analyzeInsertionStrategy(sourceFile, ir) {
 
 
 /***/ }),
-/* 303 */
+/* 304 */
 /***/ ((__unused_webpack_module, exports, __webpack_require__) => {
 
 "use strict";
@@ -54496,7 +54772,7 @@ Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.emitMotionCode = emitMotionCode;
 function emitMotionCode(targetFilePath, fileContent, ir, strategy) {
     // Load target file into a single isolated in-memory ts-morph SourceFile
-    const { Project } = __webpack_require__(304);
+    const { Project } = __webpack_require__(305);
     const project = new Project({ useInMemoryFileSystem: true });
     const sourceFile = project.createSourceFile(targetFilePath, fileContent);
     // 1. Ensure required imports
@@ -54636,14 +54912,14 @@ function buildGsapBlock(ir) {
 
 
 /***/ }),
-/* 304 */
+/* 305 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("ts-morph");
 
 /***/ }),
-/* 305 */
+/* 306 */
 /***/ ((__unused_webpack_module, exports) => {
 
 "use strict";
@@ -54690,7 +54966,7 @@ function normalizeCode(code) {
 
 
 /***/ }),
-/* 306 */
+/* 307 */
 /***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 "use strict";
@@ -54880,7 +55156,7 @@ exports.MotionOnboarding = MotionOnboarding;
 
 
 /***/ }),
-/* 307 */
+/* 308 */
 /***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 "use strict";
@@ -54929,8 +55205,8 @@ Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.MotionStudioServer = void 0;
 const http = __importStar(__webpack_require__(35));
 const vscode = __importStar(__webpack_require__(1));
-const MotionCompiler_1 = __webpack_require__(299);
-const MotionOnboarding_1 = __webpack_require__(306);
+const MotionCompiler_1 = __webpack_require__(300);
+const MotionOnboarding_1 = __webpack_require__(307);
 class MotionStudioServer {
     static instance;
     server = null;
@@ -55378,63 +55654,62 @@ exports.MotionStudioServer = MotionStudioServer;
 
 
 /***/ }),
-/* 308 */,
 /* 309 */,
-/* 310 */
+/* 310 */,
+/* 311 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("node:http");
 
 /***/ }),
-/* 311 */
+/* 312 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("node:https");
 
 /***/ }),
-/* 312 */
+/* 313 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("node:zlib");
 
 /***/ }),
-/* 313 */
+/* 314 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("node:buffer");
 
 /***/ }),
-/* 314 */,
 /* 315 */,
-/* 316 */
+/* 316 */,
+/* 317 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("node:util");
 
 /***/ }),
-/* 317 */,
 /* 318 */,
-/* 319 */
+/* 319 */,
+/* 320 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("node:stream/web");
 
 /***/ }),
-/* 320 */,
-/* 321 */
+/* 321 */,
+/* 322 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("buffer");
 
 /***/ }),
-/* 322 */,
 /* 323 */,
 /* 324 */,
 /* 325 */,
@@ -55443,39 +55718,39 @@ module.exports = require("buffer");
 /* 328 */,
 /* 329 */,
 /* 330 */,
-/* 331 */
+/* 331 */,
+/* 332 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("node:url");
 
 /***/ }),
-/* 332 */,
 /* 333 */,
-/* 334 */
+/* 334 */,
+/* 335 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("node:net");
 
 /***/ }),
-/* 335 */,
 /* 336 */,
-/* 337 */
+/* 337 */,
+/* 338 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("node:fs");
 
 /***/ }),
-/* 338 */
+/* 339 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("node:path");
 
 /***/ }),
-/* 339 */,
 /* 340 */,
 /* 341 */,
 /* 342 */,
@@ -55490,14 +55765,14 @@ module.exports = require("node:path");
 /* 351 */,
 /* 352 */,
 /* 353 */,
-/* 354 */
+/* 354 */,
+/* 355 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("stream");
 
 /***/ }),
-/* 355 */,
 /* 356 */,
 /* 357 */,
 /* 358 */,
@@ -55506,21 +55781,21 @@ module.exports = require("stream");
 /* 361 */,
 /* 362 */,
 /* 363 */,
-/* 364 */
+/* 364 */,
+/* 365 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("events");
 
 /***/ }),
-/* 365 */
+/* 366 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("process");
 
 /***/ }),
-/* 366 */,
 /* 367 */,
 /* 368 */,
 /* 369 */,
@@ -55528,14 +55803,14 @@ module.exports = require("process");
 /* 371 */,
 /* 372 */,
 /* 373 */,
-/* 374 */
+/* 374 */,
+/* 375 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("querystring");
 
 /***/ }),
-/* 375 */,
 /* 376 */,
 /* 377 */,
 /* 378 */,
@@ -55581,45 +55856,45 @@ module.exports = require("querystring");
 /* 418 */,
 /* 419 */,
 /* 420 */,
-/* 421 */
+/* 421 */,
+/* 422 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("fs/promises");
 
 /***/ }),
-/* 422 */
+/* 423 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("node:stream/promises");
 
 /***/ }),
-/* 423 */,
 /* 424 */,
 /* 425 */,
-/* 426 */
+/* 426 */,
+/* 427 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("net");
 
 /***/ }),
-/* 427 */
+/* 428 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("tls");
 
 /***/ }),
-/* 428 */
+/* 429 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("url");
 
 /***/ }),
-/* 429 */,
 /* 430 */,
 /* 431 */,
 /* 432 */,
@@ -55630,44 +55905,45 @@ module.exports = require("url");
 /* 437 */,
 /* 438 */,
 /* 439 */,
-/* 440 */
+/* 440 */,
+/* 441 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("@exovon/sdk");
 
 /***/ }),
-/* 441 */,
 /* 442 */,
 /* 443 */,
-/* 444 */
+/* 444 */,
+/* 445 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("assert");
 
 /***/ }),
-/* 445 */,
 /* 446 */,
 /* 447 */,
 /* 448 */,
 /* 449 */,
-/* 450 */
+/* 450 */,
+/* 451 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("tty");
 
 /***/ }),
-/* 451 */,
-/* 452 */
+/* 452 */,
+/* 453 */
 /***/ ((module) => {
 
 "use strict";
 module.exports = require("node:os");
 
 /***/ }),
-/* 453 */
+/* 454 */
 /***/ ((module) => {
 
 "use strict";

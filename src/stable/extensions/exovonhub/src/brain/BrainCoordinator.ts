@@ -10,23 +10,107 @@ import { IBrainCoordinator, GovernorStatus } from '../types/shared';
 let DatabaseConstructor: any = null;
 let sqliteVecModule: any = null;
 
+// 1. Prefer Node.js 22.5+ / Node 24 native built-in SQLite engine (DatabaseSync)
+// Zero external native C++ compilation, zero NODE_MODULE_VERSION mismatches across Electron
 try {
-  DatabaseConstructor = require('better-sqlite3');
+  const nodeSqlite = require('node:sqlite');
+  if (nodeSqlite && nodeSqlite.DatabaseSync) {
+    DatabaseConstructor = class extends nodeSqlite.DatabaseSync {
+      constructor(filename: string, options?: any) {
+        super(filename, options || {});
+        if (!(this as any).pragma) {
+          (this as any).pragma = (str: string) => this.exec(`PRAGMA ${str}`);
+        }
+        if (!(this as any).transaction) {
+          (this as any).transaction = (fn: any) => {
+            return (...args: any[]) => {
+              this.exec('BEGIN IMMEDIATE');
+              try {
+                const res = fn(...args);
+                this.exec('COMMIT');
+                return res;
+              } catch (e) {
+                try { this.exec('ROLLBACK'); } catch (_) {}
+                throw e;
+              }
+            };
+          };
+        }
+      }
+    };
+    console.log('[Astrolabe Brain] Successfully initialized native node:sqlite engine.');
+  }
 } catch (e: any) {
-  console.warn('[Astrolabe Brain] better-sqlite3 native driver not loaded:', e?.message || e);
+  // Not available
+}
+
+// 2. Fallback to better-sqlite3 if node:sqlite is unavailable
+if (!DatabaseConstructor) {
+  try {
+    DatabaseConstructor = require('better-sqlite3');
+    console.log('[Astrolabe Brain] Loaded better-sqlite3 native driver.');
+  } catch (e: any) {
+    console.warn('[Astrolabe Brain] Native SQLite drivers unavailable:', e?.message || e);
+  }
 }
 
 try {
   sqliteVecModule = require('sqlite-vec');
 } catch (e: any) {
-  console.warn('[Astrolabe Brain] sqlite-vec not loaded:', e?.message || e);
+  // Vector search optional
 }
 
-class InMemoryDb {
+class PersistentJsonDb {
   private threads: Map<string, any> = new Map();
   private messages: Map<string, any[]> = new Map();
   private symbols: Map<string, any> = new Map();
   private metadata: Map<string, string> = new Map();
+  private backupFile: string;
+  private saveDebounce: any = null;
+
+  constructor(filePath: string) {
+    this.backupFile = filePath;
+    this.loadFromDisk();
+  }
+
+  private loadFromDisk() {
+    try {
+      if (fs.existsSync(this.backupFile)) {
+        const raw = fs.readFileSync(this.backupFile, 'utf8');
+        const data = JSON.parse(raw);
+        if (Array.isArray(data.threads)) {
+          for (const t of data.threads) this.threads.set(t.id, t);
+        }
+        if (data.messages && typeof data.messages === 'object') {
+          for (const [tid, list] of Object.entries(data.messages)) {
+            if (Array.isArray(list)) this.messages.set(tid, list);
+          }
+        }
+        console.log(`[Astrolabe Brain] Loaded ${this.threads.size} threads from fallback JSON store.`);
+      }
+    } catch (e) {
+      console.warn('[Astrolabe Brain] Failed to load JSON fallback:', e);
+    }
+  }
+
+  private persist() {
+    if (this.saveDebounce) clearTimeout(this.saveDebounce);
+    this.saveDebounce = setTimeout(() => {
+      try {
+        const data = {
+          threads: Array.from(this.threads.values()),
+          messages: Object.fromEntries(this.messages.entries())
+        };
+        const dir = path.dirname(this.backupFile);
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        const tmp = this.backupFile + '.tmp';
+        fs.writeFileSync(tmp, JSON.stringify(data, null, 2), 'utf8');
+        fs.renameSync(tmp, this.backupFile);
+      } catch (e) {
+        console.warn('[Astrolabe Brain] Failed to write JSON backup:', e);
+      }
+    }, 150);
+  }
 
   exec(_sql: string) {}
   pragma(_sql: string) {}
@@ -38,7 +122,14 @@ class InMemoryDb {
       get: (...args: any[]) => {
         if (s.includes('count(*)')) return { c: this.symbols.size };
         if (s.includes('from brain_metadata')) return { value: this.metadata.get(args[0]) || '1.0.0' };
+        if (s.includes('from chat_threads')) {
+          return this.threads.get(args[0]) || null;
+        }
         if (s.includes('from chat_messages')) {
+          if (s.includes('order by timestamp asc')) {
+            const list = this.messages.get(args[0]) || [];
+            return list.find(m => m.sender === 'user' && m.text && m.text.trim().length > 3) || list[0] || null;
+          }
           const list = this.messages.get(args[0]) || [];
           return list[0] || null;
         }
@@ -46,7 +137,16 @@ class InMemoryDb {
       },
       all: (...args: any[]) => {
         if (s.includes('from chat_threads')) {
-          return Array.from(this.threads.values()).sort((a, b) => b.updated_at - a.updated_at);
+          return Array.from(this.threads.values()).map(t => {
+            const list = this.messages.get(t.id) || [];
+            const nonWelcome = list.filter(m => m.id !== 'welcome');
+            const previewMsg = [...nonWelcome].reverse().find(m => m.text && m.text.trim().length > 0);
+            return {
+              ...t,
+              message_count: nonWelcome.length,
+              preview: previewMsg?.text || ''
+            };
+          }).sort((a, b) => (b.updated_at || 0) - (a.updated_at || 0));
         }
         if (s.includes('from chat_messages')) {
           return this.messages.get(args[0]) || [];
@@ -57,25 +157,74 @@ class InMemoryDb {
         return [];
       },
       run: (...args: any[]) => {
-        if (s.includes('insert into chat_threads') || s.includes('replace into chat_threads')) {
+        if (s.includes('insert into chat_threads') || s.includes('replace into chat_threads') || s.includes('insert or ignore into chat_threads')) {
           const [id, title, created_at, updated_at, workspace_path] = args;
-          this.threads.set(id, { id, title, created_at, updated_at, workspace_path });
-        } else if (s.includes('update chat_threads set title')) {
-          const [title, id] = args;
-          const t = this.threads.get(id);
-          if (t) { t.title = title; }
+          if (!this.threads.has(id) || !s.includes('ignore')) {
+            const existing = this.threads.get(id);
+            this.threads.set(id, {
+              id,
+              title: title || existing?.title || 'New Chat',
+              created_at: created_at || existing?.created_at || Date.now(),
+              updated_at: updated_at || Date.now(),
+              workspace_path: workspace_path || existing?.workspace_path || ''
+            });
+            this.persist();
+          }
+        } else if (s.includes('update chat_threads set')) {
+          if (s.includes('title = ?, updated_at = ?')) {
+            const [title, updated_at, id] = args;
+            const t = this.threads.get(id);
+            if (t) { t.title = title; t.updated_at = updated_at; this.persist(); }
+          } else if (s.includes('updated_at = ?, title = ?')) {
+            const [updated_at, title, id] = args;
+            const t = this.threads.get(id);
+            if (t) { t.title = title; t.updated_at = updated_at; this.persist(); }
+          } else if (s.includes('title = ? where id = ?')) {
+            const [title, id] = args;
+            const t = this.threads.get(id);
+            if (t) { t.title = title; this.persist(); }
+          } else if (s.includes('updated_at = ? where id = ?')) {
+            const [updated_at, id] = args;
+            const t = this.threads.get(id);
+            if (t) { t.updated_at = updated_at; this.persist(); }
+          }
         } else if (s.includes('delete from chat_threads')) {
           this.threads.delete(args[0]);
           this.messages.delete(args[0]);
-        } else if (s.includes('insert into chat_messages')) {
-          const [id, thread_id, sender, text, data, timestamp] = args;
+          this.persist();
+        } else if (s.includes('insert into chat_messages') || s.includes('insert or replace into chat_messages')) {
+          const [id, thread_id, sender, text, reasoning, timestamp, plan_steps, tool_calls, meta] = args;
           const list = this.messages.get(thread_id) || [];
-          list.push({ id, thread_id, sender, text, data, timestamp });
+          const idx = list.findIndex(m => m.id === id);
+          const msgObj = {
+            id,
+            thread_id,
+            sender,
+            text,
+            reasoning,
+            timestamp,
+            plan_steps,
+            tool_calls,
+            meta
+          };
+          if (idx >= 0) {
+            list[idx] = msgObj;
+          } else {
+            list.push(msgObj);
+          }
           this.messages.set(thread_id, list);
+          this.persist();
         } else if (s.includes('delete from chat_messages')) {
-          const [thread_id, id] = args;
-          const list = (this.messages.get(thread_id) || []).filter(m => m.id !== id);
-          this.messages.set(thread_id, list);
+          if (args.length === 2) {
+            const [thread_id, id] = args;
+            const list = (this.messages.get(thread_id) || []).filter(m => m.id !== id);
+            this.messages.set(thread_id, list);
+          } else if (args.length === 1) {
+            this.messages.delete(args[0]);
+          } else {
+            this.messages.clear();
+          }
+          this.persist();
         }
         return { changes: 1 };
       }
@@ -114,25 +263,34 @@ export class BrainCoordinator implements IBrainCoordinator {
     private context: vscode.ExtensionContext,
     private onSyncStateChange?: (isSyncing: boolean) => void
   ) {
-    const storagePath = context.storageUri?.fsPath || context.globalStorageUri.fsPath;
-    this.dbPath = path.join(storagePath, '.exovon_brain.db');
+    const globalStorage = context.globalStorageUri.fsPath;
+    this.dbPath = path.join(globalStorage, '.astrolabe_unified.db');
+    const jsonBackupPath = path.join(globalStorage, 'astrolabe_chat_history.json');
     
+    // Ensure global directory exists
+    try {
+      if (!fs.existsSync(globalStorage)) {
+        fs.mkdirSync(globalStorage, { recursive: true });
+      }
+    } catch (e) {
+      console.warn('[Astrolabe Brain] Failed creating globalStorage dir:', e);
+    }
+
     if (!DatabaseConstructor) {
       this.lastError = null;
       this.status = 'ready';
-      this.db = new InMemoryDb();
+      this.db = new PersistentJsonDb(jsonBackupPath);
       return;
     }
 
     try {
-      // Ensure directory exists
-      if (!fs.existsSync(storagePath)) {
-        fs.mkdirSync(storagePath, { recursive: true });
-      }
-
       this.db = new DatabaseConstructor(this.dbPath);
       if (sqliteVecModule && typeof sqliteVecModule.load === 'function') {
-        sqliteVecModule.load(this.db);
+        try {
+          sqliteVecModule.load(this.db);
+        } catch (vecErr) {
+          console.warn('[Astrolabe Brain] sqlite-vec load skipped:', vecErr);
+        }
       }
 
       // Concurrency optimization
@@ -140,10 +298,10 @@ export class BrainCoordinator implements IBrainCoordinator {
       this.db.pragma('busy_timeout = 5000');
       this.status = 'ready';
     } catch (err: any) {
-      console.warn('[Astrolabe Brain] Falling back to In-Memory Engine:', err?.message || err);
+      console.warn('[Astrolabe Brain] Falling back to Persistent JSON Store:', err?.message || err);
       this.lastError = null;
       this.status = 'ready';
-      this.db = new InMemoryDb();
+      this.db = new PersistentJsonDb(jsonBackupPath);
     }
 
     // Delta Cache Version Control
@@ -240,7 +398,114 @@ export class BrainCoordinator implements IBrainCoordinator {
       // vec0 might already exist
     }
 
+    // Seamlessly import all legacy chat history from old workspace databases into the unified DB
+    this.migrateLegacyDatabases();
+
     this.initializeWorkers();
+  }
+
+  private migrateLegacyDatabases() {
+    try {
+      const globalStorage = this.context.globalStorageUri.fsPath;
+      const userDir = path.resolve(globalStorage, '../..'); // ~/.config/Astrolabe/User
+      const workspaceStorageDir = path.join(userDir, 'workspaceStorage');
+      
+      if (!fs.existsSync(workspaceStorageDir)) return;
+      
+      const entries = fs.readdirSync(workspaceStorageDir);
+      let totalMigratedThreads = 0;
+      let totalMigratedMessages = 0;
+
+      for (const entry of entries) {
+        const oldDbPath = path.join(workspaceStorageDir, entry, 'exovon.exovonhub', '.exovon_brain.db');
+        if (fs.existsSync(oldDbPath) && oldDbPath !== this.dbPath) {
+          try {
+            const oldDb = new DatabaseConstructor(oldDbPath);
+            if (!oldDb.pragma) oldDb.pragma = (s: string) => oldDb.exec(`PRAGMA ${s}`);
+            
+            const oldThreads = oldDb.prepare('SELECT * FROM chat_threads').all() as any[];
+            const insertThread = this.db.prepare(`
+              INSERT OR IGNORE INTO chat_threads (id, title, created_at, updated_at, workspace_path)
+              VALUES (?, ?, ?, ?, ?)
+            `);
+            for (const t of oldThreads) {
+              insertThread.run(t.id, t.title || 'Chat', t.created_at || Date.now(), t.updated_at || Date.now(), t.workspace_path || '');
+              totalMigratedThreads++;
+            }
+
+            const oldMessages = oldDb.prepare('SELECT * FROM chat_messages').all() as any[];
+            const insertMsg = this.db.prepare(`
+              INSERT OR IGNORE INTO chat_messages (id, thread_id, sender, text, reasoning, timestamp, plan_steps, tool_calls, meta)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `);
+            for (const m of oldMessages) {
+              insertMsg.run(
+                m.id,
+                m.thread_id,
+                m.sender,
+                m.text,
+                m.reasoning || null,
+                m.timestamp,
+                m.plan_steps || null,
+                m.tool_calls || null,
+                m.meta || null
+              );
+              totalMigratedMessages++;
+            }
+            if (typeof oldDb.close === 'function') {
+              oldDb.close();
+            }
+          } catch (migrateErr) {
+            // Ignore corrupted or incompatible legacy DB
+          }
+        }
+      }
+
+      // Also migrate from legacy global database if present
+      const legacyGlobalDbPath = path.join(globalStorage, '.exovon_brain.db');
+      if (fs.existsSync(legacyGlobalDbPath) && legacyGlobalDbPath !== this.dbPath) {
+        try {
+          const oldDb = new DatabaseConstructor(legacyGlobalDbPath);
+          const oldThreads = oldDb.prepare('SELECT * FROM chat_threads').all() as any[];
+          const insertThread = this.db.prepare(`
+            INSERT OR IGNORE INTO chat_threads (id, title, created_at, updated_at, workspace_path)
+            VALUES (?, ?, ?, ?, ?)
+          `);
+          for (const t of oldThreads) {
+            insertThread.run(t.id, t.title || 'Chat', t.created_at || Date.now(), t.updated_at || Date.now(), t.workspace_path || '');
+            totalMigratedThreads++;
+          }
+          const oldMessages = oldDb.prepare('SELECT * FROM chat_messages').all() as any[];
+          const insertMsg = this.db.prepare(`
+            INSERT OR IGNORE INTO chat_messages (id, thread_id, sender, text, reasoning, timestamp, plan_steps, tool_calls, meta)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `);
+          for (const m of oldMessages) {
+            insertMsg.run(
+              m.id,
+              m.thread_id,
+              m.sender,
+              m.text,
+              m.reasoning || null,
+              m.timestamp,
+              m.plan_steps || null,
+              m.tool_calls || null,
+              m.meta || null
+            );
+            totalMigratedMessages++;
+          }
+          if (typeof oldDb.close === 'function') {
+            oldDb.close();
+          }
+        } catch (e) {}
+      }
+
+      if (totalMigratedThreads > 0 || totalMigratedMessages > 0) {
+        console.log(`[Astrolabe Brain] Successfully migrated ${totalMigratedThreads} threads and ${totalMigratedMessages} messages into unified database.`);
+      }
+    } catch (e) {
+      console.warn('[Astrolabe Brain] Legacy chat migration notice:', e);
+    }
   }
 
   private initializeWorkers() {
@@ -989,7 +1254,6 @@ export class BrainCoordinator implements IBrainCoordinator {
   // --- CHAT PERSISTENCE METHODS ---
   public getChatThreads(): { id: string; title: string; updated_at: number; message_count?: number; preview?: string }[] {
     try {
-      const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
       const threads = this.db.prepare(`
         SELECT 
           ct.id, 
@@ -998,9 +1262,9 @@ export class BrainCoordinator implements IBrainCoordinator {
           (SELECT COUNT(*) FROM chat_messages cm WHERE cm.thread_id = ct.id AND cm.id != 'welcome') as message_count,
           (SELECT text FROM chat_messages cm WHERE cm.thread_id = ct.id AND cm.id != 'welcome' AND cm.text IS NOT NULL AND TRIM(cm.text) != '' ORDER BY cm.timestamp DESC, cm.id DESC LIMIT 1) as preview
         FROM chat_threads ct 
-        WHERE ct.workspace_path = ? 
         ORDER BY ct.updated_at DESC
-      `).all(workspaceRoot) as any[];
+        LIMIT 200
+      `).all() as any[];
 
       // Auto-repair stale generic titles (e.g. 'HI', 'hi', 'hello', 'New Chat')
       for (const t of threads) {
@@ -1079,12 +1343,8 @@ export class BrainCoordinator implements IBrainCoordinator {
 
   public clearAllChatThreads(): void {
     try {
-      const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
-      const threads = this.db.prepare('SELECT id FROM chat_threads WHERE workspace_path = ?').all(workspaceRoot) as { id: string }[];
-      for (const t of threads) {
-        this.db.prepare('DELETE FROM chat_messages WHERE thread_id = ?').run(t.id);
-      }
-      this.db.prepare('DELETE FROM chat_threads WHERE workspace_path = ?').run(workspaceRoot);
+      this.db.prepare('DELETE FROM chat_messages').run();
+      this.db.prepare('DELETE FROM chat_threads').run();
     } catch (e) {
       console.error('clearAllChatThreads error:', e);
     }
@@ -1092,6 +1352,13 @@ export class BrainCoordinator implements IBrainCoordinator {
 
   public saveChatMessage(threadId: string, message: any) {
     try {
+      const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
+      // Ensure parent thread exists (satisfies foreign key constraint unconditionally)
+      this.db.prepare(`
+        INSERT OR IGNORE INTO chat_threads (id, title, created_at, updated_at, workspace_path)
+        VALUES (?, 'New Chat', ?, ?, ?)
+      `).run(threadId, Date.now(), Date.now(), workspaceRoot);
+
       this.db.prepare(`
         INSERT OR REPLACE INTO chat_messages 
         (id, thread_id, sender, text, reasoning, timestamp, plan_steps, tool_calls, meta)

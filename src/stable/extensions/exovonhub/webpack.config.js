@@ -26,6 +26,7 @@ const extensionConfig = {
   },
   externals: {
     vscode: 'commonjs vscode',
+    'node:sqlite': 'commonjs node:sqlite',
     'better-sqlite3': 'commonjs better-sqlite3',
     'sqlite-vec': 'commonjs sqlite-vec',
     '@xenova/transformers': 'commonjs @xenova/transformers',

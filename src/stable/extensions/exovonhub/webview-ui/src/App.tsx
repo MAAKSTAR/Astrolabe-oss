@@ -108,6 +108,15 @@ export default function App() {
   const lastSavedStateRef = useRef<Record<string, string>>({});
   const messagesRef = useRef<Message[]>(messages);
   messagesRef.current = messages;
+  const activeThreadIdRef = useRef<string | null>(activeThreadId);
+  activeThreadIdRef.current = activeThreadId;
+
+  // Persist active thread selection in localStorage for instant restore on restart
+  useEffect(() => {
+    if (activeThreadId) {
+      localStorage.setItem('astrolabe_last_active_thread_id', activeThreadId);
+    }
+  }, [activeThreadId]);
 
   const flushSaveMessages = (threadId: string | null, msgs: Message[]) => {
     if (!threadId || msgs.length === 0 || !vscodeApi) return;
@@ -133,12 +142,27 @@ export default function App() {
     }
   };
 
+  // Immediate save on IDE close, reload, or page hide to guarantee no lost turns
+  useEffect(() => {
+    const handleUnload = () => {
+      if (activeThreadIdRef.current && messagesRef.current.length > 0) {
+        flushSaveMessages(activeThreadIdRef.current, messagesRef.current);
+      }
+    };
+    window.addEventListener('beforeunload', handleUnload);
+    window.addEventListener('pagehide', handleUnload);
+    return () => {
+      window.removeEventListener('beforeunload', handleUnload);
+      window.removeEventListener('pagehide', handleUnload);
+    };
+  }, []);
+
   useEffect(() => {
     return () => {
       // Flush before switching thread
       if (debounceTimerRef.current) {
         clearTimeout(debounceTimerRef.current);
-        flushSaveMessages(activeThreadId, messagesRef.current);
+        flushSaveMessages(activeThreadIdRef.current, messagesRef.current);
       }
       lastSavedStateRef.current = {};
     };
@@ -153,11 +177,15 @@ export default function App() {
       
       debounceTimerRef.current = setTimeout(() => {
         flushSaveMessages(activeThreadId, messages);
-      }, 600); // 600ms responsive debounce
+      }, 500); // 500ms responsive debounce
     }
     
     return () => {
-      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+        // Guarantee pending work is not dropped when messages state updates rapidly
+        flushSaveMessages(activeThreadIdRef.current, messagesRef.current);
+      }
     };
   }, [messages, activeThreadId]);
 
@@ -628,6 +656,11 @@ export default function App() {
             }
             return copy;
           });
+          setTimeout(() => {
+            if (activeThreadIdRef.current) {
+              flushSaveMessages(activeThreadIdRef.current, messagesRef.current);
+            }
+          }, 40);
           break;
 
         case 'agentComplete':
@@ -673,6 +706,11 @@ export default function App() {
             }
             return copy;
           });
+          setTimeout(() => {
+            if (activeThreadIdRef.current) {
+              flushSaveMessages(activeThreadIdRef.current, messagesRef.current);
+            }
+          }, 40);
           break;
 
         case 'agentSpeculativeDiffs':
@@ -935,9 +973,13 @@ export default function App() {
             setActiveThreadId(prev => {
               const prevExists = prev && message.threads.some((t: ChatThread) => t.id === prev);
               if (!prevExists) {
-                if (message.threads.length > 0) {
-                  if (vscodeApi) vscodeApi.postMessage({ command: 'loadChatThread', threadId: message.threads[0].id });
-                  return message.threads[0].id;
+                const savedThreadId = localStorage.getItem('astrolabe_last_active_thread_id');
+                const savedExists = savedThreadId && message.threads.some((t: ChatThread) => t.id === savedThreadId);
+                const targetId = savedExists ? savedThreadId : (message.threads.length > 0 ? message.threads[0].id : null);
+
+                if (targetId) {
+                  if (vscodeApi) vscodeApi.postMessage({ command: 'loadChatThread', threadId: targetId });
+                  return targetId;
                 } else {
                   if (vscodeApi) vscodeApi.postMessage({ command: 'createNewThread' });
                   return null;
@@ -1097,25 +1139,32 @@ export default function App() {
     const promptText = textToSend || inputValue;
     if (!promptText.trim() && attachedImages.length === 0 || isAgentThinking) return;
 
+    // Ensure active thread ID exists synchronously so no messages are dropped
+    let currentThreadId = activeThreadId;
+    if (!currentThreadId) {
+      currentThreadId = `thread-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      setActiveThreadId(currentThreadId);
+      activeThreadIdRef.current = currentThreadId;
+    }
+
     const userMsgId = generateMessageId('user');
     const agentId = generateMessageId('agent');
 
     // Capture images synchronously for the message payload
     const imagesToSubmit = [...attachedImages];
 
+    const userMsg: Message = {
+      id: userMsgId,
+      sender: 'user',
+      text: promptText,
+      images: imagesToSubmit,
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    };
+
     // Use flushSync to guarantee state and DOM are fully committed before triggering backend.
     // This fixes the React batching race condition where rapid backend stream replies would
     // mistakenly fetch the previous state's last agent message.
     flushSync(() => {
-      // Append user message
-      const userMsg: Message = {
-        id: userMsgId,
-        sender: 'user',
-        text: promptText,
-        images: imagesToSubmit,
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-      };
-
       setInputValue('');
       setAttachedImages([]);
       setIsAgentThinking(true);
@@ -1136,6 +1185,9 @@ export default function App() {
       setMessages(prev => [...prev, userMsg, agentPlaceholderMsg]);
     });
 
+    // Immediate save of user prompt to persistent store
+    flushSaveMessages(currentThreadId, [...messagesRef.current]);
+
     // Call Backend Extension
     if (vscodeApi) {
       const effectiveModel = selectedModel || (activeDiffusionModel && !activeLocalModel ? `diffusion:${activeDiffusionModel}` : (activeLocalModel ? `local:${activeLocalModel}` : ''));
@@ -1149,7 +1201,7 @@ export default function App() {
         contextFiles: selectedContextFiles.map(f => f.name),
         images: imagesToSubmit,
         messageId: agentId,
-        threadId: activeThreadId,
+        threadId: currentThreadId,
         messages: messages.map(m => ({ id: m.id, sender: m.sender, text: m.text, timestamp: m.timestamp }))
       });
     }
