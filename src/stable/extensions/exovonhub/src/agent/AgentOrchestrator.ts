@@ -399,8 +399,8 @@ export class AgentOrchestrator {
         systemInstruction = `${resolvedModel.toLowerCase().includes('qwen') ? '<think>\n' : ''}${localPrompt}`;
       } else {
         systemInstruction = `${resolvedModel.includes('Qwen') ? '<think>\n' : ''}<|SYSTEM_BOUNDARY_START|>
-You are a senior agentic coding assistant for the Exovon IDE.
-You are helping the user optimize, inspect, and deploy their workspace.
+You are Astrolabe, a powerful autonomous AI assistant and software engineer embedded in Astrolabe IDE.
+You are helping the user research topics, analyze documentation, design architectures, and inspect, build, or deploy their workspace.
 Execute the tasks by invoking the provided tools in a step-by-step Plan-Execute-Verify loop.
 For every action, describe what you are doing first, then call the tool.
 Verify your changes by executing compiler/test commands where possible.
@@ -438,6 +438,7 @@ Available tools:
 - getWorkspaceHash(): Returns the O(1) cryptographic Merkle hash of the workspace to verify state changes.
 - runCommand(command: string): Executes a terminal command (requires user approval).
 - searchWeb(query: string): Searches the internet for information or documentation.
+- fetchWebPage(url: string): Fetches and extracts the readable markdown/text content of any web page URL (documentation, articles, GitHub readmes, API specifications).
 - submitPlan(plan: string): MANDATORY FIRST STEP. Before making ANY file modifications, you MUST call this tool with a markdown-formatted implementation plan. The plan will be shown to the user for approval. You may ONLY proceed with file edits AFTER the plan is approved. If rejected, ask the user for clarification.
 
 PLAN-BEFORE-EXECUTE PROTOCOL (CRITICAL):
@@ -566,6 +567,7 @@ CRITICAL ENVIRONMENT STATUS: NO WORKSPACE FOLDER IS OPEN IN ASTROLABE.
 - DO NOT hallucinate that a workspace exists or that files like package.json or .exovon are present.
 - Allowed Tools while no folder is open:
   - searchWeb(query): Allowed. You can freely search the web for documentation, technology research, or live information.
+  - fetchWebPage(url): Allowed. You can open and read full documentation, articles, and websites.
   - openBrowserPreview(url): Allowed.
   - listAvailableTools(): Allowed.
 - If the user asks a general question, conceptual explanation, architecture question, or web research, answer directly in chat.
@@ -870,6 +872,15 @@ CRITICAL ENVIRONMENT STATUS: NO WORKSPACE FOLDER IS OPEN IN ASTROLABE.
                     type: 'OBJECT' as any,
                     properties: { query: { type: 'STRING' as any, description: 'The search query string to check' } },
                     required: ['query']
+                  }
+                },
+                {
+                  name: 'fetchWebPage',
+                  description: 'Fetch and extract the readable markdown or text content of any web page URL (documentation, articles, GitHub readmes, API specifications)',
+                  parameters: {
+                    type: 'OBJECT' as any,
+                    properties: { url: { type: 'STRING' as any, description: 'The web page URL (http:// or https://) to fetch and read' } },
+                    required: ['url']
                   }
                 },
                 {
@@ -1319,6 +1330,16 @@ CRITICAL ENVIRONMENT STATUS: NO WORKSPACE FOLDER IS OPEN IN ASTROLABE.
               semanticsearch: 'semanticSearch',
               search_web: 'searchWeb',
               searchweb: 'searchWeb',
+              fetchwebpage: 'fetchWebPage',
+              fetch_web_page: 'fetchWebPage',
+              fetchurl: 'fetchWebPage',
+              fetch_url: 'fetchWebPage',
+              readwebpage: 'fetchWebPage',
+              read_web_page: 'fetchWebPage',
+              readurl: 'fetchWebPage',
+              read_url: 'fetchWebPage',
+              scrapewebpage: 'fetchWebPage',
+              scrape_web_page: 'fetchWebPage',
               getchathistory: 'getChatHistory',
               get_chat_history: 'getChatHistory',
               chathistory: 'getChatHistory',
@@ -1525,6 +1546,16 @@ CRITICAL ENVIRONMENT STATUS: NO WORKSPACE FOLDER IS OPEN IN ASTROLABE.
                   tinyfishKey,
                   exaKey
                 });
+              } else if (toolName === 'fetchWebPage') {
+                const targetUrl = call.args.url || call.args.targetUrl || call.args.link || query;
+                this.onUpdate({ type: 'log', text: `🌐 Fetching web page: "${targetUrl}"`, logType: 'info' });
+                const config = vscode.workspace.getConfiguration('exovonhub');
+                const firesearchKey = config.get<string>('firesearchApiKey');
+                const tavilyKey = config.get<string>('tavilyApiKey');
+                result = await WebSearchTools.fetchWebPage(targetUrl, {
+                  firesearchKey,
+                  tavilyKey
+                });
               } else if (toolName === 'runCommand') {
                 result = await this.terminalTools.runCommand(call.args.command);
               } else if (toolName === 'sendTerminalInput') {
@@ -1616,6 +1647,7 @@ CRITICAL ENVIRONMENT STATUS: NO WORKSPACE FOLDER IS OPEN IN ASTROLABE.
                   { name: 'querySemanticVector', category: 'read', description: 'Vector similarity search across codebase embeddings.' },
                   { name: 'getWorkspaceHash', category: 'read', description: 'Returns Merkle tree hash of workspace state.' },
                   { name: 'searchWeb', category: 'read', description: 'Searches the internet for documentation and packages.' },
+                  { name: 'fetchWebPage', category: 'read', description: 'Fetches and extracts full readable markdown or text content from any web page or documentation URL.' },
                   { name: 'applyPatch', category: 'write', description: 'Speculative fast diff replacement for file modifications.' },
                   { name: 'multiReplaceFileContent', category: 'write', description: 'Replaces multiple non-adjacent line blocks in a single file.' },
                   { name: 'createFile', category: 'write', description: 'Creates a new file in workspace.' },
@@ -1936,9 +1968,9 @@ CRITICAL ENVIRONMENT STATUS: NO WORKSPACE FOLDER IS OPEN IN ASTROLABE.
           const sanitized = this.sanitizeModelOutput(streamingText);
 
           // Silent background action-nudge:
-          // If 0 tools were executed, and the model wrote thoughts about inspecting/editing/planning but emitted no tool call:
-          if (totalToolsExecuted === 0 && nudgeCount < 2 && (!sanitized.cleanText || sanitized.thought.length > 20)) {
-            const hasToolIntent = /viewFile|readFile|listDir|runCommand|search|edit|patch|create|check|examine|inspect|look at|open|explore/i.test(sanitized.thought || streamingText);
+          // If the model wrote thoughts about inspecting/editing/planning/searching but emitted no tool call:
+          const hasToolIntent = /viewFile|readFile|listDir|runCommand|search|fetch|read|edit|patch|create|check|examine|inspect|look at|open|explore/i.test(sanitized.thought || streamingText);
+          if (nudgeCount < 2 && (!sanitized.cleanText || sanitized.thought.length > 20)) {
             if (hasToolIntent) {
               nudgeCount++;
               messages.push({
@@ -1947,7 +1979,18 @@ CRITICAL ENVIRONMENT STATUS: NO WORKSPACE FOLDER IS OPEN IN ASTROLABE.
               });
               messages.push({
                 role: 'user',
-                parts: [{ text: "You described your plan and intentions in your thoughts, but you did not emit an executable tool call. You must invoke the appropriate tool now using <call:toolName(...)> (e.g. viewFile, listDir, runCommand) to proceed." }]
+                parts: [{ text: "You described your plan and intentions in your thoughts, but you did not emit an executable tool call. You must invoke the appropriate tool now using <call:toolName(...)> (e.g. searchWeb, fetchWebPage, viewFile, listDir, runCommand), or write your final response for the user outside of <thought> tags." }]
+              });
+              continue;
+            } else if (!sanitized.cleanText && sanitized.thought.length > 0) {
+              nudgeCount++;
+              messages.push({
+                role: 'model',
+                parts: [{ text: streamingText }]
+              });
+              messages.push({
+                role: 'user',
+                parts: [{ text: "Please provide your final answer or summary to the user directly outside of <thought> tags." }]
               });
               continue;
             }
@@ -1973,7 +2016,24 @@ CRITICAL ENVIRONMENT STATUS: NO WORKSPACE FOLDER IS OPEN IN ASTROLABE.
             this.onUpdate({ type: 'log', text: 'Response delivered.', logType: 'info' });
           }
 
-          const answerText = sanitized.cleanText || (sanitized.thought ? `Thinking summary: ${sanitized.thought}` : streamingText);
+          let answerText = sanitized.cleanText;
+          if (!answerText) {
+            // Never leak raw internal scratchpad as "Thinking summary:" into chat!
+            if (totalToolsExecuted > 0) {
+              answerText = `I have completed the operations. You can review the execution details in the step summary above.`;
+            } else if (sanitized.thought) {
+              // Extract meaningful conclusion if any, stripping meta monologue keywords
+              answerText = sanitized.thought
+                .replace(/^(?:Let's think|Let me think|Thinking process|I need to|Let me search|Searching\.\.\.)[\s\S]*?\n\n/i, '')
+                .replace(/Searching\.\.\./g, '')
+                .trim();
+              if (!answerText || answerText.length < 5) {
+                answerText = 'Here is the requested information based on my research.';
+              }
+            } else {
+              answerText = 'Response delivered.';
+            }
+          }
           this.onUpdate({ type: 'finalAnswer', text: answerText });
         }
       }
@@ -2835,6 +2895,8 @@ ${transcript.slice(-15000)}
           result['command'] = firstPosVal;
         } else if (toolName === 'semanticSearch' || toolName === 'searchWeb') {
           result['query'] = firstPosVal;
+        } else if (toolName === 'fetchWebPage' || toolName === 'fetchUrl') {
+          result['url'] = firstPosVal;
         } else if (toolName === 'submitPlan' || toolName === 'editPlan' || toolName === 'updatePlan' || toolName === 'submitPlane' || toolName === 'editPlane' || toolName === 'updatePlane') {
           result['plan'] = firstPosVal;
         } else if (toolName === 'getChatHistory') {
@@ -2933,7 +2995,7 @@ ${transcript.slice(-15000)}
 
     // --- PATTERN 5: Plain function call invocation (e.g. listDir(relativePath=".") or semanticSearch("query")) ---
     if (toolCalls.length === 0) {
-      const plainFuncRegex = /\b(listDir|viewFile|readFile|getChatHistory|semanticSearch|grepSearch|applyPatch|multiReplaceFileContent|createFile|deleteFile|submitPlan|editPlan|updatePlan|submitPlane|editPlane|updatePlane|runCommand|searchWeb|queryConstitution|updateConstitution|queryGraph|querySemanticVector|readCoordination|updateCoordination|spawnSubAgent|deployToExovonCloud|openBrowserPreview|highlightBrowserElement|generateImage|getWorkspaceHash|sendTerminalInput|checkTerminalStatus|listAvailableTools)\s*\(([\s\S]*?)\)/gi;
+      const plainFuncRegex = /\b(listDir|viewFile|readFile|getChatHistory|semanticSearch|grepSearch|applyPatch|multiReplaceFileContent|createFile|deleteFile|submitPlan|editPlan|updatePlan|submitPlane|editPlane|updatePlane|runCommand|searchWeb|fetchWebPage|fetchUrl|readWebPage|scrapeWebPage|queryConstitution|updateConstitution|queryGraph|querySemanticVector|readCoordination|updateCoordination|spawnSubAgent|deployToExovonCloud|openBrowserPreview|highlightBrowserElement|generateImage|getWorkspaceHash|sendTerminalInput|checkTerminalStatus|listAvailableTools)\s*\(([\s\S]*?)\)/gi;
       while ((match = plainFuncRegex.exec(cleanedText)) !== null) {
         const name = match[1];
         const argsStr = match[2].trim();
@@ -2941,6 +3003,8 @@ ${transcript.slice(-15000)}
           const rawVal = argsStr.slice(1, -1);
           if (name === 'semanticSearch' || name === 'grepSearch' || name === 'searchWeb') {
             toolCalls.push({ name, args: { query: rawVal } });
+          } else if (name === 'fetchWebPage' || name === 'fetchUrl' || name === 'readWebPage' || name === 'scrapeWebPage') {
+            toolCalls.push({ name: 'fetchWebPage', args: { url: rawVal } });
           } else if (name === 'generateImage') {
             toolCalls.push({ name, args: { prompt: rawVal } });
           } else if (name === 'getChatHistory') {

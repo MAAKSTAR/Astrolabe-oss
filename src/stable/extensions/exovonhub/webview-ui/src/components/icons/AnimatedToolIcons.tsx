@@ -147,6 +147,30 @@ export function CodeSearchIcon({ status = 'running', className = 'w-4 h-4' }: To
 }
 
 /**
+ * Web & Fetch Page Icon: Globe with meridian rings
+ */
+export function GlobeWebIcon({ status = 'running', className = 'w-4 h-4' }: ToolIconProps) {
+  const isRunning = status === 'running' || status === 'pending';
+  return (
+    <svg className={`${className} text-sky-300`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <circle cx="12" cy="12" r="10" strokeLinecap="round" />
+      <line x1="2" y1="12" x2="22" y2="12" strokeLinecap="round" />
+      <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" strokeLinecap="round" />
+      {isRunning && (
+        <circle
+          cx="12"
+          cy="12"
+          r="6"
+          strokeDasharray="4 4"
+          strokeLinecap="round"
+          className="text-sky-100 animate-[spin_3s_linear_infinite] origin-[12px_12px]"
+        />
+      )}
+    </svg>
+  );
+}
+
+/**
  * Plan / Blueprint Icon: Bold checklist & check indicator
  */
 export function PlanIcon({ status = 'running', className = 'w-4 h-4' }: ToolIconProps) {

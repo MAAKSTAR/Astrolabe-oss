@@ -2494,8 +2494,8 @@ class AgentOrchestrator {
             }
             else {
                 systemInstruction = `${resolvedModel.includes('Qwen') ? '<think>\n' : ''}<|SYSTEM_BOUNDARY_START|>
-You are a senior agentic coding assistant for the Exovon IDE.
-You are helping the user optimize, inspect, and deploy their workspace.
+You are Astrolabe, a powerful autonomous AI assistant and software engineer embedded in Astrolabe IDE.
+You are helping the user research topics, analyze documentation, design architectures, and inspect, build, or deploy their workspace.
 Execute the tasks by invoking the provided tools in a step-by-step Plan-Execute-Verify loop.
 For every action, describe what you are doing first, then call the tool.
 Verify your changes by executing compiler/test commands where possible.
@@ -2533,6 +2533,7 @@ Available tools:
 - getWorkspaceHash(): Returns the O(1) cryptographic Merkle hash of the workspace to verify state changes.
 - runCommand(command: string): Executes a terminal command (requires user approval).
 - searchWeb(query: string): Searches the internet for information or documentation.
+- fetchWebPage(url: string): Fetches and extracts the readable markdown/text content of any web page URL (documentation, articles, GitHub readmes, API specifications).
 - submitPlan(plan: string): MANDATORY FIRST STEP. Before making ANY file modifications, you MUST call this tool with a markdown-formatted implementation plan. The plan will be shown to the user for approval. You may ONLY proceed with file edits AFTER the plan is approved. If rejected, ask the user for clarification.
 
 PLAN-BEFORE-EXECUTE PROTOCOL (CRITICAL):
@@ -2657,6 +2658,7 @@ CRITICAL ENVIRONMENT STATUS: NO WORKSPACE FOLDER IS OPEN IN ASTROLABE.
 - DO NOT hallucinate that a workspace exists or that files like package.json or .exovon are present.
 - Allowed Tools while no folder is open:
   - searchWeb(query): Allowed. You can freely search the web for documentation, technology research, or live information.
+  - fetchWebPage(url): Allowed. You can open and read full documentation, articles, and websites.
   - openBrowserPreview(url): Allowed.
   - listAvailableTools(): Allowed.
 - If the user asks a general question, conceptual explanation, architecture question, or web research, answer directly in chat.
@@ -2947,6 +2949,15 @@ CRITICAL ENVIRONMENT STATUS: NO WORKSPACE FOLDER IS OPEN IN ASTROLABE.
                             type: 'OBJECT',
                             properties: { query: { type: 'STRING', description: 'The search query string to check' } },
                             required: ['query']
+                        }
+                    },
+                    {
+                        name: 'fetchWebPage',
+                        description: 'Fetch and extract the readable markdown or text content of any web page URL (documentation, articles, GitHub readmes, API specifications)',
+                        parameters: {
+                            type: 'OBJECT',
+                            properties: { url: { type: 'STRING', description: 'The web page URL (http:// or https://) to fetch and read' } },
+                            required: ['url']
                         }
                     },
                     {
@@ -3388,6 +3399,16 @@ CRITICAL ENVIRONMENT STATUS: NO WORKSPACE FOLDER IS OPEN IN ASTROLABE.
                             semanticsearch: 'semanticSearch',
                             search_web: 'searchWeb',
                             searchweb: 'searchWeb',
+                            fetchwebpage: 'fetchWebPage',
+                            fetch_web_page: 'fetchWebPage',
+                            fetchurl: 'fetchWebPage',
+                            fetch_url: 'fetchWebPage',
+                            readwebpage: 'fetchWebPage',
+                            read_web_page: 'fetchWebPage',
+                            readurl: 'fetchWebPage',
+                            read_url: 'fetchWebPage',
+                            scrapewebpage: 'fetchWebPage',
+                            scrape_web_page: 'fetchWebPage',
                             getchathistory: 'getChatHistory',
                             get_chat_history: 'getChatHistory',
                             chathistory: 'getChatHistory',
@@ -3618,6 +3639,17 @@ CRITICAL ENVIRONMENT STATUS: NO WORKSPACE FOLDER IS OPEN IN ASTROLABE.
                                     exaKey
                                 });
                             }
+                            else if (toolName === 'fetchWebPage') {
+                                const targetUrl = call.args.url || call.args.targetUrl || call.args.link || query;
+                                this.onUpdate({ type: 'log', text: `🌐 Fetching web page: "${targetUrl}"`, logType: 'info' });
+                                const config = vscode.workspace.getConfiguration('exovonhub');
+                                const firesearchKey = config.get('firesearchApiKey');
+                                const tavilyKey = config.get('tavilyApiKey');
+                                result = await WebSearchTools_1.WebSearchTools.fetchWebPage(targetUrl, {
+                                    firesearchKey,
+                                    tavilyKey
+                                });
+                            }
                             else if (toolName === 'runCommand') {
                                 result = await this.terminalTools.runCommand(call.args.command);
                             }
@@ -3713,6 +3745,7 @@ CRITICAL ENVIRONMENT STATUS: NO WORKSPACE FOLDER IS OPEN IN ASTROLABE.
                                     { name: 'querySemanticVector', category: 'read', description: 'Vector similarity search across codebase embeddings.' },
                                     { name: 'getWorkspaceHash', category: 'read', description: 'Returns Merkle tree hash of workspace state.' },
                                     { name: 'searchWeb', category: 'read', description: 'Searches the internet for documentation and packages.' },
+                                    { name: 'fetchWebPage', category: 'read', description: 'Fetches and extracts full readable markdown or text content from any web page or documentation URL.' },
                                     { name: 'applyPatch', category: 'write', description: 'Speculative fast diff replacement for file modifications.' },
                                     { name: 'multiReplaceFileContent', category: 'write', description: 'Replaces multiple non-adjacent line blocks in a single file.' },
                                     { name: 'createFile', category: 'write', description: 'Creates a new file in workspace.' },
@@ -4036,9 +4069,9 @@ CRITICAL ENVIRONMENT STATUS: NO WORKSPACE FOLDER IS OPEN IN ASTROLABE.
                     // No more tool calls; check if model merely thought without emitting an executable action
                     const sanitized = this.sanitizeModelOutput(streamingText);
                     // Silent background action-nudge:
-                    // If 0 tools were executed, and the model wrote thoughts about inspecting/editing/planning but emitted no tool call:
-                    if (totalToolsExecuted === 0 && nudgeCount < 2 && (!sanitized.cleanText || sanitized.thought.length > 20)) {
-                        const hasToolIntent = /viewFile|readFile|listDir|runCommand|search|edit|patch|create|check|examine|inspect|look at|open|explore/i.test(sanitized.thought || streamingText);
+                    // If the model wrote thoughts about inspecting/editing/planning/searching but emitted no tool call:
+                    const hasToolIntent = /viewFile|readFile|listDir|runCommand|search|fetch|read|edit|patch|create|check|examine|inspect|look at|open|explore/i.test(sanitized.thought || streamingText);
+                    if (nudgeCount < 2 && (!sanitized.cleanText || sanitized.thought.length > 20)) {
                         if (hasToolIntent) {
                             nudgeCount++;
                             messages.push({
@@ -4047,7 +4080,19 @@ CRITICAL ENVIRONMENT STATUS: NO WORKSPACE FOLDER IS OPEN IN ASTROLABE.
                             });
                             messages.push({
                                 role: 'user',
-                                parts: [{ text: "You described your plan and intentions in your thoughts, but you did not emit an executable tool call. You must invoke the appropriate tool now using <call:toolName(...)> (e.g. viewFile, listDir, runCommand) to proceed." }]
+                                parts: [{ text: "You described your plan and intentions in your thoughts, but you did not emit an executable tool call. You must invoke the appropriate tool now using <call:toolName(...)> (e.g. searchWeb, fetchWebPage, viewFile, listDir, runCommand), or write your final response for the user outside of <thought> tags." }]
+                            });
+                            continue;
+                        }
+                        else if (!sanitized.cleanText && sanitized.thought.length > 0) {
+                            nudgeCount++;
+                            messages.push({
+                                role: 'model',
+                                parts: [{ text: streamingText }]
+                            });
+                            messages.push({
+                                role: 'user',
+                                parts: [{ text: "Please provide your final answer or summary to the user directly outside of <thought> tags." }]
                             });
                             continue;
                         }
@@ -4076,7 +4121,26 @@ CRITICAL ENVIRONMENT STATUS: NO WORKSPACE FOLDER IS OPEN IN ASTROLABE.
                         }
                         this.onUpdate({ type: 'log', text: 'Response delivered.', logType: 'info' });
                     }
-                    const answerText = sanitized.cleanText || (sanitized.thought ? `Thinking summary: ${sanitized.thought}` : streamingText);
+                    let answerText = sanitized.cleanText;
+                    if (!answerText) {
+                        // Never leak raw internal scratchpad as "Thinking summary:" into chat!
+                        if (totalToolsExecuted > 0) {
+                            answerText = `I have completed the operations. You can review the execution details in the step summary above.`;
+                        }
+                        else if (sanitized.thought) {
+                            // Extract meaningful conclusion if any, stripping meta monologue keywords
+                            answerText = sanitized.thought
+                                .replace(/^(?:Let's think|Let me think|Thinking process|I need to|Let me search|Searching\.\.\.)[\s\S]*?\n\n/i, '')
+                                .replace(/Searching\.\.\./g, '')
+                                .trim();
+                            if (!answerText || answerText.length < 5) {
+                                answerText = 'Here is the requested information based on my research.';
+                            }
+                        }
+                        else {
+                            answerText = 'Response delivered.';
+                        }
+                    }
                     this.onUpdate({ type: 'finalAnswer', text: answerText });
                 }
             }
@@ -4906,6 +4970,9 @@ ${transcript.slice(-15000)}
                 else if (toolName === 'semanticSearch' || toolName === 'searchWeb') {
                     result['query'] = firstPosVal;
                 }
+                else if (toolName === 'fetchWebPage' || toolName === 'fetchUrl') {
+                    result['url'] = firstPosVal;
+                }
                 else if (toolName === 'submitPlan' || toolName === 'editPlan' || toolName === 'updatePlan' || toolName === 'submitPlane' || toolName === 'editPlane' || toolName === 'updatePlane') {
                     result['plan'] = firstPosVal;
                 }
@@ -5007,7 +5074,7 @@ ${transcript.slice(-15000)}
         cleanedText = cleanedText.replace(llamaTagRegex, '').trim();
         // --- PATTERN 5: Plain function call invocation (e.g. listDir(relativePath=".") or semanticSearch("query")) ---
         if (toolCalls.length === 0) {
-            const plainFuncRegex = /\b(listDir|viewFile|readFile|getChatHistory|semanticSearch|grepSearch|applyPatch|multiReplaceFileContent|createFile|deleteFile|submitPlan|editPlan|updatePlan|submitPlane|editPlane|updatePlane|runCommand|searchWeb|queryConstitution|updateConstitution|queryGraph|querySemanticVector|readCoordination|updateCoordination|spawnSubAgent|deployToExovonCloud|openBrowserPreview|highlightBrowserElement|generateImage|getWorkspaceHash|sendTerminalInput|checkTerminalStatus|listAvailableTools)\s*\(([\s\S]*?)\)/gi;
+            const plainFuncRegex = /\b(listDir|viewFile|readFile|getChatHistory|semanticSearch|grepSearch|applyPatch|multiReplaceFileContent|createFile|deleteFile|submitPlan|editPlan|updatePlan|submitPlane|editPlane|updatePlane|runCommand|searchWeb|fetchWebPage|fetchUrl|readWebPage|scrapeWebPage|queryConstitution|updateConstitution|queryGraph|querySemanticVector|readCoordination|updateCoordination|spawnSubAgent|deployToExovonCloud|openBrowserPreview|highlightBrowserElement|generateImage|getWorkspaceHash|sendTerminalInput|checkTerminalStatus|listAvailableTools)\s*\(([\s\S]*?)\)/gi;
             while ((match = plainFuncRegex.exec(cleanedText)) !== null) {
                 const name = match[1];
                 const argsStr = match[2].trim();
@@ -5015,6 +5082,9 @@ ${transcript.slice(-15000)}
                     const rawVal = argsStr.slice(1, -1);
                     if (name === 'semanticSearch' || name === 'grepSearch' || name === 'searchWeb') {
                         toolCalls.push({ name, args: { query: rawVal } });
+                    }
+                    else if (name === 'fetchWebPage' || name === 'fetchUrl' || name === 'readWebPage' || name === 'scrapeWebPage') {
+                        toolCalls.push({ name: 'fetchWebPage', args: { url: rawVal } });
                     }
                     else if (name === 'generateImage') {
                         toolCalls.push({ name, args: { prompt: rawVal } });
@@ -9385,6 +9455,151 @@ class WebSearchTools {
         catch (e) {
             return `Request Error: ${e.message}`;
         }
+    }
+    /**
+     * Fetches and extracts the readable markdown or text content of any web page URL.
+     */
+    static async fetchWebPage(url, options) {
+        try {
+            if (!url || typeof url !== 'string') {
+                return 'Error: URL parameter is required.';
+            }
+            const trimmedUrl = url.trim();
+            if (!trimmedUrl.startsWith('http://') && !trimmedUrl.startsWith('https://')) {
+                return `Error: Invalid URL "${trimmedUrl}". URL must start with http:// or https://`;
+            }
+            // Check if Firecrawl / Firesearch key is available for deep markdown extraction
+            const rawFireKey = options?.firesearchKey || (options?.tavilyKey?.startsWith('fc-') ? options.tavilyKey : '');
+            if (rawFireKey) {
+                try {
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), 12000);
+                    const scrapeRes = await fetch('https://api.firecrawl.dev/v1/scrape', {
+                        method: 'POST',
+                        signal: controller.signal,
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${rawFireKey}`
+                        },
+                        body: JSON.stringify({ url: trimmedUrl, formats: ['markdown'] })
+                    });
+                    clearTimeout(timeoutId);
+                    if (scrapeRes.ok) {
+                        const scrapeData = await scrapeRes.json();
+                        const md = scrapeData.data?.markdown || scrapeData.markdown;
+                        if (md && typeof md === 'string' && md.trim().length > 0) {
+                            const cleanedMd = md.trim();
+                            if (cleanedMd.length > 16000) {
+                                return `${cleanedMd.slice(0, 16000)}\n\n[Content truncated to 16,000 characters for context efficiency...]`;
+                            }
+                            return cleanedMd;
+                        }
+                    }
+                }
+                catch {
+                    // Fall through to native HTTP fetch on timeout or error
+                }
+            }
+            // Fast native HTTP fetch with HTML-to-clean-markdown parsing
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 12000);
+            const res = await fetch(trimmedUrl, {
+                signal: controller.signal,
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 Astrolabe/1.0',
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,text/plain;q=0.8,application/json;q=0.5,*/*;q=0.3'
+                }
+            });
+            clearTimeout(timeoutId);
+            if (!res.ok) {
+                return `HTTP Error ${res.status} ${res.statusText} while fetching "${trimmedUrl}".`;
+            }
+            const contentType = res.headers.get('content-type') || '';
+            const rawBody = await res.text();
+            // If already JSON or plain text
+            if (contentType.includes('application/json') || contentType.includes('text/plain')) {
+                const text = rawBody.trim();
+                if (text.length > 16000) {
+                    return `${text.slice(0, 16000)}\n\n[Content truncated to 16,000 characters...]`;
+                }
+                return text || 'Empty response.';
+            }
+            // Convert HTML into clean, human-readable Markdown
+            const cleanMarkdown = this.htmlToCleanMarkdown(rawBody, trimmedUrl);
+            if (!cleanMarkdown || cleanMarkdown.length < 20) {
+                return `Fetched "${trimmedUrl}", but no readable text content could be extracted (page may require dynamic client-side rendering).`;
+            }
+            if (cleanMarkdown.length > 16000) {
+                return `${cleanMarkdown.slice(0, 16000)}\n\n[Content truncated to 16,000 characters for context efficiency...]`;
+            }
+            return cleanMarkdown;
+        }
+        catch (e) {
+            if (e.name === 'AbortError') {
+                return `Timeout error: Web page took longer than 12 seconds to respond (${url}).`;
+            }
+            return `Failed to fetch web page (${url}): ${e.message}`;
+        }
+    }
+    /**
+     * Transforms raw HTML into clean, readable Markdown by stripping chrome, scripts, and converting blocks.
+     */
+    static htmlToCleanMarkdown(html, pageUrl) {
+        let text = html || '';
+        // 1. Remove non-content elements
+        text = text.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+            .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '')
+            .replace(/<svg\b[^<]*(?:(?!<\/svg>)<[^<]*)*<\/svg>/gi, '')
+            .replace(/<noscript\b[^<]*(?:(?!<\/noscript>)<[^<]*)*<\/noscript>/gi, '')
+            .replace(/<iframe\b[^<]*(?:(?!<\/iframe>)<[^<]*)*<\/iframe>/gi, '')
+            .replace(/<nav\b[^<]*(?:(?!<\/nav>)<[^<]*)*<\/nav>/gi, '')
+            .replace(/<footer\b[^<]*(?:(?!<\/footer>)<[^<]*)*<\/footer>/gi, '')
+            .replace(/<aside\b[^<]*(?:(?!<\/aside>)<[^<]*)*<\/aside>/gi, '');
+        // 2. Extract title if present
+        const titleMatch = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(html);
+        const title = titleMatch ? titleMatch[1].trim() : '';
+        // 3. Headings & semantic structure
+        text = text.replace(/<h1[^>]*>([\s\S]*?)<\/h1>/gi, '\n\n# $1\n\n')
+            .replace(/<h2[^>]*>([\s\S]*?)<\/h2>/gi, '\n\n## $1\n\n')
+            .replace(/<h3[^>]*>([\s\S]*?)<\/h3>/gi, '\n\n### $1\n\n')
+            .replace(/<h[4-6][^>]*>([\s\S]*?)<\/h[4-6]>/gi, '\n\n#### $1\n\n')
+            .replace(/<p[^>]*>([\s\S]*?)<\/p>/gi, '\n\n$1\n\n')
+            .replace(/<pre[^>]*><code[^>]*>([\s\S]*?)<\/code><\/pre>/gi, '\n\n```\n$1\n```\n\n')
+            .replace(/<code[^>]*>([\s\S]*?)<\/code>/gi, ' `$1` ')
+            .replace(/<li[^>]*>([\s\S]*?)<\/li>/gi, '\n* $1')
+            .replace(/<br\s*[\/]?>/gi, '\n')
+            .replace(/<hr\s*[\/]?>/gi, '\n---\n')
+            .replace(/<tr[^>]*>([\s\S]*?)<\/tr>/gi, '$1\n')
+            .replace(/<t[hd][^>]*>([\s\S]*?)<\/t[hd]>/gi, ' | $1 ');
+        // 4. Links: convert <a href="url">text</a> -> [text](url)
+        text = text.replace(/<a\b[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi, (_, href, linkText) => {
+            const cleanLinkText = linkText.replace(/<[^>]+>/g, '').trim();
+            if (!cleanLinkText || href.startsWith('javascript:') || href.startsWith('#')) {
+                return cleanLinkText;
+            }
+            return `[${cleanLinkText}](${href})`;
+        });
+        // 5. Strip all remaining HTML tags
+        text = text.replace(/<[^>]+>/g, ' ');
+        // 6. Decode common HTML entities
+        text = text.replace(/&nbsp;/g, ' ')
+            .replace(/&amp;/g, '&')
+            .replace(/&lt;/g, '<')
+            .replace(/&gt;/g, '>')
+            .replace(/&quot;/g, '"')
+            .replace(/&#39;/g, "'")
+            .replace(/&#x27;/g, "'")
+            .replace(/&mdash;/g, '—')
+            .replace(/&ndash;/g, '–')
+            .replace(/&hellip;/g, '…');
+        // 7. Clean up whitespace and line breaks
+        text = text.replace(/[ \t]+/g, ' ')
+            .replace(/\n\s*\n\s*\n+/g, '\n\n')
+            .trim();
+        if (title && !text.startsWith(`# ${title}`)) {
+            text = `# ${title}\nSource: ${pageUrl}\n\n${text}`;
+        }
+        return text;
     }
 }
 exports.WebSearchTools = WebSearchTools;
@@ -48623,12 +48838,12 @@ exports.WorkspaceSnapshotter = WorkspaceSnapshotter;
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.DEFAULT_LOCAL_SYSTEM_PROMPT = void 0;
-exports.DEFAULT_LOCAL_SYSTEM_PROMPT = `You are an expert autonomous AI software engineer and coding agent embedded in the Exovon IDE (Astrolabe).
-Your mission is to solve software engineering tasks with high precision, robust architecture, and verified correctness.
+exports.DEFAULT_LOCAL_SYSTEM_PROMPT = `You are Astrolabe, an autonomous AI assistant and software engineer embedded in Astrolabe IDE.
+Your mission is to assist the user with software engineering, technical research, architecture design, and general problem solving with high precision, clear communication, and verified correctness.
 
 ### Core Agent Workflow
-1. Greetings & Conversational Queries: If the user is saying hello, asking a general question, or seeking guidance, reply directly and helpfully in chat without executing file exploration tools.
-1b. No Open Workspace: If no workspace folder is open in the IDE (e.g. user is on the Welcome screen), workspace coding tools cannot operate. DO NOT attempt to run viewFile, listDir, applyPatch, createFile, or runCommand. Inform the user to open a folder via 'Open Folder' or File > Open Folder before code files can be modified or inspected. You may answer questions and use searchWeb.
+1. Greetings, General Inquiries & Research: If the user is saying hello, asking a conceptual question, or seeking technical guidance, reply directly and helpfully in chat without executing file tools. You can use searchWeb for live internet research and fetchWebPage to read full articles, documentation, or specifications.
+1b. No Open Workspace: If no workspace folder is open in the IDE (e.g. user is on the Welcome screen), workspace coding tools cannot operate. DO NOT attempt to run viewFile, listDir, applyPatch, createFile, or runCommand. Inform the user to open a folder via 'Open Folder' or File > Open Folder before code files can be modified or inspected. You may answer questions, explain concepts, search the web (searchWeb), and read documentation (fetchWebPage).
 2. Code & Engineering Tasks: When the user asks you to build, fix, edit, or analyze code:
    - Formulate a clear strategy in your internal <thought>...</thought>.
    - Explore relevant files using \`viewFile\` and directories using \`listDir\`.
@@ -48650,7 +48865,8 @@ Your mission is to solve software engineering tasks with high precision, robust 
 - queryGraph(symbolName): Query the codebase graph to find symbols, callers, and dependencies.
 - querySemanticVector(concept): Semantic vector search across AST embeddings without needing exact keywords.
 - getWorkspaceHash(): Returns the O(1) cryptographic Merkle hash of the workspace state.
-- searchWeb(query): Search the internet for documentation or solutions.
+- searchWeb(query): Search the internet for documentation, articles, news, or solutions.
+- fetchWebPage(url): Fetch and extract the readable markdown or text content of any web page URL (documentation, articles, GitHub readmes, API specifications).
 
 **Write Tools:**
 - applyPatch(relativePath, searchBlock, replaceBlock): Replace a block of code using fuzzy deterministic matching. Tolerates minor whitespace drift.
@@ -48688,6 +48904,7 @@ To execute a tool, emit the exact tool call tag:
 - <call:runCommand(command="npm test")>
 - <call:submitPlan(title="Architecture Spec", plan="1. Step one\\n2. Step two...")>
 - <call:searchWeb(query="react hooks best practices")>
+- <call:fetchWebPage(url="https://docs.tinyfish.ai")>
 
 ### Critical Rules
 1. NEVER output raw markdown code blocks expecting them to save to disk. You MUST use <call:createFile(...)> or <call:applyPatch(...)> to modify files.
@@ -48697,7 +48914,8 @@ To execute a tool, emit the exact tool call tag:
 5. Always wrap internal reasoning in <thought>...</thought> tags. Only text outside those tags is shown to the user.
 6. Terminal commands execute in the REAL workspace root, not the sandbox. Use them to explore existing code or verify changes.
 7. MAX 300 LOC MODULARITY RULE: Never write more than 300 lines of code in a single file. Rather than writing 1000-2000 line monoliths, break components, utilities, and logic into clean, modular, self-contained files under 300 LOC each.
-8. LINE-ACCURATE CODE INSPECTION: Always use viewFile to read code files. viewFile automatically outputs exact 1-indexed line numbers (e.g. " 1 | ...") and total line count. Do not invoke shell commands (like cat -n or wc -l) just to view code or count lines.`;
+8. LINE-ACCURATE CODE INSPECTION: Always use viewFile to read code files. viewFile automatically outputs exact 1-indexed line numbers (e.g. " 1 | ...") and total line count. Do not invoke shell commands (like cat -n or wc -l) just to view code or count lines.
+9. DIRECT USER COMMUNICATION: Always output your final answer, summary, or explanations outside of <thought> tags so the user receives your response directly in chat. Do not end a turn with only <thought> tags without generating text for the user.`;
 
 
 /***/ }),

@@ -12,6 +12,7 @@ import {
   TerminalCommandIcon,
   CodeEditIcon,
   CodeSearchIcon,
+  GlobeWebIcon,
   PlanIcon,
   LogIcon,
   StepStatusBadge
@@ -272,6 +273,7 @@ function TaskProgressCard({ msg }: { msg: Message }) {
               if (event.type === 'log') return <LogIcon status={status} />;
               const tool = (event.toolName || '').toLowerCase();
               if (tool.includes('command') || tool.includes('terminal')) return <TerminalCommandIcon status={status} />;
+              if (tool.includes('web') || tool.includes('fetch') || tool.includes('url')) return <GlobeWebIcon status={status} />;
               if (tool.includes('search') || tool.includes('grep') || tool.includes('find')) return <CodeSearchIcon status={status} />;
               if (tool.includes('patch') || tool.includes('edit') || tool.includes('replace') || tool.includes('create') || tool.includes('write')) return <CodeEditIcon status={status} />;
               if (tool.includes('view') || tool.includes('read') || tool.includes('dir') || tool.includes('list')) return <ReadFileIcon status={status} />;
@@ -295,6 +297,8 @@ function TaskProgressCard({ msg }: { msg: Message }) {
               if (name === 'viewFile' || name === 'readFile') return 'Read';
               if (name === 'listDir') return 'List';
               if (name === 'runCommand' || name === 'run_command') return 'Run';
+              if (name === 'fetchWebPage' || name === 'fetchUrl') return 'Fetch';
+              if (name === 'searchWeb' || name === 'search_web') return 'Web';
               if (name.includes('Search') || name.includes('grep')) return 'Search';
               if (name.includes('Edit') || name.includes('replace') || name.includes('Patch') || name.includes('write')) return 'Edit';
               if (name.includes('create')) return 'Create';
@@ -304,6 +308,10 @@ function TaskProgressCard({ msg }: { msg: Message }) {
 
             const targetDisplay = event.targetDisplay || (() => {
               if (event.type === 'think') return '';
+              if (parsedPayload.url || parsedPayload.link) {
+                const u = parsedPayload.url || parsedPayload.link;
+                return u.length > 40 ? u.substring(0, 37) + '...' : u;
+              }
               if (baseFileName) return baseFileName;
               if (parsedPayload.CommandLine || parsedPayload.command) {
                 const cmd = parsedPayload.CommandLine || parsedPayload.command;
@@ -1449,7 +1457,7 @@ export function ChatScreen({
               handleSendMessage();
             }
           }}
-          placeholder={isAgentThinking ? "Exovon is analyzing..." : "Ask Exovon Agent to write code or analyze files... (v1)"}
+          placeholder={isAgentThinking ? "Astrolabe is thinking & analyzing..." : "Ask Astrolabe anything, or command it to build & edit code..."}
           className="w-full bg-transparent p-2 resize-none text-[13px] font-sans leading-relaxed text-zinc-100 placeholder:text-zinc-400 !outline-none !ring-0 !border-none focus:!outline-none focus:!ring-0 focus:!border-none scrollbar-thin shadow-none"
           style={{ boxShadow: 'none' }}
         />

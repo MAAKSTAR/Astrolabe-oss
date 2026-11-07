@@ -229,4 +229,168 @@ export class WebSearchTools {
       return `Request Error: ${e.message}`;
     }
   }
+
+  /**
+   * Fetches and extracts the readable markdown or text content of any web page URL.
+   */
+  public static async fetchWebPage(url: string, options?: SearchOptions): Promise<string> {
+    try {
+      if (!url || typeof url !== 'string') {
+        return 'Error: URL parameter is required.';
+      }
+
+      const trimmedUrl = url.trim();
+      if (!trimmedUrl.startsWith('http://') && !trimmedUrl.startsWith('https://')) {
+        return `Error: Invalid URL "${trimmedUrl}". URL must start with http:// or https://`;
+      }
+
+      // Check if Firecrawl / Firesearch key is available for deep markdown extraction
+      const rawFireKey = options?.firesearchKey || (options?.tavilyKey?.startsWith('fc-') ? options.tavilyKey : '');
+      if (rawFireKey) {
+        try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 12000);
+          const scrapeRes = await fetch('https://api.firecrawl.dev/v1/scrape', {
+            method: 'POST',
+            signal: controller.signal,
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${rawFireKey}`
+            },
+            body: JSON.stringify({ url: trimmedUrl, formats: ['markdown'] })
+          });
+          clearTimeout(timeoutId);
+
+          if (scrapeRes.ok) {
+            const scrapeData: any = await scrapeRes.json();
+            const md = scrapeData.data?.markdown || scrapeData.markdown;
+            if (md && typeof md === 'string' && md.trim().length > 0) {
+              const cleanedMd = md.trim();
+              if (cleanedMd.length > 16000) {
+                return `${cleanedMd.slice(0, 16000)}\n\n[Content truncated to 16,000 characters for context efficiency...]`;
+              }
+              return cleanedMd;
+            }
+          }
+        } catch {
+          // Fall through to native HTTP fetch on timeout or error
+        }
+      }
+
+      // Fast native HTTP fetch with HTML-to-clean-markdown parsing
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 12000);
+      const res = await fetch(trimmedUrl, {
+        signal: controller.signal,
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 Astrolabe/1.0',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,text/plain;q=0.8,application/json;q=0.5,*/*;q=0.3'
+        }
+      });
+      clearTimeout(timeoutId);
+
+      if (!res.ok) {
+        return `HTTP Error ${res.status} ${res.statusText} while fetching "${trimmedUrl}".`;
+      }
+
+      const contentType = res.headers.get('content-type') || '';
+      const rawBody = await res.text();
+
+      // If already JSON or plain text
+      if (contentType.includes('application/json') || contentType.includes('text/plain')) {
+        const text = rawBody.trim();
+        if (text.length > 16000) {
+          return `${text.slice(0, 16000)}\n\n[Content truncated to 16,000 characters...]`;
+        }
+        return text || 'Empty response.';
+      }
+
+      // Convert HTML into clean, human-readable Markdown
+      const cleanMarkdown = this.htmlToCleanMarkdown(rawBody, trimmedUrl);
+      if (!cleanMarkdown || cleanMarkdown.length < 20) {
+        return `Fetched "${trimmedUrl}", but no readable text content could be extracted (page may require dynamic client-side rendering).`;
+      }
+
+      if (cleanMarkdown.length > 16000) {
+        return `${cleanMarkdown.slice(0, 16000)}\n\n[Content truncated to 16,000 characters for context efficiency...]`;
+      }
+
+      return cleanMarkdown;
+    } catch (e: any) {
+      if (e.name === 'AbortError') {
+        return `Timeout error: Web page took longer than 12 seconds to respond (${url}).`;
+      }
+      return `Failed to fetch web page (${url}): ${e.message}`;
+    }
+  }
+
+  /**
+   * Transforms raw HTML into clean, readable Markdown by stripping chrome, scripts, and converting blocks.
+   */
+  private static htmlToCleanMarkdown(html: string, pageUrl: string): string {
+    let text = html || '';
+
+    // 1. Remove non-content elements
+    text = text.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+               .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '')
+               .replace(/<svg\b[^<]*(?:(?!<\/svg>)<[^<]*)*<\/svg>/gi, '')
+               .replace(/<noscript\b[^<]*(?:(?!<\/noscript>)<[^<]*)*<\/noscript>/gi, '')
+               .replace(/<iframe\b[^<]*(?:(?!<\/iframe>)<[^<]*)*<\/iframe>/gi, '')
+               .replace(/<nav\b[^<]*(?:(?!<\/nav>)<[^<]*)*<\/nav>/gi, '')
+               .replace(/<footer\b[^<]*(?:(?!<\/footer>)<[^<]*)*<\/footer>/gi, '')
+               .replace(/<aside\b[^<]*(?:(?!<\/aside>)<[^<]*)*<\/aside>/gi, '');
+
+    // 2. Extract title if present
+    const titleMatch = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(html);
+    const title = titleMatch ? titleMatch[1].trim() : '';
+
+    // 3. Headings & semantic structure
+    text = text.replace(/<h1[^>]*>([\s\S]*?)<\/h1>/gi, '\n\n# $1\n\n')
+               .replace(/<h2[^>]*>([\s\S]*?)<\/h2>/gi, '\n\n## $1\n\n')
+               .replace(/<h3[^>]*>([\s\S]*?)<\/h3>/gi, '\n\n### $1\n\n')
+               .replace(/<h[4-6][^>]*>([\s\S]*?)<\/h[4-6]>/gi, '\n\n#### $1\n\n')
+               .replace(/<p[^>]*>([\s\S]*?)<\/p>/gi, '\n\n$1\n\n')
+               .replace(/<pre[^>]*><code[^>]*>([\s\S]*?)<\/code><\/pre>/gi, '\n\n```\n$1\n```\n\n')
+               .replace(/<code[^>]*>([\s\S]*?)<\/code>/gi, ' `$1` ')
+               .replace(/<li[^>]*>([\s\S]*?)<\/li>/gi, '\n* $1')
+               .replace(/<br\s*[\/]?>/gi, '\n')
+               .replace(/<hr\s*[\/]?>/gi, '\n---\n')
+               .replace(/<tr[^>]*>([\s\S]*?)<\/tr>/gi, '$1\n')
+               .replace(/<t[hd][^>]*>([\s\S]*?)<\/t[hd]>/gi, ' | $1 ');
+
+    // 4. Links: convert <a href="url">text</a> -> [text](url)
+    text = text.replace(/<a\b[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi, (_, href, linkText) => {
+      const cleanLinkText = linkText.replace(/<[^>]+>/g, '').trim();
+      if (!cleanLinkText || href.startsWith('javascript:') || href.startsWith('#')) {
+        return cleanLinkText;
+      }
+      return `[${cleanLinkText}](${href})`;
+    });
+
+    // 5. Strip all remaining HTML tags
+    text = text.replace(/<[^>]+>/g, ' ');
+
+    // 6. Decode common HTML entities
+    text = text.replace(/&nbsp;/g, ' ')
+               .replace(/&amp;/g, '&')
+               .replace(/&lt;/g, '<')
+               .replace(/&gt;/g, '>')
+               .replace(/&quot;/g, '"')
+               .replace(/&#39;/g, "'")
+               .replace(/&#x27;/g, "'")
+               .replace(/&mdash;/g, '—')
+               .replace(/&ndash;/g, '–')
+               .replace(/&hellip;/g, '…');
+
+    // 7. Clean up whitespace and line breaks
+    text = text.replace(/[ \t]+/g, ' ')
+               .replace(/\n\s*\n\s*\n+/g, '\n\n')
+               .trim();
+
+    if (title && !text.startsWith(`# ${title}`)) {
+      text = `# ${title}\nSource: ${pageUrl}\n\n${text}`;
+    }
+
+    return text;
+  }
 }

@@ -97,7 +97,7 @@ export default function App() {
     {
       id: 'welcome',
       sender: 'agent',
-      text: 'I am your Exovon Agent. I can scan your active workspace, compile optimized static bundles, and globally distribute your application to the Edge CDN. What would you like to inspect or deploy today?',
+      text: 'I am Astrolabe, your autonomous AI assistant. I can help you research topics, answer questions, analyze documentation, and build or modify your code. How can I assist you today?',
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       isHistory: true
     }
@@ -954,7 +954,7 @@ export default function App() {
             setMessages([{
               id: 'welcome',
               sender: 'agent',
-              text: 'I am your Exovon Agent. I can scan your active workspace, compile optimized static bundles, and globally distribute your application to the Edge CDN. What would you like to inspect or deploy today?',
+              text: 'I am Astrolabe, your autonomous AI assistant. I can help you research topics, answer questions, analyze documentation, and build or modify your code. How can I assist you today?',
               timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
               isHistory: true
             }]);
@@ -968,7 +968,7 @@ export default function App() {
              setMessages([{
               id: 'welcome',
               sender: 'agent',
-              text: 'I am your Exovon Agent. I can scan your active workspace, compile optimized static bundles, and globally distribute your application to the Edge CDN. What would you like to inspect or deploy today?',
+              text: 'I am Astrolabe, your autonomous AI assistant. I can help you research topics, answer questions, analyze documentation, and build or modify your code. How can I assist you today?',
               timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
               isHistory: true
             }]);
