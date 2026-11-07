@@ -1414,16 +1414,20 @@ Developer Action Request: "${finalPrompt}"
 
         case 'getChatThreads': {
           if (this._brainCoordinator) {
-             const threads = this._brainCoordinator.getChatThreads();
-             webviewView.webview.postMessage({ type: 'chatThreadsLoaded', threads });
+             const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
+             const threads = this._brainCoordinator.getChatThreads(workspaceRoot);
+             webviewView.webview.postMessage({ type: 'chatThreadsLoaded', threads, workspaceRoot });
           }
           break;
         }
 
         case 'createNewThread': {
           if (this._brainCoordinator) {
-             const threadId = this._brainCoordinator.createNewThread();
+             const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
+             const threadId = this._brainCoordinator.createNewThread(workspaceRoot);
              webviewView.webview.postMessage({ type: 'newThreadCreated', threadId });
+             const threads = this._brainCoordinator.getChatThreads(workspaceRoot);
+             webviewView.webview.postMessage({ type: 'chatThreadsLoaded', threads, workspaceRoot });
           }
           break;
         }
@@ -1432,10 +1436,11 @@ Developer Action Request: "${finalPrompt}"
           if (this._brainCoordinator && data.threadId) {
              vscode.window.showWarningMessage('Are you sure you want to delete this chat?', { modal: true }, 'Yes', 'No').then(selection => {
                 if (selection === 'Yes') {
+                    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
                     this._brainCoordinator!.deleteChatThread(data.threadId);
                     webviewView.webview.postMessage({ type: 'threadDeleted', threadId: data.threadId });
-                    const threads = this._brainCoordinator!.getChatThreads();
-                    webviewView.webview.postMessage({ type: 'chatThreadsLoaded', threads });
+                    const threads = this._brainCoordinator!.getChatThreads(workspaceRoot);
+                    webviewView.webview.postMessage({ type: 'chatThreadsLoaded', threads, workspaceRoot });
                 }
              });
           }
@@ -1444,23 +1449,25 @@ Developer Action Request: "${finalPrompt}"
 
         case 'renameChatThread': {
           if (this._brainCoordinator && data.threadId && data.title) {
+            const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
             this._brainCoordinator.renameChatThread(data.threadId, data.title);
-            const threads = this._brainCoordinator.getChatThreads();
-            webviewView.webview.postMessage({ type: 'chatThreadsLoaded', threads });
+            const threads = this._brainCoordinator.getChatThreads(workspaceRoot);
+            webviewView.webview.postMessage({ type: 'chatThreadsLoaded', threads, workspaceRoot });
           }
           break;
         }
 
         case 'clearAllChatThreads': {
           if (this._brainCoordinator) {
-            vscode.window.showWarningMessage('Are you sure you want to delete ALL chat history?', { modal: true }, 'Yes, Delete All', 'Cancel').then(selection => {
-              if (selection === 'Yes, Delete All') {
-                this._brainCoordinator!.clearAllChatThreads();
-                const newThreadId = this._brainCoordinator!.createNewThread();
-                const threads = this._brainCoordinator!.getChatThreads();
-                webviewView.webview.postMessage({ type: 'chatThreadsLoaded', threads });
+            const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
+            vscode.window.showWarningMessage('Are you sure you want to delete chat history for this workspace?', { modal: true }, 'Yes, Delete', 'Cancel').then(selection => {
+              if (selection === 'Yes, Delete') {
+                this._brainCoordinator!.clearAllChatThreads(workspaceRoot);
+                const newThreadId = this._brainCoordinator!.createNewThread(workspaceRoot);
+                const threads = this._brainCoordinator!.getChatThreads(workspaceRoot);
+                webviewView.webview.postMessage({ type: 'chatThreadsLoaded', threads, workspaceRoot });
                 webviewView.webview.postMessage({ type: 'newThreadCreated', threadId: newThreadId });
-                vscode.window.showInformationMessage('All chat history cleared.');
+                vscode.window.showInformationMessage('Workspace chat history cleared.');
               }
             });
           }

@@ -14,12 +14,12 @@ export interface IBrainCoordinator {
   forceFlushNow(): Promise<void>;
   contextCard(prompt: string): Promise<string>;
   getGraphForFile(filePath: string): any[];
-  getChatThreads(): Array<{ id: string; title: string; updated_at: number; message_count?: number; preview?: string }>;
+  getChatThreads(workspacePath?: string): Array<{ id: string; title: string; updated_at: number; message_count?: number; preview?: string; workspace_path?: string }>;
   getChatMessages(threadId: string): any[];
-  createNewThread(): string;
+  createNewThread(workspacePath?: string): string;
   renameChatThread(threadId: string, title: string): void;
   deleteChatThread(threadId: string): void;
-  clearAllChatThreads(): void;
+  clearAllChatThreads(workspacePath?: string): void;
   saveChatMessage(threadId: string, message: any): void;
   deleteChatMessage(threadId: string, messageId: string): void;
   recordCommit(branch: string, hash: string): Promise<void>;

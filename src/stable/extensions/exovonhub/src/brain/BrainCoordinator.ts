@@ -384,13 +384,38 @@ export class BrainCoordinator implements IBrainCoordinator {
     try {
       this.db.exec('ALTER TABLE chat_messages ADD COLUMN meta JSON');
     } catch (e) {}
+    try {
+      this.db.exec('ALTER TABLE indexed_files ADD COLUMN workspace_path TEXT');
+    } catch (e) {}
+    try {
+      this.db.exec('ALTER TABLE symbols ADD COLUMN workspace_path TEXT');
+    } catch (e) {}
+    try {
+      this.db.exec('ALTER TABLE edges ADD COLUMN workspace_path TEXT');
+    } catch (e) {}
 
     // Indexes
     this.db.exec(`
       CREATE INDEX IF NOT EXISTS idx_symbols_file ON symbols(file_path);
       CREATE INDEX IF NOT EXISTS idx_edges_file ON edges(file_path);
       CREATE INDEX IF NOT EXISTS idx_chat_threads_workspace ON chat_threads(workspace_path);
+      CREATE INDEX IF NOT EXISTS idx_symbols_ws ON symbols(workspace_path);
+      CREATE INDEX IF NOT EXISTS idx_edges_ws ON edges(workspace_path);
+      CREATE INDEX IF NOT EXISTS idx_indexed_files_ws ON indexed_files(workspace_path);
     `);
+
+    // Clean legacy bloated checkpoints from meta to keep database slim
+    try {
+      const hasCheckpointBloat = this.db.prepare("SELECT 1 FROM chat_messages WHERE json_extract(meta, '$.checkpoint') IS NOT NULL LIMIT 1").get();
+      if (hasCheckpointBloat) {
+        this.db.exec(`
+          UPDATE chat_messages 
+          SET meta = json_remove(meta, '$.checkpoint') 
+          WHERE json_extract(meta, '$.checkpoint') IS NOT NULL;
+          VACUUM;
+        `);
+      }
+    } catch (e) {}
 
     try {
       this.db.exec(`CREATE VIRTUAL TABLE IF NOT EXISTS vec_symbols USING vec0(embedding float[384])`);
@@ -632,13 +657,13 @@ export class BrainCoordinator implements IBrainCoordinator {
       this.pendingEmbeddings.set(id, pending);
       worker.postMessage({ type: 'embed', text, id });
       
-      // Timeout after 10s
+      // Timeout after 2.5s to prevent stalling batch indexing
       pending.timer = setTimeout(() => {
         if (this.pendingEmbeddings.has(id)) {
           this.pendingEmbeddings.delete(id);
           resolve(null); // Fail gracefully
         }
-      }, 10000);
+      }, 2500);
     });
   }
 
@@ -674,8 +699,16 @@ export class BrainCoordinator implements IBrainCoordinator {
         sizeMB = stat.size / (1024 * 1024);
       }
       
-      const row = this.db.prepare('SELECT COUNT(*) as c FROM symbols').get() as { c: number } | undefined;
-      const entities = row?.c ?? 0;
+      const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
+      let entities = 0;
+      if (workspaceRoot) {
+        const row = this.db.prepare('SELECT COUNT(*) as c FROM symbols WHERE workspace_path = ?').get(workspaceRoot) as { c: number } | undefined;
+        entities = row?.c ?? 0;
+      } else {
+        const row = this.db.prepare('SELECT COUNT(*) as c FROM symbols').get() as { c: number } | undefined;
+        entities = row?.c ?? 0;
+      }
+
       return {
         entities,
         sizeMB: Number(sizeMB.toFixed(2)),
@@ -690,45 +723,26 @@ export class BrainCoordinator implements IBrainCoordinator {
     }
   }
 
-  // Wipe and completely rebuild the Brain database
+  // Wipe and rebuild the Brain database for the current workspace
   public async rebuildBrain(): Promise<void> {
     try {
       this.setSyncing(true);
       this.status = 'indexing';
       this.lastError = null;
-      this.db.exec(`
-        DROP TABLE IF EXISTS symbols;
-        DROP TABLE IF EXISTS edges;
-        DROP TABLE IF EXISTS indexed_files;
-        DROP TABLE IF EXISTS vec_symbols;
-      `);
-      this.db.exec(`
-        CREATE TABLE IF NOT EXISTS indexed_files (
-          relative_path TEXT PRIMARY KEY,
-          mtime INTEGER,
-          size INTEGER
-        );
-        CREATE TABLE IF NOT EXISTS symbols (
-          id TEXT PRIMARY KEY,
-          hash_id INTEGER,
-          file_path TEXT,
-          name TEXT,
-          kind TEXT,
-          line_start INTEGER,
-          line_end INTEGER,
-          content TEXT
-        );
-        CREATE TABLE IF NOT EXISTS edges (
-          source_id TEXT,
-          target_id TEXT,
-          relation_type TEXT,
-          file_path TEXT,
-          PRIMARY KEY(source_id, target_id, relation_type)
-        );
-      `);
-      try {
-        this.db.exec(`CREATE VIRTUAL TABLE IF NOT EXISTS vec_symbols USING vec0(embedding float[384])`);
-      } catch (e) {}
+      const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
+      if (workspaceRoot) {
+        const oldSymbols = this.db.prepare('SELECT hash_id FROM symbols WHERE workspace_path = ?').all(workspaceRoot) as any[];
+        for (const oldSym of oldSymbols) {
+          if (oldSym.hash_id) {
+            try { this.db.prepare('DELETE FROM vec_symbols WHERE rowid = ?').run(oldSym.hash_id); } catch (e) {}
+          }
+        }
+        this.db.prepare('DELETE FROM symbols WHERE workspace_path = ?').run(workspaceRoot);
+        this.db.prepare('DELETE FROM edges WHERE workspace_path = ?').run(workspaceRoot);
+        this.db.prepare('DELETE FROM indexed_files WHERE workspace_path = ?').run(workspaceRoot);
+      } else {
+        this.db.exec('DELETE FROM symbols; DELETE FROM edges; DELETE FROM indexed_files; DELETE FROM vec_symbols;');
+      }
       await this.seedWorkspace();
       this.status = 'ready';
     } catch (err: any) {
@@ -744,11 +758,17 @@ export class BrainCoordinator implements IBrainCoordinator {
   public async seedWorkspace() {
     console.log('🌱 Delta Cache Engine: Synchronizing Exovon Brain...');
     
+    const rootUri = vscode.workspace.workspaceFolders?.[0]?.uri;
+    if (!rootUri) {
+      this.setSyncing(false);
+      this.status = 'ready';
+      return;
+    }
+    const workspaceRoot = rootUri.fsPath;
+
     // 1. Dynamic Privacy Engine (Phase 1): Parse .gitignore and .exovonignore
     const ignorePatterns: RegExp[] = [];
     try {
-      const rootUri = vscode.workspace.workspaceFolders?.[0]?.uri;
-      if (!rootUri) return;
       const gitignoreUri = vscode.Uri.joinPath(rootUri, '.gitignore');
       const exovonignoreUri = vscode.Uri.joinPath(rootUri, '.exovonignore');
       
@@ -774,8 +794,13 @@ export class BrainCoordinator implements IBrainCoordinator {
       await parseIgnoreFile(exovonignoreUri);
     } catch (e) {}
     
-    // 2. Live Scan: Gather all currently valid files
-    const files = await vscode.workspace.findFiles('**/*', '**/{node_modules,.git,dist,build,out,coverage,.next,.exovon-shadow,*.png,*.jpg,*.jpeg,*.gif,*.webp,*.ico,*.svg,*.pdf,*.mp4,*.zip,*.tar.gz,*.wasm,*.ttf,*.woff,*.woff2}/**');
+    // 2. Live Scan: Strictly Code Files Only (TS/JS/Py/Rust/Go/C/C++/Java/etc.)
+    // User Directive: "BRAIN SHOULDNT INDEX ANYTHING OTHER THEN CODE"
+    // Exclude all docs, markdown, configs, binaries, node_modules, and hidden directories
+    const CODE_EXTENSIONS_GLOB = '**/*.{ts,tsx,js,jsx,mjs,cjs,py,rs,go,java,c,cpp,cc,cxx,h,hpp,cs,rb,php,swift,kt,scala,lua,zig}';
+    const EXCLUDE_FOLDERS_GLOB = '**/{node_modules,.git,.svn,.hg,dist,build,out,coverage,.next,.nuxt,.turbo,.exovon*,.vscode,.astrolabe,target,vendor,venv,.venv,env,__pycache__}/**';
+
+    const files = await vscode.workspace.findFiles(CODE_EXTENSIONS_GLOB, EXCLUDE_FOLDERS_GLOB);
     
     // Map live files to a quick lookup and grab mtime/size
     const liveFiles = new Map<string, { uri: vscode.Uri, mtime: number, size: number }>();
@@ -791,8 +816,8 @@ export class BrainCoordinator implements IBrainCoordinator {
        } catch (e) {}
     }
 
-    // 2. Database Diff: Fetch all previously cached files
-    const cachedFiles = this.db.prepare('SELECT relative_path, mtime, size FROM indexed_files').all() as any[];
+    // 2. Database Diff: Fetch all previously cached files for THIS workspace
+    const cachedFiles = this.db.prepare('SELECT relative_path, mtime, size FROM indexed_files WHERE workspace_path = ?').all(workspaceRoot) as any[];
     
     const toDelete: string[] = [];
     const toIndex: string[] = [];
@@ -823,18 +848,28 @@ export class BrainCoordinator implements IBrainCoordinator {
     if (toDelete.length > 0) {
        const gcTx = this.db.transaction(() => {
           for (const relPath of toDelete) {
-             const oldSymbols = this.db.prepare('SELECT hash_id FROM symbols WHERE file_path = ?').all(relPath) as any[];
+             const oldSymbols = this.db.prepare('SELECT hash_id FROM symbols WHERE file_path = ? AND workspace_path = ?').all(relPath, workspaceRoot) as any[];
              for (const oldSym of oldSymbols) {
                 if (oldSym.hash_id) {
-                    this.db.prepare('DELETE FROM vec_symbols WHERE rowid = ?').run(oldSym.hash_id);
+                    try { this.db.prepare('DELETE FROM vec_symbols WHERE rowid = ?').run(oldSym.hash_id); } catch (e) {}
                 }
              }
-             this.db.prepare('DELETE FROM symbols WHERE file_path = ?').run(relPath);
-             this.db.prepare('DELETE FROM edges WHERE file_path = ?').run(relPath);
-             this.db.prepare('DELETE FROM indexed_files WHERE relative_path = ?').run(relPath);
+             this.db.prepare('DELETE FROM symbols WHERE file_path = ? AND workspace_path = ?').run(relPath, workspaceRoot);
+             this.db.prepare('DELETE FROM edges WHERE file_path = ? AND workspace_path = ?').run(relPath, workspaceRoot);
+             this.db.prepare('DELETE FROM indexed_files WHERE relative_path = ? AND workspace_path = ?').run(relPath, workspaceRoot);
           }
        });
        gcTx();
+    }
+
+    // If there are no new/modified files, mark ready immediately!
+    if (toIndex.length === 0) {
+      console.log(`✅ Delta Cache sync complete (0 code files to index).`);
+      if (this.dirtyFiles.size === 0) {
+        this.setSyncing(false);
+        this.status = 'ready';
+      }
+      return;
     }
 
     // 4. Yielding Queue: Push valid files to be parsed
@@ -845,13 +880,15 @@ export class BrainCoordinator implements IBrainCoordinator {
       const batch = toIndex.slice(processed, processed + BATCH_SIZE);
       if (batch.length === 0) {
         console.log(`✅ Delta Cache sync complete.`);
+        if (this.dirtyFiles.size === 0) {
+          this.setSyncing(false);
+          this.status = 'ready';
+        }
         return;
       }
 
       for (const relPath of batch) {
         try {
-          const rootUri = vscode.workspace.workspaceFolders?.[0]?.uri;
-          if (!rootUri) continue;
           const uri = vscode.Uri.joinPath(rootUri, relPath);
           const contentBuffer = await vscode.workspace.fs.readFile(uri);
           
@@ -894,17 +931,20 @@ export class BrainCoordinator implements IBrainCoordinator {
   private async flushDirtyQueue() {
     if (this.dirtyFiles.size === 0) {
       this.setSyncing(false);
+      this.status = 'ready';
       return;
     }
+
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
 
     // Capture current snapshot of dirty files (keys are already relative paths)
     const filesToProcess = Array.from(this.dirtyFiles.entries()).map(([relPath, content]) => ({ relPath, content }));
     this.dirtyFiles.clear();
 
-    const insertSymbol = this.db.prepare('INSERT OR REPLACE INTO symbols (id, hash_id, file_path, name, kind, line_start, line_end, content) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
-    const insertEdge = this.db.prepare('INSERT OR IGNORE INTO edges (source_id, target_id, relation_type, file_path) VALUES (?, ?, ?, ?)');
+    const insertSymbol = this.db.prepare('INSERT OR REPLACE INTO symbols (id, hash_id, file_path, name, kind, line_start, line_end, content, workspace_path) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    const insertEdge = this.db.prepare('INSERT OR IGNORE INTO edges (source_id, target_id, relation_type, file_path, workspace_path) VALUES (?, ?, ?, ?, ?)');
     const insertVec = this.db.prepare('INSERT INTO vec_symbols(rowid, embedding) VALUES(?, ?)');
-    const insertFileMeta = this.db.prepare('INSERT OR REPLACE INTO indexed_files (relative_path, mtime, size) VALUES (?, ?, ?)');
+    const insertFileMeta = this.db.prepare('INSERT OR REPLACE INTO indexed_files (relative_path, mtime, size, workspace_path) VALUES (?, ?, ?, ?)');
 
     const itemsToInsert: any[] = [];
     const filesMetaToInsert: any[] = [];
@@ -971,26 +1011,26 @@ export class BrainCoordinator implements IBrainCoordinator {
 
     // 2. Execute synchronous SQLite transaction (Problem 10 - Atomic Commits)
     const transaction = this.db.transaction(() => {
-      // Clear old entries for all processed files
+      // Clear old entries for all processed files for THIS workspace
       for (const file of filesToProcess) {
-        const oldSymbols = this.db.prepare('SELECT hash_id FROM symbols WHERE file_path = ?').all(file.relPath) as any[];
+        const oldSymbols = this.db.prepare('SELECT hash_id FROM symbols WHERE file_path = ? AND workspace_path = ?').all(file.relPath, workspaceRoot) as any[];
         for (const oldSym of oldSymbols) {
            if (oldSym.hash_id) {
-               this.db.prepare('DELETE FROM vec_symbols WHERE rowid = ?').run(oldSym.hash_id);
+               try { this.db.prepare('DELETE FROM vec_symbols WHERE rowid = ?').run(oldSym.hash_id); } catch (e) {}
            }
         }
-        this.db.prepare('DELETE FROM symbols WHERE file_path = ?').run(file.relPath);
-        this.db.prepare('DELETE FROM edges WHERE file_path = ?').run(file.relPath);
+        this.db.prepare('DELETE FROM symbols WHERE file_path = ? AND workspace_path = ?').run(file.relPath, workspaceRoot);
+        this.db.prepare('DELETE FROM edges WHERE file_path = ? AND workspace_path = ?').run(file.relPath, workspaceRoot);
       }
       
       for (const meta of filesMetaToInsert) {
-         insertFileMeta.run(meta.relPath, meta.mtime, meta.size);
+         insertFileMeta.run(meta.relPath, meta.mtime, meta.size, workspaceRoot);
       }
 
       for (const item of itemsToInsert) {
-        insertSymbol.run(item.sym.id, item.rowId, item.sym.filePath, item.sym.name, item.sym.kind, item.sym.lineStart, item.sym.lineEnd, item.content);
+        insertSymbol.run(item.sym.id, item.rowId, item.sym.filePath, item.sym.name, item.sym.kind, item.sym.lineStart, item.sym.lineEnd, item.content, workspaceRoot);
         if (item.embedding) {
-           insertVec.run(item.rowId, new Float32Array(item.embedding).buffer);
+           try { insertVec.run(item.rowId, new Float32Array(item.embedding).buffer); } catch (e) {}
         }
         for (let edge of item.edges) {
           // Reconcile 'unresolved:name'
@@ -1007,7 +1047,7 @@ export class BrainCoordinator implements IBrainCoordinator {
           const relSourceId = edge.sourceId.replace(rootPath + path.sep, '');
           const relTargetId = targetId.replace(rootPath + path.sep, '');
           
-          insertEdge.run(relSourceId, relTargetId, edge.relationType, item.sym.filePath);
+          insertEdge.run(relSourceId, relTargetId, edge.relationType, item.sym.filePath, workspaceRoot);
         }
       }
     });
@@ -1022,6 +1062,7 @@ export class BrainCoordinator implements IBrainCoordinator {
     // Check if more files trickled in during processing
     if (this.dirtyFiles.size === 0) {
       this.setSyncing(false);
+      this.status = 'ready';
     } else {
       this.flushDirtyQueue();
     }
@@ -1231,8 +1272,14 @@ export class BrainCoordinator implements IBrainCoordinator {
   public getGovernorStatus(): GovernorStatus {
     let nodeCount = 0;
     try {
-      const result = this.db.prepare('SELECT COUNT(*) as count FROM symbols').get() as { count: number };
-      nodeCount = result.count;
+      const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
+      if (workspaceRoot) {
+        const result = this.db.prepare('SELECT COUNT(*) as count FROM symbols WHERE workspace_path = ?').get(workspaceRoot) as { count: number };
+        nodeCount = result?.count ?? 0;
+      } else {
+        const result = this.db.prepare('SELECT COUNT(*) as count FROM symbols').get() as { count: number };
+        nodeCount = result?.count ?? 0;
+      }
     } catch (e) {
       console.error(e);
     }
@@ -1252,19 +1299,39 @@ export class BrainCoordinator implements IBrainCoordinator {
   }
 
   // --- CHAT PERSISTENCE METHODS ---
-  public getChatThreads(): { id: string; title: string; updated_at: number; message_count?: number; preview?: string }[] {
+  public getChatThreads(workspacePath?: string): { id: string; title: string; updated_at: number; message_count?: number; preview?: string; workspace_path?: string }[] {
     try {
-      const threads = this.db.prepare(`
-        SELECT 
-          ct.id, 
-          ct.title, 
-          ct.updated_at,
-          (SELECT COUNT(*) FROM chat_messages cm WHERE cm.thread_id = ct.id AND cm.id != 'welcome') as message_count,
-          (SELECT text FROM chat_messages cm WHERE cm.thread_id = ct.id AND cm.id != 'welcome' AND cm.text IS NOT NULL AND TRIM(cm.text) != '' ORDER BY cm.timestamp DESC, cm.id DESC LIMIT 1) as preview
-        FROM chat_threads ct 
-        ORDER BY ct.updated_at DESC
-        LIMIT 200
-      `).all() as any[];
+      const currentWorkspace = workspacePath !== undefined 
+        ? workspacePath 
+        : (vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '');
+
+      const threads = currentWorkspace
+        ? this.db.prepare(`
+            SELECT 
+              ct.id, 
+              ct.title, 
+              ct.updated_at,
+              ct.workspace_path,
+              (SELECT COUNT(*) FROM chat_messages cm WHERE cm.thread_id = ct.id AND cm.id != 'welcome') as message_count,
+              (SELECT text FROM chat_messages cm WHERE cm.thread_id = ct.id AND cm.id != 'welcome' AND cm.text IS NOT NULL AND TRIM(cm.text) != '' ORDER BY cm.timestamp DESC, cm.id DESC LIMIT 1) as preview
+            FROM chat_threads ct 
+            WHERE ct.workspace_path = ?
+            ORDER BY ct.updated_at DESC
+            LIMIT 200
+          `).all(currentWorkspace) as any[]
+        : this.db.prepare(`
+            SELECT 
+              ct.id, 
+              ct.title, 
+              ct.updated_at,
+              ct.workspace_path,
+              (SELECT COUNT(*) FROM chat_messages cm WHERE cm.thread_id = ct.id AND cm.id != 'welcome') as message_count,
+              (SELECT text FROM chat_messages cm WHERE cm.thread_id = ct.id AND cm.id != 'welcome' AND cm.text IS NOT NULL AND TRIM(cm.text) != '' ORDER BY cm.timestamp DESC, cm.id DESC LIMIT 1) as preview
+            FROM chat_threads ct 
+            WHERE ct.workspace_path IS NULL OR ct.workspace_path = ''
+            ORDER BY ct.updated_at DESC
+            LIMIT 200
+          `).all() as any[];
 
       // Auto-repair stale generic titles (e.g. 'HI', 'hi', 'hello', 'New Chat')
       for (const t of threads) {
@@ -1307,9 +1374,9 @@ export class BrainCoordinator implements IBrainCoordinator {
     }
   }
 
-  public createNewThread(): string {
+  public createNewThread(workspacePath?: string): string {
     const threadId = `thread-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
+    const workspaceRoot = workspacePath !== undefined ? workspacePath : (vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '');
     try {
       this.db.prepare('INSERT INTO chat_threads (id, title, created_at, updated_at, workspace_path) VALUES (?, ?, ?, ?, ?)').run(
         threadId, 'New Chat', Date.now(), Date.now(), workspaceRoot
@@ -1341,10 +1408,24 @@ export class BrainCoordinator implements IBrainCoordinator {
     }
   }
 
-  public clearAllChatThreads(): void {
+  public clearAllChatThreads(workspacePath?: string): void {
     try {
-      this.db.prepare('DELETE FROM chat_messages').run();
-      this.db.prepare('DELETE FROM chat_threads').run();
+      const workspaceRoot = workspacePath !== undefined ? workspacePath : (vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '');
+      if (workspaceRoot) {
+        const threads = this.db.prepare('SELECT id FROM chat_threads WHERE workspace_path = ?').all(workspaceRoot) as any[];
+        const delMsg = this.db.prepare('DELETE FROM chat_messages WHERE thread_id = ?');
+        for (const t of threads) {
+          delMsg.run(t.id);
+        }
+        this.db.prepare('DELETE FROM chat_threads WHERE workspace_path = ?').run(workspaceRoot);
+      } else {
+        const threads = this.db.prepare('SELECT id FROM chat_threads WHERE workspace_path IS NULL OR workspace_path = ""').all() as any[];
+        const delMsg = this.db.prepare('DELETE FROM chat_messages WHERE thread_id = ?');
+        for (const t of threads) {
+          delMsg.run(t.id);
+        }
+        this.db.prepare('DELETE FROM chat_threads WHERE workspace_path IS NULL OR workspace_path = ""').run();
+      }
     } catch (e) {
       console.error('clearAllChatThreads error:', e);
     }
@@ -1387,7 +1468,7 @@ export class BrainCoordinator implements IBrainCoordinator {
           images: message.images,
           metrics: message.metrics,
           checkpointId: message.checkpointId,
-          checkpoint: message.checkpoint,
+          // CRITICAL: NEVER store full message.checkpoint object in SQLite; checkpointId references it on disk.
           promptTokens: message.promptTokens,
           promptProcessed: message.promptProcessed
         })

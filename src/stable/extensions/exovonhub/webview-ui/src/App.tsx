@@ -971,21 +971,19 @@ export default function App() {
           if (message.threads) {
             setChatThreads(message.threads);
             setActiveThreadId(prev => {
+              // If user is already active in a thread belonging to this workspace, retain it
               const prevExists = prev && message.threads.some((t: ChatThread) => t.id === prev);
-              if (!prevExists) {
-                const savedThreadId = localStorage.getItem('astrolabe_last_active_thread_id');
-                const savedExists = savedThreadId && message.threads.some((t: ChatThread) => t.id === savedThreadId);
-                const targetId = savedExists ? savedThreadId : (message.threads.length > 0 ? message.threads[0].id : null);
-
-                if (targetId) {
-                  if (vscodeApi) vscodeApi.postMessage({ command: 'loadChatThread', threadId: targetId });
-                  return targetId;
-                } else {
-                  if (vscodeApi) vscodeApi.postMessage({ command: 'createNewThread' });
-                  return null;
-                }
+              if (prevExists) {
+                return prev;
               }
-              return prev;
+              // User requirement: "IT SHUDL ALWAY S OPEN IN NEW CHAT"
+              // "EVERY WORKSPACE SHOULD START WITH EMPTY CHAT HISTORY, EVERY WORKSPACE WILL HAVE ITS OWN CHAT HISTORY"
+              // Start cleanly with a fresh new chat on IDE launch / workspace switch.
+              // Past chats are safely preserved in the History drawer to switch to at any time.
+              if (vscodeApi) {
+                vscodeApi.postMessage({ command: 'createNewThread' });
+              }
+              return null;
             });
           }
           break;
