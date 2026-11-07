@@ -1434,43 +1434,56 @@ MANDATORY RULES:
                 if (typeof endLine === 'string') endLine = parseInt(endLine, 10);
                 result = await this.fsTools.viewFile(relPath, isNaN(startLine) ? undefined : startLine, isNaN(endLine) ? undefined : endLine);
               } else if (toolName === 'applyPatch') {
-                if (call.args.relativePath.includes('.vscode/settings.json') || call.args.relativePath.includes('.vscode/tasks.json')) {
+                const patchPath = call.args.relativePath || call.args.path || call.args.file || call.args.filePath || call.args.target_file || relPath;
+                const searchBlock = call.args.searchBlock ?? call.args.search ?? call.args.search_block ?? call.args.old_str ?? call.args.oldStr ?? call.args.target ?? call.args.find ?? call.args.before;
+                const replaceBlock = call.args.replaceBlock ?? call.args.replace ?? call.args.replace_block ?? call.args.new_str ?? call.args.newStr ?? call.args.replacement ?? call.args.after ?? '';
+
+                if (patchPath.includes('.vscode/settings.json') || patchPath.includes('.vscode/tasks.json')) {
                   const approved = await this.fileApprovalCallback({
-                    type: 'modify', path: call.args.relativePath, details: '⚠️ HIGH-RISK SETTINGS MODIFICATION ⚠️\nThis agent is attempting to modify workspace execution settings. This can be an RCE vector.'
+                    type: 'modify', path: patchPath, details: '⚠️ HIGH-RISK SETTINGS MODIFICATION ⚠️\nThis agent is attempting to modify workspace execution settings. This can be an RCE vector.'
                   });
                   if (!approved) {
                     result = 'Rejected: High-risk settings modification rejected by user.';
                     throw new Error(result);
                   }
                 }
-                result = await this.fsTools.applyPatch(call.args.relativePath, call.args.searchBlock, call.args.replaceBlock);
+                result = await this.fsTools.applyPatch(patchPath, searchBlock, replaceBlock);
                 if (result.startsWith('Error')) {
                   throw new Error(result);
                 }
-                this.modifiedFiles.add(call.args.relativePath);
-                this.onUpdate({ type: 'log', text: `Applied patch to: "${call.args.relativePath}"`, logType: 'info' });
+                this.modifiedFiles.add(patchPath);
+                this.onUpdate({ type: 'log', text: `Applied patch to: "${patchPath}"`, logType: 'info' });
               } else if (toolName === 'multiReplaceFileContent') {
-                if (call.args.relativePath.includes('.vscode/settings.json') || call.args.relativePath.includes('.vscode/tasks.json')) {
+                const replacePath = call.args.relativePath || call.args.path || call.args.file || call.args.filePath || relPath;
+                const startLine = call.args.startLine ?? call.args.StartLine ?? call.args.start_line ?? call.args.fromLine ?? 1;
+                const endLine = call.args.endLine ?? call.args.EndLine ?? call.args.end_line ?? call.args.toLine ?? 1;
+                const replacementContent = call.args.replacementContent ?? call.args.content ?? call.args.replacement ?? call.args.text ?? call.args.code ?? '';
+
+                if (replacePath.includes('.vscode/settings.json') || replacePath.includes('.vscode/tasks.json')) {
                   throw new Error('Rejected: High-risk settings modification.');
                 }
-                result = await this.fsTools.multiReplaceFileContent(call.args.relativePath, call.args.startLine, call.args.endLine, call.args.replacementContent);
+                result = await this.fsTools.multiReplaceFileContent(replacePath, Number(startLine), Number(endLine), replacementContent);
                 if (result.startsWith('Error')) {
                   throw new Error(result);
                 }
-                this.modifiedFiles.add(call.args.relativePath);
-                this.onUpdate({ type: 'log', text: `Modified lines ${call.args.startLine}-${call.args.endLine} of: "${call.args.relativePath}"`, logType: 'info' });
+                this.modifiedFiles.add(replacePath);
+                this.onUpdate({ type: 'log', text: `Modified lines ${startLine}-${endLine} of: "${replacePath}"`, logType: 'info' });
               } else if (toolName === 'createFile') {
-                if (call.args.relativePath.includes('.vscode/settings.json') || call.args.relativePath.includes('.vscode/tasks.json')) {
+                const createPath = call.args.relativePath || call.args.path || call.args.file || call.args.filePath || relPath;
+                const fileContent = call.args.content ?? call.args.contents ?? call.args.text ?? call.args.code ?? call.args.replacementContent ?? '';
+
+                if (createPath.includes('.vscode/settings.json') || createPath.includes('.vscode/tasks.json')) {
                   throw new Error('Rejected: High-risk settings modification.');
                 }
-                result = await this.fsTools.createFile(call.args.relativePath, call.args.content);
+                result = await this.fsTools.createFile(createPath, fileContent);
                 if (result.startsWith('Error')) {
                   throw new Error(result);
                 }
-                this.modifiedFiles.add(call.args.relativePath);
-                this.onUpdate({ type: 'log', text: `Created file: "${call.args.relativePath}"`, logType: 'info' });
+                this.modifiedFiles.add(createPath);
+                this.onUpdate({ type: 'log', text: `Created file: "${createPath}"`, logType: 'info' });
               } else if (toolName === 'deleteFile') {
-                result = await this.fsTools.deleteFile(call.args.relativePath);
+                const deletePath = call.args.relativePath || call.args.path || call.args.file || relPath;
+                result = await this.fsTools.deleteFile(deletePath);
                 if (result.startsWith('Error')) {
                   throw new Error(result);
                 }
@@ -1485,9 +1498,18 @@ MANDATORY RULES:
               } else if (toolName === 'searchWeb') {
                 this.onUpdate({ type: 'log', text: `🌐 Searching the web for: "${query}"`, logType: 'info' });
                 const config = vscode.workspace.getConfiguration('exovonhub');
+                const provider = config.get<string>('searchProvider') || 'tavily';
                 const tavilyKey = config.get<string>('tavilyApiKey');
+                const firesearchKey = config.get<string>('firesearchApiKey');
+                const tinyfishKey = config.get<string>('tinyfishApiKey');
                 const exaKey = config.get<string>('exaApiKey');
-                result = await WebSearchTools.searchWeb(query, tavilyKey, exaKey);
+                result = await WebSearchTools.searchWeb(query, {
+                  provider,
+                  tavilyKey,
+                  firesearchKey,
+                  tinyfishKey,
+                  exaKey
+                });
               } else if (toolName === 'runCommand') {
                 result = await this.terminalTools.runCommand(call.args.command);
               } else if (toolName === 'sendTerminalInput') {

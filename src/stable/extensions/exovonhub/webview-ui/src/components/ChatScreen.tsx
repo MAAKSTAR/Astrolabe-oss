@@ -349,6 +349,43 @@ function TaskProgressCard({ msg }: { msg: Message }) {
                 .trimStart();
             };
 
+            const renderOutputLines = (rawText: string) => {
+              const formatted = formatToolOutput(rawText);
+              if (!formatted) return null;
+
+              const lines: string[] = formatted.split('\n');
+              const hasLineNumbers = lines.length > 0 && lines.some((l: string) => /^\s*\d+\s*\|\s?/.test(l));
+
+              if (hasLineNumbers) {
+                return (
+                  <div className="space-y-0.5 font-mono text-[11px] leading-relaxed">
+                    {lines.map((line: string, idx: number) => {
+                      const match = line.match(/^(\s*\d+)\s*\|\s?(.*)$/);
+                      if (match) {
+                        return (
+                          <div key={idx} className="flex hover:bg-white/[0.04] -mx-3 px-3 rounded transition-colors group/codeline">
+                            <span className="text-zinc-500 select-none w-10 text-right pr-2.5 mr-2.5 border-r border-white/10 shrink-0 font-mono">
+                              {match[1].trim()}
+                            </span>
+                            <span className="text-zinc-200 whitespace-pre overflow-x-auto">
+                              {match[2]}
+                            </span>
+                          </div>
+                        );
+                      }
+                      return (
+                        <div key={idx} className="text-zinc-400 whitespace-pre">
+                          {line}
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              }
+
+              return <div className="whitespace-pre font-mono text-[11px] leading-relaxed text-zinc-200">{formatted}</div>;
+            };
+
             return (
               <details key={event.id} className="group relative z-10 animate-in fade-in slide-in-from-left-2 duration-300" open={event.status === 'running'}>
                 <summary className={`flex items-center gap-2.5 py-1.5 cursor-pointer list-none select-none hover:bg-white/5 transition-colors rounded-lg px-2 -ml-2 ${event.status === 'running' ? 'bg-zinc-800/60 border border-white/20 shadow-sm' : ''}`}>
@@ -420,10 +457,10 @@ function TaskProgressCard({ msg }: { msg: Message }) {
                       </div>
                     )
                   ) : (
-                    <div className="bg-zinc-900 border border-white/15 rounded-xl overflow-hidden shadow-sm transition-all font-mono">
+                    <div className="bg-zinc-900/60 border border-white/10 rounded-xl overflow-hidden shadow-sm transition-all font-mono">
                       {/* Command Bar (clean, no fake window chrome) */}
                       {isCommand && (
-                        <div className="flex items-center justify-between px-3 py-2 bg-zinc-800/80 border-b border-white/10 text-[11.5px] text-zinc-100">
+                        <div className="flex items-center justify-between px-3 py-2 bg-zinc-800/60 border-b border-white/10 text-[11.5px] text-zinc-100">
                           <div className="flex items-center gap-2 overflow-x-auto select-all">
                             <span className="text-emerald-400 font-bold select-none">$</span>
                             <span className="whitespace-pre">{commandText}</span>
@@ -445,27 +482,13 @@ function TaskProgressCard({ msg }: { msg: Message }) {
                         </div>
                       )}
 
-                      {/* File / Tool Target Info (when not a command, e.g. viewFile lineInfo) */}
-                      {!isCommand && (rawFilePath || lineInfo) && (
-                        <div className="flex items-center justify-between px-3 py-1.5 bg-zinc-800/80 border-b border-white/10 text-[11px] text-zinc-300">
-                          <span className="truncate max-w-[320px]" title={rawFilePath}>
-                            {rawFilePath}
-                          </span>
-                          {lineInfo && (
-                            <span className="text-[10px] text-zinc-500 bg-zinc-850 px-1.5 py-0.5 rounded border border-white/5">
-                              {lineInfo}
-                            </span>
-                          )}
-                        </div>
-                      )}
-
-                      {/* Execution Output Console (unwrapped stdout/stderr, no raw JSON) */}
+                      {/* Execution Output Console */}
                       {event.output ? (
-                        <div className="p-3 bg-zinc-950/70 max-h-64 min-h-[40px] overflow-y-auto overflow-x-auto scrollbar-thin select-all text-[11px] leading-relaxed text-zinc-200 whitespace-pre">
-                          {formatToolOutput(event.output)}
+                        <div className="p-3 bg-zinc-950/30 max-h-72 min-h-[40px] overflow-y-auto overflow-x-auto scrollbar-thin select-all">
+                          {renderOutputLines(event.output)}
                         </div>
                       ) : !isCommand && event.content && event.content !== '{}' ? (
-                        <div className="p-3 bg-zinc-950/70 max-h-64 min-h-[40px] overflow-y-auto overflow-x-auto scrollbar-thin select-all text-[11px] leading-relaxed text-zinc-200 whitespace-pre">
+                        <div className="p-3 bg-zinc-950/30 max-h-72 min-h-[40px] overflow-y-auto overflow-x-auto scrollbar-thin select-all text-[11px] leading-relaxed text-zinc-200 whitespace-pre">
                           {(() => {
                             try {
                               return JSON.stringify(parsedPayload, null, 2);
@@ -475,12 +498,12 @@ function TaskProgressCard({ msg }: { msg: Message }) {
                           })()}
                         </div>
                       ) : event.status === 'running' ? (
-                        <div className="p-2.5 bg-zinc-950/70 text-[11px] text-zinc-400 flex items-center gap-2">
+                        <div className="p-2.5 bg-zinc-950/30 text-[11px] text-zinc-400 flex items-center gap-2">
                           <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse"></span>
                           <span>Executing in background sandbox...</span>
                         </div>
                       ) : (
-                        <div className="p-2.5 bg-zinc-950/70 text-[10.5px] text-zinc-500 italic">
+                        <div className="p-2.5 bg-zinc-950/30 text-[10.5px] text-zinc-500 italic">
                           Execution completed with no output.
                         </div>
                       )}

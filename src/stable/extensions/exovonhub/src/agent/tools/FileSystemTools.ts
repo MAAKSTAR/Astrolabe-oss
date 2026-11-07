@@ -558,6 +558,12 @@ export class FileSystemTools implements FileSystemToolsInterface {
    */
   public async applyPatch(relativePath: string, searchBlock: string, replaceBlock: string): Promise<string> {
     relativePath = this.normalizeAgentPath(relativePath);
+    if (!searchBlock || typeof searchBlock !== 'string') {
+      return 'Error: searchBlock must be a non-empty string. Provide the exact text to replace.';
+    }
+    if (typeof replaceBlock !== 'string') {
+      replaceBlock = String(replaceBlock ?? '');
+    }
     try {
       await this.ensureShadowFile(relativePath);
 

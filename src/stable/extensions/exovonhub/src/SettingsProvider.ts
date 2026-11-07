@@ -90,8 +90,47 @@ export class SettingsProvider {
               enableGhostText: config.get<boolean>('enableGhostText', true),
               localModelSystemPrompt: config.get<string>('localModelSystemPrompt') || DEFAULT_LOCAL_SYSTEM_PROMPT,
               huggingFaceToken: config.get<string>('huggingFaceToken') || '',
-              useHfMirror: config.get<boolean>('useHfMirror', false)
+              useHfMirror: config.get<boolean>('useHfMirror', false),
+              searchProvider: config.get<string>('searchProvider') || 'tavily',
+              tavilyApiKey: config.get<string>('tavilyApiKey') || '',
+              firesearchApiKey: config.get<string>('firesearchApiKey') || '',
+              tinyfishApiKey: config.get<string>('tinyfishApiKey') || '',
+              browserEngine: config.get<string>('browserEngine') || 'headless'
             });
+            break;
+          }
+          case 'updateSearchConfig': {
+            try {
+              const config = vscode.workspace.getConfiguration('exovonhub');
+              if (data.provider !== undefined) {
+                await config.update('searchProvider', data.provider, vscode.ConfigurationTarget.Global);
+              }
+              if (data.tavilyApiKey !== undefined) {
+                await config.update('tavilyApiKey', data.tavilyApiKey, vscode.ConfigurationTarget.Global);
+              }
+              if (data.firesearchApiKey !== undefined) {
+                await config.update('firesearchApiKey', data.firesearchApiKey, vscode.ConfigurationTarget.Global);
+              }
+              if (data.tinyfishApiKey !== undefined) {
+                await config.update('tinyfishApiKey', data.tinyfishApiKey, vscode.ConfigurationTarget.Global);
+              }
+              if (data.browserEngine !== undefined) {
+                await config.update('browserEngine', data.browserEngine, vscode.ConfigurationTarget.Global);
+              }
+              this._panel.webview.postMessage({
+                type: 'settingsState',
+                searchProvider: config.get<string>('searchProvider') || 'tavily',
+                tavilyApiKey: config.get<string>('tavilyApiKey') || '',
+                firesearchApiKey: config.get<string>('firesearchApiKey') || '',
+                tinyfishApiKey: config.get<string>('tinyfishApiKey') || '',
+                browserEngine: config.get<string>('browserEngine') || 'headless'
+              });
+              if (data.showNotification !== false) {
+                vscode.window.showInformationMessage('Agent Web Search configuration saved.');
+              }
+            } catch (err: any) {
+              vscode.window.showErrorMessage(`Failed to save web search settings: ${err.message}`);
+            }
             break;
           }
           case 'setInlineGhostModel': {

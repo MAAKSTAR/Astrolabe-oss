@@ -7,7 +7,7 @@
   "displayName": "Astrolabe",
   "publisher": "exovon",
   "description": "",
-  "version": "0.0.8",
+  "version": "0.0.9",
   "engines": {
     "vscode": "^1.89.0"
   },
@@ -302,10 +302,38 @@
           "default": false,
           "description": "If enabled, the agent will execute all file writes and command lines autonomously in a speculative shadow workspace (.exovon-shadow) without asking for individual approvals, presenting a clean visual diff upon completion."
         },
+        "exovonhub.searchProvider": {
+          "type": "string",
+          "default": "tavily",
+          "enum": ["tavily", "firesearch", "tinyfish", "duckduckgo"],
+          "enumDescriptions": [
+            "Tavily Semantic Search (Fast, LLM-optimized)",
+            "Firesearch / Firecrawl (Deep web markdown extraction)",
+            "TinyFish Search (Agentic web discovery)",
+            "DuckDuckGo (Free / No API Key required)"
+          ],
+          "description": "The search provider used by the agent for internet research."
+        },
         "exovonhub.tavilyApiKey": {
           "type": "string",
           "default": "",
           "description": "API Key for Tavily Semantic Search. This is the default preferred engine for clean, parsed LLM-ready web searches."
+        },
+        "exovonhub.firesearchApiKey": {
+          "type": "string",
+          "default": "",
+          "description": "API Key for Firesearch / Firecrawl search API."
+        },
+        "exovonhub.tinyfishApiKey": {
+          "type": "string",
+          "default": "",
+          "description": "API Key for TinyFish Search API."
+        },
+        "exovonhub.browserEngine": {
+          "type": "string",
+          "default": "headless",
+          "enum": ["headless", "webview"],
+          "description": "Browser automation engine used by the agent."
         },
         "exovonhub.exaApiKey": {
           "type": "string",

@@ -3518,46 +3518,56 @@ MANDATORY RULES:
                                 result = await this.fsTools.viewFile(relPath, isNaN(startLine) ? undefined : startLine, isNaN(endLine) ? undefined : endLine);
                             }
                             else if (toolName === 'applyPatch') {
-                                if (call.args.relativePath.includes('.vscode/settings.json') || call.args.relativePath.includes('.vscode/tasks.json')) {
+                                const patchPath = call.args.relativePath || call.args.path || call.args.file || call.args.filePath || call.args.target_file || relPath;
+                                const searchBlock = call.args.searchBlock ?? call.args.search ?? call.args.search_block ?? call.args.old_str ?? call.args.oldStr ?? call.args.target ?? call.args.find ?? call.args.before;
+                                const replaceBlock = call.args.replaceBlock ?? call.args.replace ?? call.args.replace_block ?? call.args.new_str ?? call.args.newStr ?? call.args.replacement ?? call.args.after ?? '';
+                                if (patchPath.includes('.vscode/settings.json') || patchPath.includes('.vscode/tasks.json')) {
                                     const approved = await this.fileApprovalCallback({
-                                        type: 'modify', path: call.args.relativePath, details: '⚠️ HIGH-RISK SETTINGS MODIFICATION ⚠️\nThis agent is attempting to modify workspace execution settings. This can be an RCE vector.'
+                                        type: 'modify', path: patchPath, details: '⚠️ HIGH-RISK SETTINGS MODIFICATION ⚠️\nThis agent is attempting to modify workspace execution settings. This can be an RCE vector.'
                                     });
                                     if (!approved) {
                                         result = 'Rejected: High-risk settings modification rejected by user.';
                                         throw new Error(result);
                                     }
                                 }
-                                result = await this.fsTools.applyPatch(call.args.relativePath, call.args.searchBlock, call.args.replaceBlock);
+                                result = await this.fsTools.applyPatch(patchPath, searchBlock, replaceBlock);
                                 if (result.startsWith('Error')) {
                                     throw new Error(result);
                                 }
-                                this.modifiedFiles.add(call.args.relativePath);
-                                this.onUpdate({ type: 'log', text: `Applied patch to: "${call.args.relativePath}"`, logType: 'info' });
+                                this.modifiedFiles.add(patchPath);
+                                this.onUpdate({ type: 'log', text: `Applied patch to: "${patchPath}"`, logType: 'info' });
                             }
                             else if (toolName === 'multiReplaceFileContent') {
-                                if (call.args.relativePath.includes('.vscode/settings.json') || call.args.relativePath.includes('.vscode/tasks.json')) {
+                                const replacePath = call.args.relativePath || call.args.path || call.args.file || call.args.filePath || relPath;
+                                const startLine = call.args.startLine ?? call.args.StartLine ?? call.args.start_line ?? call.args.fromLine ?? 1;
+                                const endLine = call.args.endLine ?? call.args.EndLine ?? call.args.end_line ?? call.args.toLine ?? 1;
+                                const replacementContent = call.args.replacementContent ?? call.args.content ?? call.args.replacement ?? call.args.text ?? call.args.code ?? '';
+                                if (replacePath.includes('.vscode/settings.json') || replacePath.includes('.vscode/tasks.json')) {
                                     throw new Error('Rejected: High-risk settings modification.');
                                 }
-                                result = await this.fsTools.multiReplaceFileContent(call.args.relativePath, call.args.startLine, call.args.endLine, call.args.replacementContent);
+                                result = await this.fsTools.multiReplaceFileContent(replacePath, Number(startLine), Number(endLine), replacementContent);
                                 if (result.startsWith('Error')) {
                                     throw new Error(result);
                                 }
-                                this.modifiedFiles.add(call.args.relativePath);
-                                this.onUpdate({ type: 'log', text: `Modified lines ${call.args.startLine}-${call.args.endLine} of: "${call.args.relativePath}"`, logType: 'info' });
+                                this.modifiedFiles.add(replacePath);
+                                this.onUpdate({ type: 'log', text: `Modified lines ${startLine}-${endLine} of: "${replacePath}"`, logType: 'info' });
                             }
                             else if (toolName === 'createFile') {
-                                if (call.args.relativePath.includes('.vscode/settings.json') || call.args.relativePath.includes('.vscode/tasks.json')) {
+                                const createPath = call.args.relativePath || call.args.path || call.args.file || call.args.filePath || relPath;
+                                const fileContent = call.args.content ?? call.args.contents ?? call.args.text ?? call.args.code ?? call.args.replacementContent ?? '';
+                                if (createPath.includes('.vscode/settings.json') || createPath.includes('.vscode/tasks.json')) {
                                     throw new Error('Rejected: High-risk settings modification.');
                                 }
-                                result = await this.fsTools.createFile(call.args.relativePath, call.args.content);
+                                result = await this.fsTools.createFile(createPath, fileContent);
                                 if (result.startsWith('Error')) {
                                     throw new Error(result);
                                 }
-                                this.modifiedFiles.add(call.args.relativePath);
-                                this.onUpdate({ type: 'log', text: `Created file: "${call.args.relativePath}"`, logType: 'info' });
+                                this.modifiedFiles.add(createPath);
+                                this.onUpdate({ type: 'log', text: `Created file: "${createPath}"`, logType: 'info' });
                             }
                             else if (toolName === 'deleteFile') {
-                                result = await this.fsTools.deleteFile(call.args.relativePath);
+                                const deletePath = call.args.relativePath || call.args.path || call.args.file || relPath;
+                                result = await this.fsTools.deleteFile(deletePath);
                                 if (result.startsWith('Error')) {
                                     throw new Error(result);
                                 }
@@ -3576,9 +3586,18 @@ MANDATORY RULES:
                             else if (toolName === 'searchWeb') {
                                 this.onUpdate({ type: 'log', text: `🌐 Searching the web for: "${query}"`, logType: 'info' });
                                 const config = vscode.workspace.getConfiguration('exovonhub');
+                                const provider = config.get('searchProvider') || 'tavily';
                                 const tavilyKey = config.get('tavilyApiKey');
+                                const firesearchKey = config.get('firesearchApiKey');
+                                const tinyfishKey = config.get('tinyfishApiKey');
                                 const exaKey = config.get('exaApiKey');
-                                result = await WebSearchTools_1.WebSearchTools.searchWeb(query, tavilyKey, exaKey);
+                                result = await WebSearchTools_1.WebSearchTools.searchWeb(query, {
+                                    provider,
+                                    tavilyKey,
+                                    firesearchKey,
+                                    tinyfishKey,
+                                    exaKey
+                                });
                             }
                             else if (toolName === 'runCommand') {
                                 result = await this.terminalTools.runCommand(call.args.command);
@@ -8225,6 +8244,12 @@ class FileSystemTools {
      */
     async applyPatch(relativePath, searchBlock, replaceBlock) {
         relativePath = this.normalizeAgentPath(relativePath);
+        if (!searchBlock || typeof searchBlock !== 'string') {
+            return 'Error: searchBlock must be a non-empty string. Provide the exact text to replace.';
+        }
+        if (typeof replaceBlock !== 'string') {
+            replaceBlock = String(replaceBlock ?? '');
+        }
         try {
             await this.ensureShadowFile(relativePath);
             const fullPath = this.resolveWritePath(relativePath);
@@ -9088,17 +9113,55 @@ Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.WebSearchTools = void 0;
 class WebSearchTools {
     /**
-     * Performs semantic web search using Tavily or Exa API.
+     * Performs semantic web search using Tavily, Firesearch, TinyFish, Exa, or DuckDuckGo fallback.
      */
-    static async searchWeb(query, tavilyKey, exaKey) {
-        if (tavilyKey) {
-            return this.searchTavily(query, tavilyKey);
+    static async searchWeb(query, optionsOrTavilyKey, exaKey) {
+        let opts = {};
+        if (typeof optionsOrTavilyKey === 'string') {
+            opts = { tavilyKey: optionsOrTavilyKey, exaKey };
         }
-        else if (exaKey) {
-            return this.searchExa(query, exaKey);
+        else if (optionsOrTavilyKey) {
+            opts = optionsOrTavilyKey;
+        }
+        const provider = (opts.provider || 'tavily').toLowerCase();
+        if (provider === 'tavily') {
+            if (!opts.tavilyKey) {
+                return `Error: No Tavily API key configured. Please set your Tavily API Key in Settings > Browser > Agent Web Tools.`;
+            }
+            return this.searchTavily(query, opts.tavilyKey);
+        }
+        else if (provider === 'firesearch' || provider === 'firecrawl') {
+            if (!opts.firesearchKey) {
+                return `Error: No Firesearch API key configured. Please set your Firesearch API Key in Settings > Browser > Agent Web Tools.`;
+            }
+            return this.searchFiresearch(query, opts.firesearchKey);
+        }
+        else if (provider === 'tinyfish') {
+            if (!opts.tinyfishKey) {
+                return `Error: No TinyFish API key configured. Please set your TinyFish API Key in Settings > Browser > Agent Web Tools.`;
+            }
+            return this.searchTinyfish(query, opts.tinyfishKey);
+        }
+        else if (provider === 'exa') {
+            if (!opts.exaKey) {
+                return `Error: No Exa API key configured. Please set your Exa API Key in Settings.`;
+            }
+            return this.searchExa(query, opts.exaKey);
+        }
+        else if (provider === 'duckduckgo' || provider === 'free') {
+            return this.searchDuckDuckGo(query);
         }
         else {
-            return `Error: No semantic search API key configured. Please set 'exovonhub.tavilyApiKey' or 'exovonhub.exaApiKey' in settings to use the Web Search tool.`;
+            // Fallback: check which key is available
+            if (opts.tavilyKey)
+                return this.searchTavily(query, opts.tavilyKey);
+            if (opts.firesearchKey)
+                return this.searchFiresearch(query, opts.firesearchKey);
+            if (opts.tinyfishKey)
+                return this.searchTinyfish(query, opts.tinyfishKey);
+            if (opts.exaKey)
+                return this.searchExa(query, opts.exaKey);
+            return this.searchDuckDuckGo(query);
         }
     }
     static async searchTavily(query, apiKey) {
@@ -9128,10 +9191,99 @@ class WebSearchTools {
                     responseStr += `- ${r.title} (${r.url})\n  ${r.content}\n\n`;
                 });
             }
-            return responseStr || 'No results found.';
+            return responseStr.trim() || 'No results found.';
         }
         catch (e) {
-            return `Request Error: ${e.message}`;
+            return `Tavily Request Error: ${e.message}`;
+        }
+    }
+    static async searchFiresearch(query, apiKey) {
+        try {
+            const response = await fetch('https://api.firecrawl.dev/v1/search', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${apiKey}`
+                },
+                body: JSON.stringify({
+                    query: query,
+                    limit: 5
+                })
+            });
+            if (!response.ok) {
+                return `Firesearch API Error: ${response.status} - ${await response.text()}`;
+            }
+            const data = await response.json();
+            const results = data.data || data.results || [];
+            if (results.length === 0)
+                return 'No Firesearch results found.';
+            let responseStr = 'Firesearch Results:\n';
+            results.forEach((r) => {
+                const title = r.title || r.metadata?.title || 'Web Result';
+                const url = r.url || r.metadata?.sourceURL || '';
+                const snippet = r.markdown || r.description || r.content || '';
+                responseStr += `- ${title} (${url})\n  ${snippet.slice(0, 400)}\n\n`;
+            });
+            return responseStr.trim();
+        }
+        catch (e) {
+            return `Firesearch Request Error: ${e.message}`;
+        }
+    }
+    static async searchTinyfish(query, apiKey) {
+        try {
+            const response = await fetch('https://api.tinyfish.io/v1/search', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${apiKey}`
+                },
+                body: JSON.stringify({
+                    query: query,
+                    max_results: 5
+                })
+            });
+            if (!response.ok) {
+                return `TinyFish API Error: ${response.status} - ${await response.text()}`;
+            }
+            const data = await response.json();
+            const results = data.results || data.data || [];
+            if (results.length === 0)
+                return 'No TinyFish results found.';
+            let responseStr = 'TinyFish Results:\n';
+            results.forEach((r) => {
+                responseStr += `- ${r.title || 'Result'} (${r.url || ''})\n  ${r.snippet || r.content || ''}\n\n`;
+            });
+            return responseStr.trim();
+        }
+        catch (e) {
+            return `TinyFish Request Error: ${e.message}`;
+        }
+    }
+    static async searchDuckDuckGo(query) {
+        try {
+            const url = `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1&skip_disambig=1`;
+            const response = await fetch(url);
+            if (!response.ok) {
+                return `DuckDuckGo Error: ${response.status}`;
+            }
+            const data = await response.json();
+            let responseStr = '';
+            if (data.AbstractText) {
+                responseStr += `Abstract (${data.AbstractSource || 'DuckDuckGo'}): ${data.AbstractText}\nURL: ${data.AbstractURL}\n\n`;
+            }
+            if (data.RelatedTopics && Array.isArray(data.RelatedTopics)) {
+                responseStr += `Related Information:\n`;
+                data.RelatedTopics.slice(0, 5).forEach((t) => {
+                    if (t.Text && t.FirstURL) {
+                        responseStr += `- ${t.Text} (${t.FirstURL})\n`;
+                    }
+                });
+            }
+            return responseStr.trim() || `No direct DuckDuckGo abstract found for "${query}". Consider configuring a Tavily or Firesearch API key in Settings > Browser.`;
+        }
+        catch (e) {
+            return `DuckDuckGo Request Error: ${e.message}`;
         }
     }
     static async searchExa(query, apiKey) {
@@ -50347,8 +50499,48 @@ class SettingsProvider {
                         enableGhostText: config.get('enableGhostText', true),
                         localModelSystemPrompt: config.get('localModelSystemPrompt') || DEFAULT_LOCAL_SYSTEM_PROMPT,
                         huggingFaceToken: config.get('huggingFaceToken') || '',
-                        useHfMirror: config.get('useHfMirror', false)
+                        useHfMirror: config.get('useHfMirror', false),
+                        searchProvider: config.get('searchProvider') || 'tavily',
+                        tavilyApiKey: config.get('tavilyApiKey') || '',
+                        firesearchApiKey: config.get('firesearchApiKey') || '',
+                        tinyfishApiKey: config.get('tinyfishApiKey') || '',
+                        browserEngine: config.get('browserEngine') || 'headless'
                     });
+                    break;
+                }
+                case 'updateSearchConfig': {
+                    try {
+                        const config = vscode.workspace.getConfiguration('exovonhub');
+                        if (data.provider !== undefined) {
+                            await config.update('searchProvider', data.provider, vscode.ConfigurationTarget.Global);
+                        }
+                        if (data.tavilyApiKey !== undefined) {
+                            await config.update('tavilyApiKey', data.tavilyApiKey, vscode.ConfigurationTarget.Global);
+                        }
+                        if (data.firesearchApiKey !== undefined) {
+                            await config.update('firesearchApiKey', data.firesearchApiKey, vscode.ConfigurationTarget.Global);
+                        }
+                        if (data.tinyfishApiKey !== undefined) {
+                            await config.update('tinyfishApiKey', data.tinyfishApiKey, vscode.ConfigurationTarget.Global);
+                        }
+                        if (data.browserEngine !== undefined) {
+                            await config.update('browserEngine', data.browserEngine, vscode.ConfigurationTarget.Global);
+                        }
+                        this._panel.webview.postMessage({
+                            type: 'settingsState',
+                            searchProvider: config.get('searchProvider') || 'tavily',
+                            tavilyApiKey: config.get('tavilyApiKey') || '',
+                            firesearchApiKey: config.get('firesearchApiKey') || '',
+                            tinyfishApiKey: config.get('tinyfishApiKey') || '',
+                            browserEngine: config.get('browserEngine') || 'headless'
+                        });
+                        if (data.showNotification !== false) {
+                            vscode.window.showInformationMessage('Agent Web Search configuration saved.');
+                        }
+                    }
+                    catch (err) {
+                        vscode.window.showErrorMessage(`Failed to save web search settings: ${err.message}`);
+                    }
                     break;
                 }
                 case 'setInlineGhostModel': {

@@ -694,6 +694,15 @@ export default function SettingsApp() {
   const [useHfMirror, setUseHfMirror] = useState<boolean>(false);
   const [isHfTokenSaved, setIsHfTokenSaved] = useState<boolean>(false);
 
+  // Web Search & Browser Automation States
+  const [searchProvider, setSearchProvider] = useState<'tavily' | 'firesearch' | 'tinyfish' | 'duckduckgo'>('tavily');
+  const [tavilyApiKey, setTavilyApiKey] = useState<string>('');
+  const [firesearchApiKey, setFiresearchApiKey] = useState<string>('');
+  const [tinyfishApiKey, setTinyfishApiKey] = useState<string>('');
+  const [browserEngine, setBrowserEngine] = useState<'headless' | 'webview'>('headless');
+  const [showSearchKey, setShowSearchKey] = useState<boolean>(false);
+  const [isSearchKeySaved, setIsSearchKeySaved] = useState<boolean>(false);
+
   // Header Downloads Popover Tray State
   const [isDownloadsTrayOpen, setIsDownloadsTrayOpen] = useState(false);
   const [downloadsFilterQuery, setDownloadsFilterQuery] = useState('');
@@ -1057,6 +1066,21 @@ export default function SettingsApp() {
         }
         if (event.data.useHfMirror !== undefined) {
           setUseHfMirror(event.data.useHfMirror);
+        }
+        if (event.data.searchProvider !== undefined) {
+          setSearchProvider(event.data.searchProvider);
+        }
+        if (event.data.tavilyApiKey !== undefined) {
+          setTavilyApiKey(event.data.tavilyApiKey);
+        }
+        if (event.data.firesearchApiKey !== undefined) {
+          setFiresearchApiKey(event.data.firesearchApiKey);
+        }
+        if (event.data.tinyfishApiKey !== undefined) {
+          setTinyfishApiKey(event.data.tinyfishApiKey);
+        }
+        if (event.data.browserEngine !== undefined) {
+          setBrowserEngine(event.data.browserEngine);
         }
       } else if (event.data.type === 'inlineGhostModelUpdated') {
         setInlineGhostModel(event.data.model);
@@ -2526,36 +2550,267 @@ export default function SettingsApp() {
             <div className="glass-panel-dark rounded-2xl p-6">
               <h3 className="text-sm font-bold text-white tracking-widest uppercase mb-6 flex items-center gap-2">
                 <svg className="w-4 h-4 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" /></svg>
-                Agent Web Tools
+                Agent Web Tools & Live Search
               </h3>
               
               <div className="space-y-6">
                 <div>
-                  <h4 className="text-sm font-bold text-zinc-300 mb-2">Default Search Engine</h4>
-                  <p className="text-xs text-zinc-500 mb-4">The engine the agent uses when performing internet research.</p>
-                  <select className="w-full bg-zinc-950 border border-white/10 rounded-xl p-3 text-sm text-zinc-300 focus:border-orange-500 focus:ring-1 focus:ring-orange-500 outline-none appearance-none cursor-pointer">
-                    <option>Google Search (Recommended)</option>
-                    <option>DuckDuckGo</option>
-                    <option>Bing Search</option>
+                  <div className="flex items-center justify-between mb-2">
+                    <h4 className="text-sm font-bold text-zinc-300">Search Engine Provider</h4>
+                    {searchProvider !== 'duckduckgo' && (
+                      <a
+                        href={
+                          searchProvider === 'tavily'
+                            ? 'https://tavily.com'
+                            : searchProvider === 'firesearch'
+                            ? 'https://firecrawl.dev'
+                            : 'https://tinyfish.io'
+                        }
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-[11px] text-orange-400/90 hover:text-orange-300 transition-colors flex items-center gap-1 underline underline-offset-2"
+                      >
+                        <span>
+                          {searchProvider === 'tavily'
+                            ? 'Get Tavily API key'
+                            : searchProvider === 'firesearch'
+                            ? 'Get Firecrawl key'
+                            : 'Get TinyFish key'}
+                        </span>
+                        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                        </svg>
+                      </a>
+                    )}
+                  </div>
+                  <p className="text-xs text-zinc-500 mb-3">
+                    Choose the real-time search engine used by the AI Agent when calling <code className="text-orange-400 font-mono text-[11px]">searchWeb</code>.
+                  </p>
+                  <select
+                    value={searchProvider}
+                    onChange={(e) => {
+                      const newProvider = e.target.value as 'tavily' | 'firesearch' | 'tinyfish' | 'duckduckgo';
+                      setSearchProvider(newProvider);
+                      setIsSearchKeySaved(false);
+                      vscodeApi?.postMessage({
+                        command: 'updateSearchConfig',
+                        provider: newProvider,
+                        tavilyApiKey,
+                        firesearchApiKey,
+                        tinyfishApiKey,
+                        browserEngine,
+                        showNotification: false
+                      });
+                    }}
+                    className="w-full bg-zinc-950 border border-white/10 rounded-xl p-3 text-sm text-zinc-200 focus:border-orange-500 focus:ring-1 focus:ring-orange-500 outline-none cursor-pointer transition-colors"
+                  >
+                    <option value="tavily">Tavily Search (Recommended for LLMs & Research)</option>
+                    <option value="firesearch">Firesearch / Firecrawl (Scraping & Clean Markdown)</option>
+                    <option value="tinyfish">TinyFish Search (Agentic Real-Time Discovery)</option>
+                    <option value="duckduckgo">DuckDuckGo (Free / No Key Required)</option>
                   </select>
                 </div>
 
+                {searchProvider !== 'duckduckgo' ? (
+                  <div className="rounded-xl border border-white/10 bg-black/40 p-4 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-semibold text-zinc-300 uppercase tracking-wider">
+                        {searchProvider === 'tavily'
+                          ? 'Tavily API Key'
+                          : searchProvider === 'firesearch'
+                          ? 'Firesearch / Firecrawl API Key'
+                          : 'TinyFish API Key'}
+                      </label>
+                      <span className="text-[11px] text-zinc-500">Stored safely in encrypted extension storage</span>
+                    </div>
+
+                    <div className="flex gap-2">
+                      <div className="relative flex-1">
+                        <input
+                          type={showSearchKey ? 'text' : 'password'}
+                          placeholder={
+                            searchProvider === 'tavily'
+                              ? 'tvly-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'
+                              : searchProvider === 'firesearch'
+                              ? 'fc-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'
+                              : 'tf-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'
+                          }
+                          value={
+                            searchProvider === 'tavily'
+                              ? tavilyApiKey
+                              : searchProvider === 'firesearch'
+                              ? firesearchApiKey
+                              : tinyfishApiKey
+                          }
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            if (searchProvider === 'tavily') setTavilyApiKey(val);
+                            else if (searchProvider === 'firesearch') setFiresearchApiKey(val);
+                            else setTinyfishApiKey(val);
+                            setIsSearchKeySaved(false);
+                          }}
+                          className="w-full bg-zinc-950 border border-white/15 rounded-lg px-3 py-2 text-xs font-mono text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-orange-500 transition-colors pr-14"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowSearchKey(!showSearchKey)}
+                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300 text-xs cursor-pointer select-none"
+                        >
+                          {showSearchKey ? 'Hide' : 'Show'}
+                        </button>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          vscodeApi?.postMessage({
+                            command: 'updateSearchConfig',
+                            provider: searchProvider,
+                            tavilyApiKey: tavilyApiKey.trim(),
+                            firesearchApiKey: firesearchApiKey.trim(),
+                            tinyfishApiKey: tinyfishApiKey.trim(),
+                            browserEngine,
+                            showNotification: true
+                          });
+                          setIsSearchKeySaved(true);
+                        }}
+                        className={`px-4 py-2 rounded-lg text-xs font-medium transition-all cursor-pointer whitespace-nowrap ${
+                          isSearchKeySaved
+                            ? 'bg-zinc-800 text-emerald-400 border border-emerald-500/30'
+                            : 'bg-orange-500 hover:bg-orange-600 text-black font-semibold'
+                        }`}
+                      >
+                        {isSearchKeySaved ? 'Saved ✓' : 'Save Key'}
+                      </button>
+
+                      {((searchProvider === 'tavily' && tavilyApiKey) ||
+                        (searchProvider === 'firesearch' && firesearchApiKey) ||
+                        (searchProvider === 'tinyfish' && tinyfishApiKey)) && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (searchProvider === 'tavily') setTavilyApiKey('');
+                            else if (searchProvider === 'firesearch') setFiresearchApiKey('');
+                            else setTinyfishApiKey('');
+
+                            vscodeApi?.postMessage({
+                              command: 'updateSearchConfig',
+                              provider: searchProvider,
+                              tavilyApiKey: searchProvider === 'tavily' ? '' : tavilyApiKey,
+                              firesearchApiKey: searchProvider === 'firesearch' ? '' : firesearchApiKey,
+                              tinyfishApiKey: searchProvider === 'tinyfish' ? '' : tinyfishApiKey,
+                              browserEngine,
+                              showNotification: false
+                            });
+                            setIsSearchKeySaved(false);
+                          }}
+                          className="px-3 py-2 rounded-lg text-xs font-medium text-zinc-400 bg-zinc-900 hover:bg-zinc-800 border border-white/5 transition-colors cursor-pointer"
+                        >
+                          Clear
+                        </button>
+                      )}
+                    </div>
+
+                    <p className="text-[11px] text-zinc-500">
+                      {searchProvider === 'tavily'
+                        ? 'Tavily formats search results into dense, hallucination-resistant factual context specifically optimized for agentic LLMs.'
+                        : searchProvider === 'firesearch'
+                        ? 'Firecrawl parses modern websites into clean LLM-ready markdown, bypassing paywalls and anti-scraping protections.'
+                        : 'TinyFish powers real-time discovery and high-speed information synthesis for autonomous developer agents.'}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="rounded-xl border border-white/10 bg-emerald-500/5 p-4 flex items-center gap-3">
+                    <svg className="w-5 h-5 text-emerald-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <div>
+                      <h5 className="text-xs font-bold text-emerald-300">Free DuckDuckGo Search Active</h5>
+                      <p className="text-[11px] text-zinc-400 mt-0.5">
+                        No API key or registration required. Agent web queries will be resolved instantly using public DuckDuckGo search.
+                      </p>
+                    </div>
+                  </div>
+                )}
+
                 <div className="border-t border-white/5 pt-6">
-                  <h4 className="text-sm font-bold text-zinc-300 mb-2">Browser Automation Engine</h4>
-                  <p className="text-xs text-zinc-500 mb-4">How the agent loads websites internally.</p>
-                  <div className="space-y-3">
-                    <label className="flex items-center gap-3 p-3 rounded-xl border border-orange-500/30 bg-orange-500/10 cursor-pointer">
-                      <input type="radio" name="browser" defaultChecked className="w-4 h-4 text-orange-500 bg-zinc-900 border-white/20 focus:ring-orange-500 focus:ring-2" />
+                  <div className="mb-2">
+                    <h4 className="text-sm font-bold text-zinc-300">Browser Automation Engine</h4>
+                    <p className="text-xs text-zinc-500 mt-1">
+                      Controls how the agent interacts with external websites and previews web applications.
+                    </p>
+                  </div>
+
+                  <div className="space-y-3 mt-4">
+                    <label
+                      onClick={() => {
+                        setBrowserEngine('headless');
+                        vscodeApi?.postMessage({
+                          command: 'updateSearchConfig',
+                          provider: searchProvider,
+                          tavilyApiKey,
+                          firesearchApiKey,
+                          tinyfishApiKey,
+                          browserEngine: 'headless',
+                          showNotification: false
+                        });
+                      }}
+                      className={`flex items-start gap-3 p-4 rounded-xl border cursor-pointer transition-all ${
+                        browserEngine === 'headless'
+                          ? 'border-orange-500/40 bg-orange-500/10'
+                          : 'border-white/5 bg-zinc-950 hover:border-white/15'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="browser"
+                        checked={browserEngine === 'headless'}
+                        onChange={() => {}}
+                        className="mt-0.5 w-4 h-4 text-orange-500 bg-zinc-900 border-white/20 focus:ring-orange-500"
+                      />
                       <div>
-                        <span className="block text-sm font-bold text-orange-400">Headless Chrome (Native)</span>
-                        <span className="block text-xs text-zinc-400">Fast, invisible background execution.</span>
+                        <span className={`block text-sm font-bold ${browserEngine === 'headless' ? 'text-orange-400' : 'text-zinc-200'}`}>
+                          Headless Chrome (Native Agent)
+                        </span>
+                        <span className="block text-xs text-zinc-400 mt-0.5">
+                          Runs an invisible, fast Chromium background process. The AI Agent uses this to execute dynamic client-side JavaScript (React, Vue, SPAs), take DOM snapshots, and extract data from interactive websites.
+                        </span>
                       </div>
                     </label>
-                    <label className="flex items-center gap-3 p-3 rounded-xl border border-white/5 bg-zinc-950 hover:border-white/20 transition-colors cursor-pointer">
-                      <input type="radio" name="browser" className="w-4 h-4 text-orange-500 bg-zinc-900 border-white/20 focus:ring-orange-500 focus:ring-2" />
+
+                    <label
+                      onClick={() => {
+                        setBrowserEngine('webview');
+                        vscodeApi?.postMessage({
+                          command: 'updateSearchConfig',
+                          provider: searchProvider,
+                          tavilyApiKey,
+                          firesearchApiKey,
+                          tinyfishApiKey,
+                          browserEngine: 'webview',
+                          showNotification: false
+                        });
+                      }}
+                      className={`flex items-start gap-3 p-4 rounded-xl border cursor-pointer transition-all ${
+                        browserEngine === 'webview'
+                          ? 'border-orange-500/40 bg-orange-500/10'
+                          : 'border-white/5 bg-zinc-950 hover:border-white/15'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="browser"
+                        checked={browserEngine === 'webview'}
+                        onChange={() => {}}
+                        className="mt-0.5 w-4 h-4 text-orange-500 bg-zinc-900 border-white/20 focus:ring-orange-500"
+                      />
                       <div>
-                        <span className="block text-sm font-bold text-zinc-300">System Webview</span>
-                        <span className="block text-xs text-zinc-500">Opens a visible window. Best for debugging.</span>
+                        <span className={`block text-sm font-bold ${browserEngine === 'webview' ? 'text-orange-400' : 'text-zinc-200'}`}>
+                          System Webview (Simple Browser)
+                        </span>
+                        <span className="block text-xs text-zinc-400 mt-0.5">
+                          Opens an interactive web preview inside the IDE editor tabs. Recommended for viewing localhost web development (e.g., <code className="text-zinc-300 font-mono">localhost:3000</code>), live frontend testing, and visual layout inspection.
+                        </span>
                       </div>
                     </label>
                   </div>
