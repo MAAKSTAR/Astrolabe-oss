@@ -876,7 +876,7 @@ export function ChatScreen({
     e.preventDefault();
     e.stopPropagation();
     dragCounter.current += 1;
-    if (e.dataTransfer.items && e.dataTransfer.items.length > 0) {
+    if ((e.dataTransfer.items && e.dataTransfer.items.length > 0) || (e.dataTransfer.types && e.dataTransfer.types.length > 0)) {
       setIsDraggingOver(true);
     }
   };
@@ -1018,7 +1018,7 @@ export function ChatScreen({
         return;
       }
       if (typeof obj === 'object') {
-        const candidate = obj.fsPath || obj.path || obj.resource?.fsPath || obj.resource?.path || obj.resourceUri?.fsPath || obj.resourceUri?.path || obj.uri?.fsPath || obj.uri?.path;
+        const candidate = obj.fsPath || obj.path || (typeof obj.resource === 'string' ? obj.resource : (obj.resource?.fsPath || obj.resource?.path)) || obj.resourceUri?.fsPath || obj.resourceUri?.path || obj.uri?.fsPath || obj.uri?.path;
         if (candidate && typeof candidate === 'string') {
           extractedFilePaths.push(candidate);
         }
@@ -1031,34 +1031,47 @@ export function ChatScreen({
       }
     };
 
-    // A. VS Code internal drag data types (application/vnd.code.editor, application/vnd.code.resource, etc.)
-    const codeTypes = [
+    // A. Parse any candidate data types in dataTransfer (CodeEditors, ResourceURLs, CodeFiles, etc.)
+    const candidateTypes = [
+      'ResourceURLs',
+      'resourceurls',
+      'CodeEditors',
+      'codeeditors',
+      'CodeFiles',
+      'codefiles',
       'application/vnd.code.editor',
       'application/vnd.code.resource',
       'application/vnd.code.tree.transfer',
-      'codeitems'
+      'codeitems',
+      'text/uri-list'
     ];
-    for (const ct of codeTypes) {
-      const data = e.dataTransfer.getData(ct);
+
+    for (const type of candidateTypes) {
+      const data = e.dataTransfer.getData(type);
       if (data) {
         try {
           const parsed = JSON.parse(data);
           extractFromObject(parsed);
         } catch {
           if (data.includes('file://') || data.startsWith('/')) {
-            extractedFilePaths.push(data);
+            const lines = data.split(/[\r\n]+/).map(s => s.trim()).filter(Boolean);
+            lines.forEach(l => {
+              if (!l.startsWith('#')) extractedFilePaths.push(l);
+            });
           }
         }
       }
     }
 
-    // B. Check standard text/uri-list (for dragged editor tabs and file explorer items)
-    const uriList = e.dataTransfer.getData('text/uri-list');
-    if (uriList) {
-      const lines = uriList.split(/[\r\n]+/).map(s => s.trim()).filter(Boolean);
-      for (const line of lines) {
-        if (!line.startsWith('#')) {
-          extractedFilePaths.push(line);
+    // B. Also scan any other types present in e.dataTransfer.types
+    if (e.dataTransfer.types) {
+      for (const t of Array.from(e.dataTransfer.types)) {
+        if (t === 'Files' || t === 'text/plain' || candidateTypes.includes(t)) continue;
+        const data = e.dataTransfer.getData(t);
+        if (data && (data.includes('{') || data.includes('['))) {
+          try {
+            extractFromObject(JSON.parse(data));
+          } catch {}
         }
       }
     }
@@ -1105,16 +1118,11 @@ export function ChatScreen({
     >
       {/* UPSIDE EMPTY PLACE: CONTEXT PICKER HEADER */}
       <div className={`flex flex-wrap items-center gap-1.5 pb-2 pt-1 px-1 shrink-0 border-b transition-colors ${
-        isDraggingOver ? 'border-sky-500/40 bg-sky-950/20' : 'border-white/5'
+        isDraggingOver ? 'border-sky-500/30 bg-sky-950/10' : 'border-white/5'
       }`}>
         <span className="text-[8px] font-mono text-zinc-500 uppercase tracking-wider pl-1">
           Context:
         </span>
-        {isDraggingOver && (
-          <span className="text-[8.5px] font-mono text-sky-400/90 animate-pulse bg-sky-500/10 px-1.5 py-0.5 rounded border border-sky-500/20">
-            Drop anywhere to attach
-          </span>
-        )}
 
         {/* Active Editor Indicator */}
         {activeEditorFile && (
@@ -1713,18 +1721,14 @@ export function ChatScreen({
       <div className="w-full max-w-4xl mx-auto px-2 pb-1 shrink-0">
         <div className={`rounded-2xl p-2.5 flex flex-col shrink-0 transition-all duration-150 relative ${
           isDraggingOver
-            ? 'bg-[#151d28] border-2 border-dashed border-sky-400/90 shadow-[0_0_25px_rgba(56,189,248,0.25)] ring-2 ring-sky-400/30'
+            ? 'bg-[#161d27] border border-sky-500/60 shadow-[0_0_20px_rgba(56,189,248,0.18)] ring-1 ring-sky-500/30'
             : 'bg-[#1a1a1c] border border-white/10 shadow-md focus-within:border-sky-500/40 focus-within:ring-1 focus-within:ring-sky-500/20'
         }`}>
         {/* Restrained Drag Indicator Banner */}
         {isDraggingOver && (
-          <div className="flex items-center justify-between px-3 py-1.5 mb-2 rounded-xl bg-sky-500/10 border border-sky-500/25 text-sky-300 font-mono text-[11px] animate-fade-in shadow-inner">
-            <div className="flex items-center gap-2">
-              <span className="w-1.5 h-1.5 rounded-full bg-sky-400 animate-ping"></span>
-              <span className="font-semibold text-white">Drop editor tab, file, or selection</span>
-              <span className="text-zinc-400 text-[10px] hidden sm:inline">• attaches as @context</span>
-            </div>
-            <span className="text-[10px] text-sky-400/80">Images attach for vision</span>
+          <div className="flex items-center justify-between px-3 py-1 mb-2 rounded-xl bg-sky-500/10 border border-sky-500/20 text-sky-300 font-mono text-[11px] animate-fade-in">
+            <span className="font-medium text-white/90">Drop tab or file to attach context</span>
+            <span className="text-[10px] text-zinc-400">Images attach for vision</span>
           </div>
         )}
 
