@@ -999,6 +999,9 @@ export default function App() {
           if (message.threads) {
             setChatThreads(message.threads);
           }
+          if (message.workspaceRoot) {
+            setWorkspaceRoot(message.workspaceRoot);
+          }
           break;
         case 'newThreadCreated':
           setIsLoadingThread(false);

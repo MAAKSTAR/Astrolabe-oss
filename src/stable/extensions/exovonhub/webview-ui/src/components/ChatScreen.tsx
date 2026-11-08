@@ -868,7 +868,7 @@ export function ChatScreen({
     setShowToolbox(false);
   };
 
-  // --- DRAG AND DROP INTEGRATION ---
+  // --- DRAG AND DROP INTEGRATION (RESTRAINED COMPOSER DOCKING) ---
   const [isDraggingOver, setIsDraggingOver] = React.useState(false);
   const dragCounter = React.useRef(0);
 
@@ -897,13 +897,60 @@ export function ChatScreen({
     }
   };
 
+  const attachFileContext = (rawPath: string) => {
+    let cleanPath = rawPath.trim();
+    if (cleanPath.startsWith('file://')) {
+      try {
+        cleanPath = decodeURIComponent(cleanPath.replace(/^file:\/\//, ''));
+      } catch {
+        cleanPath = cleanPath.replace(/^file:\/\//, '');
+      }
+    }
+
+    // Compute relative path
+    let relPath = cleanPath.replace(/\\/g, '/');
+    const normWs = (workspaceRoot || '').replace(/\\/g, '/').replace(/\/+$/, '');
+
+    if (normWs && relPath.startsWith(normWs)) {
+      relPath = relPath.substring(normWs.length).replace(/^\/+/, '');
+    } else if (normWs && relPath.includes('/')) {
+      const wsBasename = normWs.split('/').filter(Boolean).pop();
+      if (wsBasename && relPath.includes(`/${wsBasename}/`)) {
+        relPath = relPath.split(`/${wsBasename}/`).pop() || relPath;
+      } else if (relPath.startsWith('/')) {
+        const parts = relPath.split('/').filter(Boolean);
+        relPath = parts.length > 2 ? parts.slice(-2).join('/') : (parts[parts.length - 1] || relPath);
+      }
+    }
+
+    // Check if image
+    const isImage = /\.(png|jpe?g|webp|gif|svg|bmp)$/i.test(relPath);
+    if (isImage) {
+      if (vscodeApi) {
+        vscodeApi.postMessage({ command: 'readImageAsBase64', path: cleanPath });
+      }
+    } else {
+      setSelectedContextFiles(prev => {
+        if (prev.some(f => f.name === relPath)) return prev;
+        return [...prev, { name: relPath, type: 'file' }];
+      });
+      const tag = `@${relPath}`;
+      if (!inputValue.includes(tag)) {
+        setInputValue(inputValue ? `${inputValue.trim()} ${tag} ` : `${tag} `);
+      }
+      if (vscodeApi) {
+        vscodeApi.postMessage({ command: 'log', text: `📎 Attached context: ${relPath}`, logType: 'info' });
+      }
+    }
+  };
+
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
     dragCounter.current = 0;
     setIsDraggingOver(false);
 
-    // 1. Process files dropped from OS file manager / desktop
+    // 1. Process files dropped from OS file manager or browser
     const files = Array.from(e.dataTransfer.files || []);
     if (files.length > 0) {
       files.forEach((file) => {
@@ -948,54 +995,104 @@ export function ChatScreen({
           reader.readAsDataURL(file);
         } else {
           // Source code, markdown, document
-          setSelectedContextFiles(prev => {
-            if (prev.some(f => f.name === file.name)) return prev;
-            return [...prev, { name: file.name, type: 'file' }];
-          });
-          const tag = `@${file.name}`;
-          if (!inputValue.includes(tag)) {
-            setInputValue(inputValue ? `${inputValue.trim()} ${tag} ` : `${tag} `);
-          }
-          if (vscodeApi) vscodeApi.postMessage({ command: 'log', text: `📎 Attached context: ${file.name}`, logType: 'info' });
+          const filePath = (file as any).path || file.name;
+          attachFileContext(filePath);
         }
       });
       return;
     }
 
-    // 2. Process text/uri-list or text/plain from VS Code Explorer tree
-    const uriList = e.dataTransfer.getData('text/uri-list') || e.dataTransfer.getData('text/plain') || '';
+    // 2. Extract file paths or code/text from VS Code Right Panel (Editor Tabs, Explorer, Selections)
+    const extractedFilePaths: string[] = [];
+
+    const extractFromObject = (obj: any) => {
+      if (!obj) return;
+      if (typeof obj === 'string') {
+        if (obj.startsWith('file://') || obj.startsWith('/') || /^[a-zA-Z]:[/\\]/.test(obj)) {
+          extractedFilePaths.push(obj);
+        }
+        return;
+      }
+      if (Array.isArray(obj)) {
+        obj.forEach(extractFromObject);
+        return;
+      }
+      if (typeof obj === 'object') {
+        const candidate = obj.fsPath || obj.path || obj.resource?.fsPath || obj.resource?.path || obj.resourceUri?.fsPath || obj.resourceUri?.path || obj.uri?.fsPath || obj.uri?.path;
+        if (candidate && typeof candidate === 'string') {
+          extractedFilePaths.push(candidate);
+        }
+        if (Array.isArray(obj.resourceList)) {
+          obj.resourceList.forEach(extractFromObject);
+        }
+        if (Array.isArray(obj.elements)) {
+          obj.elements.forEach(extractFromObject);
+        }
+      }
+    };
+
+    // A. VS Code internal drag data types (application/vnd.code.editor, application/vnd.code.resource, etc.)
+    const codeTypes = [
+      'application/vnd.code.editor',
+      'application/vnd.code.resource',
+      'application/vnd.code.tree.transfer',
+      'codeitems'
+    ];
+    for (const ct of codeTypes) {
+      const data = e.dataTransfer.getData(ct);
+      if (data) {
+        try {
+          const parsed = JSON.parse(data);
+          extractFromObject(parsed);
+        } catch {
+          if (data.includes('file://') || data.startsWith('/')) {
+            extractedFilePaths.push(data);
+          }
+        }
+      }
+    }
+
+    // B. Check standard text/uri-list (for dragged editor tabs and file explorer items)
+    const uriList = e.dataTransfer.getData('text/uri-list');
     if (uriList) {
       const lines = uriList.split(/[\r\n]+/).map(s => s.trim()).filter(Boolean);
-      lines.forEach((line) => {
-        let rawPath = decodeURIComponent(line.replace(/^file:\/\//, '')).trim();
-        if (!rawPath) return;
-
-        let relPath = rawPath;
-        if (workspaceRoot && rawPath.startsWith(workspaceRoot)) {
-          relPath = rawPath.substring(workspaceRoot.length).replace(/^[/\\]+/, '');
-        } else if (rawPath.includes('/')) {
-          const parts = rawPath.split('/').filter(Boolean);
-          relPath = parts.length > 2 ? parts.slice(-2).join('/') : (parts[parts.length - 1] || rawPath);
+      for (const line of lines) {
+        if (!line.startsWith('#')) {
+          extractedFilePaths.push(line);
         }
-
-        const isImage = /\.(png|jpe?g|webp|gif|svg|bmp)$/i.test(relPath);
-        if (isImage) {
-          if (vscodeApi) {
-            vscodeApi.postMessage({ command: 'readImageAsBase64', path: rawPath });
-          }
-        } else {
-          setSelectedContextFiles(prev => {
-            if (prev.some(f => f.name === relPath)) return prev;
-            return [...prev, { name: relPath, type: 'file' }];
-          });
-          const tag = `@${relPath}`;
-          if (!inputValue.includes(tag)) {
-            setInputValue(inputValue ? `${inputValue.trim()} ${tag} ` : `${tag} `);
-          }
-          if (vscodeApi) vscodeApi.postMessage({ command: 'log', text: `📎 Attached context: ${relPath}`, logType: 'info' });
-        }
-      });
+      }
     }
+
+    // C. Check text/plain (could be a path/URI, or a selected code snippet dragged from editor)
+    const textPlain = e.dataTransfer.getData('text/plain') || '';
+    if (extractedFilePaths.length === 0 && textPlain) {
+      const trimmed = textPlain.trim();
+      const isSingleLine = !trimmed.includes('\n') && !trimmed.includes('\r');
+      const isUriOrPath = trimmed.startsWith('file://') || trimmed.startsWith('/') || /^[a-zA-Z]:[/\\]/.test(trimmed);
+      const isLikelyFilePath = isSingleLine && (isUriOrPath || /^[\w\-. /\\()]+\.[a-zA-Z0-9]+$/.test(trimmed));
+
+      if (isLikelyFilePath) {
+        extractedFilePaths.push(trimmed);
+      } else {
+        // Dragged code or text selection from editor
+        if (!inputValue) {
+          setInputValue(trimmed);
+        } else {
+          setInputValue(`${inputValue.trim()}\n\n${trimmed}\n`);
+        }
+        if (vscodeApi) {
+          vscodeApi.postMessage({
+            command: 'log',
+            text: `📋 Dropped text selection into prompt (${trimmed.length} chars)`,
+            logType: 'info'
+          });
+        }
+        return;
+      }
+    }
+
+    // Attach all identified files/tabs
+    extractedFilePaths.forEach(attachFileContext);
   };
 
   return (
@@ -1006,33 +1103,18 @@ export function ChatScreen({
       onDrop={handleDrop}
       className="flex-1 flex flex-col gap-3 min-h-0 justify-between relative"
     >
-      {/* DRAG & DROP VISUAL OVERLAY */}
-      {isDraggingOver && (
-        <div className="absolute inset-0 z-50 bg-[#121214]/90 backdrop-blur-md rounded-2xl border-2 border-dashed border-sky-400/70 flex flex-col items-center justify-center p-6 text-center animate-fade-in pointer-events-none shadow-2xl">
-          <div className="w-16 h-16 rounded-2xl bg-sky-500/15 border border-sky-500/30 flex items-center justify-center text-sky-400 mb-3.5 shadow-[0_0_30px_rgba(56,189,248,0.25)] animate-bounce">
-            <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-            </svg>
-          </div>
-          <h3 className="text-[17px] font-bold text-white tracking-wide">Drop Files or Images Here</h3>
-          <p className="text-[13px] text-zinc-400 mt-1.5 max-w-xs leading-relaxed">
-            Images attach for vision analysis. Code, markdown, and documents attach as active context with @file tags.
-          </p>
-          <div className="flex items-center gap-2 mt-4 text-[11px] font-mono text-sky-300 bg-sky-950/50 px-3.5 py-1.5 rounded-full border border-sky-500/30 shadow-inner">
-            <span>🖼️ Images</span>
-            <span className="text-zinc-600">•</span>
-            <span>📄 Code & Docs</span>
-            <span className="text-zinc-600">•</span>
-            <span>📂 Folders</span>
-          </div>
-        </div>
-      )}
-
       {/* UPSIDE EMPTY PLACE: CONTEXT PICKER HEADER */}
-      <div className="flex flex-wrap items-center gap-1.5 pb-2 pt-1 px-1 shrink-0 border-b border-white/5">
+      <div className={`flex flex-wrap items-center gap-1.5 pb-2 pt-1 px-1 shrink-0 border-b transition-colors ${
+        isDraggingOver ? 'border-sky-500/40 bg-sky-950/20' : 'border-white/5'
+      }`}>
         <span className="text-[8px] font-mono text-zinc-500 uppercase tracking-wider pl-1">
           Context:
         </span>
+        {isDraggingOver && (
+          <span className="text-[8.5px] font-mono text-sky-400/90 animate-pulse bg-sky-500/10 px-1.5 py-0.5 rounded border border-sky-500/20">
+            Drop anywhere to attach
+          </span>
+        )}
 
         {/* Active Editor Indicator */}
         {activeEditorFile && (
@@ -1629,7 +1711,23 @@ export function ChatScreen({
 
       {/* INTERACTIVE INPUT CONTROL BOX */}
       <div className="w-full max-w-4xl mx-auto px-2 pb-1 shrink-0">
-        <div className="bg-[#1a1a1c] border border-white/10 rounded-2xl p-2.5 flex flex-col shadow-md shrink-0 transition-all focus-within:border-sky-500/40 focus-within:ring-1 focus-within:ring-sky-500/20">
+        <div className={`rounded-2xl p-2.5 flex flex-col shrink-0 transition-all duration-150 relative ${
+          isDraggingOver
+            ? 'bg-[#151d28] border-2 border-dashed border-sky-400/90 shadow-[0_0_25px_rgba(56,189,248,0.25)] ring-2 ring-sky-400/30'
+            : 'bg-[#1a1a1c] border border-white/10 shadow-md focus-within:border-sky-500/40 focus-within:ring-1 focus-within:ring-sky-500/20'
+        }`}>
+        {/* Restrained Drag Indicator Banner */}
+        {isDraggingOver && (
+          <div className="flex items-center justify-between px-3 py-1.5 mb-2 rounded-xl bg-sky-500/10 border border-sky-500/25 text-sky-300 font-mono text-[11px] animate-fade-in shadow-inner">
+            <div className="flex items-center gap-2">
+              <span className="w-1.5 h-1.5 rounded-full bg-sky-400 animate-ping"></span>
+              <span className="font-semibold text-white">Drop editor tab, file, or selection</span>
+              <span className="text-zinc-400 text-[10px] hidden sm:inline">• attaches as @context</span>
+            </div>
+            <span className="text-[10px] text-sky-400/80">Images attach for vision</span>
+          </div>
+        )}
+
         {!autoScroll && (
           <div className="absolute bottom-32 right-4 z-10 flex flex-col gap-2">
             <button
@@ -1667,7 +1765,13 @@ export function ChatScreen({
               handleSendMessage();
             }
           }}
-          placeholder={isAgentThinking ? "Astrolabe is thinking & analyzing..." : "Ask Astrolabe anything, or command it to build & edit code..."}
+          placeholder={
+            isDraggingOver
+              ? "Drop editor tab, file, or code here..."
+              : isAgentThinking
+              ? "Astrolabe is thinking & analyzing..."
+              : "Ask Astrolabe anything, or command it to build & edit code..."
+          }
           className="w-full bg-transparent p-2 resize-none text-sm font-sans leading-relaxed text-zinc-100 placeholder:text-zinc-400 !outline-none !ring-0 !border-none focus:!outline-none focus:!ring-0 focus:!border-none scrollbar-thin shadow-none"
           style={{ boxShadow: 'none' }}
         />

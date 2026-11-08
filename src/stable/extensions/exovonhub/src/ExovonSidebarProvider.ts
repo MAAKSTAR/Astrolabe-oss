@@ -1449,8 +1449,12 @@ Developer Action Request: "${finalPrompt}"
         case 'readImageAsBase64': {
           if (data.path) {
             try {
+              let cleanPath = data.path;
+              if (cleanPath.startsWith('file://')) {
+                cleanPath = decodeURIComponent(cleanPath.replace(/^file:\/\//, ''));
+              }
               const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
-              const fullPath = path.isAbsolute(data.path) ? data.path : path.resolve(workspaceRoot, data.path);
+              const fullPath = path.isAbsolute(cleanPath) ? cleanPath : path.resolve(workspaceRoot, cleanPath);
               if (fs.existsSync(fullPath)) {
                 const ext = path.extname(fullPath).toLowerCase().replace('.', '');
                 const mime = ext === 'png' ? 'image/png' : ext === 'svg' ? 'image/svg+xml' : ext === 'webp' ? 'image/webp' : ext === 'gif' ? 'image/gif' : 'image/jpeg';
