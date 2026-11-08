@@ -1,5 +1,11 @@
 @import "tailwindcss";
 
+/* Allow native selection and clipboard everywhere in text/inputs */
+input, textarea, [contenteditable="true"], .select-text {
+  user-select: text !important;
+  -webkit-user-select: text !important;
+}
+
 /* Native theme integration matching VS Code / Astrolabe sidebar */
 html, body, #root {
   margin: 0;

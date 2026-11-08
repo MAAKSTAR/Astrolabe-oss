@@ -1235,8 +1235,30 @@ export default function App() {
     }
   };
 
+  // Global capture for clipboard shortcuts (Ctrl+C, Ctrl+V, Ctrl+X, Ctrl+A) to guarantee native execution in inputs
+  useEffect(() => {
+    const handleCaptureKeyDown = (e: KeyboardEvent) => {
+      const isCtrl = e.ctrlKey || e.metaKey;
+      if (isCtrl) {
+        const k = e.key.toLowerCase();
+        if (['c', 'v', 'x', 'a', 'z', 'y'].includes(k)) {
+          const target = e.target as HTMLElement;
+          const isInput = target && (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT' || target.isContentEditable);
+          if (isInput) {
+            e.stopPropagation();
+            if (k === 'a' && (target instanceof HTMLTextAreaElement || target instanceof HTMLInputElement)) {
+              target.select();
+            }
+          }
+        }
+      }
+    };
+    window.addEventListener('keydown', handleCaptureKeyDown, true);
+    return () => window.removeEventListener('keydown', handleCaptureKeyDown, true);
+  }, []);
+
   return (
-    <div className="h-screen overflow-hidden bg-transparent flex flex-col px-3 py-2.5 select-none relative font-sans">
+    <div className="h-screen overflow-hidden bg-transparent flex flex-col px-3 py-2.5 relative font-sans">
 
       {/* NATIVE NAVIGATION TABS */}
       <nav role="tablist" aria-label="Main Navigation" className="flex items-center justify-between bg-[#141416] p-1 rounded-xl mb-2.5 text-xs select-none border border-white/10 shadow-sm">

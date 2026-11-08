@@ -1744,17 +1744,54 @@ export function ChatScreen({
           value={inputValue}
           onChange={(e) => setInputValue(e.target.value)}
           onKeyDown={(e) => {
+            const isCtrl = e.ctrlKey || e.metaKey;
+            if (isCtrl) {
+              const k = e.key.toLowerCase();
+              if (['c', 'v', 'x', 'a', 'z', 'y'].includes(k)) {
+                e.stopPropagation();
+                if (k === 'a') {
+                  e.currentTarget.select();
+                }
+                return;
+              }
+            }
             if (e.key === 'Enter' && !e.shiftKey) {
               e.preventDefault();
               handleSendMessage();
             }
           }}
+          onPaste={(e) => {
+            const items = e.clipboardData?.items;
+            if (items) {
+              for (let i = 0; i < items.length; i++) {
+                if (items[i].type.startsWith('image/')) {
+                  const file = items[i].getAsFile();
+                  if (file) {
+                    e.preventDefault();
+                    const reader = new FileReader();
+                    reader.onload = (event) => {
+                      const dataUrl = event.target?.result as string;
+                      if (setAttachedImages) {
+                        setAttachedImages(prev => (prev.length < 3 ? [...prev, dataUrl] : prev));
+                      }
+                      if (vscodeApi) vscodeApi.postMessage({ command: 'log', text: '📸 Attached image from clipboard', logType: 'info' });
+                    };
+                    reader.readAsDataURL(file);
+                    return;
+                  }
+                }
+              }
+            }
+            e.stopPropagation();
+          }}
+          onCopy={(e) => e.stopPropagation()}
+          onCut={(e) => e.stopPropagation()}
           placeholder={
             isAgentThinking
               ? "Astrolabe is thinking & analyzing..."
               : "Ask Astrolabe anything, or command it to build & edit code..."
           }
-          className="w-full bg-transparent p-2 resize-none text-sm font-sans leading-relaxed text-zinc-100 placeholder:text-zinc-400 !outline-none !ring-0 !border-none focus:!outline-none focus:!ring-0 focus:!border-none scrollbar-thin shadow-none"
+          className="w-full bg-transparent p-2 resize-none text-sm font-sans leading-relaxed text-zinc-100 placeholder:text-zinc-400 !outline-none !ring-0 !border-none focus:!outline-none focus:!ring-0 focus:!border-none scrollbar-thin shadow-none select-text cursor-text"
           style={{ boxShadow: 'none' }}
         />
 
