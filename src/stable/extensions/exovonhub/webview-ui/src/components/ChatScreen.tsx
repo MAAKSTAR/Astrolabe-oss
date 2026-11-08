@@ -58,15 +58,15 @@ function TypewriterMarkdown({ content, chatEndRef, disableAnimation, vscodeApi }
         remarkPlugins={[remarkGfm]}
         rehypePlugins={[rehypeRaw, rehypeHighlight]}
         components={{
-          h1: ({ children }) => <h1 className="text-2xl font-bold text-white mt-6 mb-3 pb-2 border-b border-white/10">{children}</h1>,
-          h2: ({ children }) => <h2 className="text-xl font-bold text-white mt-5 mb-2.5 pb-1 border-b border-white/5">{children}</h2>,
-          h3: ({ children }) => <h3 className="text-[19px] font-semibold text-zinc-100 mt-4 mb-2">{children}</h3>,
-          h4: ({ children }) => <h4 className="text-[18px] font-semibold text-zinc-200 mt-3 mb-1.5">{children}</h4>,
-          p: ({ children }) => <p className="text-[18.5px] leading-[1.68] mb-3.5 last:mb-0 text-zinc-200 font-sans">{children}</p>,
-          ul: ({ children }) => <ul className="list-disc list-inside space-y-2 my-3 text-[18.5px] text-zinc-200 pl-1 leading-relaxed">{children}</ul>,
-          ol: ({ children }) => <ol className="list-decimal list-inside space-y-2 my-3 text-[18.5px] text-zinc-200 pl-1 leading-relaxed">{children}</ol>,
-          li: ({ children }) => <li className="text-[18.5px] leading-[1.68] text-zinc-200">{children}</li>,
-          blockquote: ({ children }) => <blockquote className="my-3.5 border-l-2 border-cyan-500/70 bg-zinc-900/60 py-2.5 px-4 rounded-r-lg text-zinc-300 text-[17.5px] leading-relaxed italic">{children}</blockquote>,
+          h1: ({ children }) => <h1 className="text-[22px] font-bold text-white mt-6 mb-3 pb-2 border-b border-white/10">{children}</h1>,
+          h2: ({ children }) => <h2 className="text-[19px] font-bold text-white mt-5 mb-2.5 pb-1 border-b border-white/5">{children}</h2>,
+          h3: ({ children }) => <h3 className="text-[17.5px] font-semibold text-zinc-100 mt-4 mb-2">{children}</h3>,
+          h4: ({ children }) => <h4 className="text-[16.6px] font-semibold text-zinc-200 mt-3 mb-1.5">{children}</h4>,
+          p: ({ children }) => <p className="text-[16.6px] leading-[1.62] mb-3.5 last:mb-0 text-zinc-200 font-sans">{children}</p>,
+          ul: ({ children }) => <ul className="list-disc list-inside space-y-2 my-3 text-[16.6px] text-zinc-200 pl-1 leading-relaxed">{children}</ul>,
+          ol: ({ children }) => <ol className="list-decimal list-inside space-y-2 my-3 text-[16.6px] text-zinc-200 pl-1 leading-relaxed">{children}</ol>,
+          li: ({ children }) => <li className="text-[16.6px] leading-[1.62] text-zinc-200">{children}</li>,
+          blockquote: ({ children }) => <blockquote className="my-3.5 border-l-2 border-cyan-500/70 bg-zinc-900/60 py-2.5 px-4 rounded-r-lg text-zinc-300 text-[15.8px] leading-relaxed italic">{children}</blockquote>,
           table: ({ children }) => (
             <div className="my-3.5 overflow-x-auto rounded-xl border border-white/10 bg-zinc-950/60">
               <table className="w-full text-left text-[15px] border-collapse font-sans">{children}</table>
@@ -139,7 +139,7 @@ function TypewriterMarkdown({ content, chatEndRef, disableAnimation, vscodeApi }
                     vscodeApi?.postMessage({ command: 'openFile', path: rawText });
                   }}
                   title={`Click to open ${rawText}`}
-                  className="bg-sky-500/10 hover:bg-sky-500/20 text-sky-300 hover:text-sky-200 px-2 py-0.5 rounded border border-sky-500/30 font-mono text-[15px] font-medium cursor-pointer transition-all inline-flex items-center gap-1 group shadow-sm hover:shadow"
+                  className="bg-sky-500/10 hover:bg-sky-500/20 text-sky-300 hover:text-sky-200 px-2 py-0.5 rounded border border-sky-500/30 font-mono text-[14px] font-medium cursor-pointer transition-all inline-flex items-center gap-1 group shadow-sm hover:shadow"
                   {...props}
                 >
                   <span>{children}</span>
@@ -151,7 +151,7 @@ function TypewriterMarkdown({ content, chatEndRef, disableAnimation, vscodeApi }
             }
 
             return (
-              <code className="bg-zinc-850 px-2 py-0.5 rounded border border-white/10 text-sky-300 font-mono text-[15px] font-medium" {...props}>
+              <code className="bg-zinc-850 px-2 py-0.5 rounded border border-white/10 text-sky-300 font-mono text-[14px] font-medium" {...props}>
                 {children}
               </code>
             );
@@ -1010,7 +1010,7 @@ export function ChatScreen({
               {(msg.text || (msg.images && msg.images.length > 0)) && (
               <div className="relative group/message w-full">
                 <div
-                  className={`py-2 px-1 text-[18.5px] leading-[1.68] font-sans transition-all duration-150 markdown-body select-text ${msg.sender === 'user'
+                  className={`py-2 px-1 text-[16.6px] leading-[1.62] font-sans transition-all duration-150 markdown-body select-text ${msg.sender === 'user'
                     ? 'bg-zinc-900/60 border border-zinc-800/60 rounded-2xl px-5 py-3.5 text-zinc-100 shadow-sm'
                     : 'text-zinc-200 bg-transparent'
                     }`}
@@ -1025,14 +1025,14 @@ export function ChatScreen({
                   {msg.text && !msg.isCommandApproval && !msg.isFileApproval && !msg.isPlanReview && (msg.sender === 'agent' ? (
                     <TypewriterMarkdown content={msg.text} chatEndRef={chatEndRef} disableAnimation={Boolean(msg.isHistory || msg.endTime || idx < messages.length - 1)} vscodeApi={vscodeApi} />
                   ) : (
-                    <div className="text-zinc-100 text-[18.5px] leading-[1.68]">
+                    <div className="text-zinc-100 text-[16.6px] leading-[1.62]">
                       <ReactMarkdown
                         remarkPlugins={[remarkGfm]}
                         rehypePlugins={[rehypeRaw]}
                         components={{
-                          p: ({ children }) => <p className="mb-2 last:mb-0 text-zinc-100 text-[18.5px] leading-[1.68] font-sans">{children}</p>,
+                          p: ({ children }) => <p className="mb-2 last:mb-0 text-zinc-100 text-[16.6px] leading-[1.62] font-sans">{children}</p>,
                           code: ({ inline, className, children, ...props }: React.ComponentPropsWithoutRef<'code'> & { inline?: boolean; node?: unknown }) => (
-                            <code className="bg-zinc-800/80 px-2 py-0.5 rounded border border-white/10 text-sky-300 font-mono text-[15px] font-medium" {...props}>
+                            <code className="bg-zinc-800/80 px-2 py-0.5 rounded border border-white/10 text-sky-300 font-mono text-[14px] font-medium" {...props}>
                               {children}
                             </code>
                           )
