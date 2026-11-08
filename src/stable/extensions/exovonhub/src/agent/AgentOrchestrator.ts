@@ -2038,19 +2038,30 @@ CRITICAL ENVIRONMENT STATUS: NO WORKSPACE FOLDER IS OPEN IN ASTROLABE.
 
                 fs.writeFileSync(targetPath, finalMarkdown, 'utf8');
 
-                // Open the document directly in Monaco Text Editor for instant editing
+                // Open the document directly in rendered Markdown Preview mode
                 const docUri = vscode.Uri.file(targetPath);
                 try {
-                  const doc = await vscode.workspace.openTextDocument(docUri);
-                  await vscode.window.showTextDocument(doc, { 
-                    viewColumn: vscode.ViewColumn.One, 
-                    preview: false, 
-                    preserveFocus: false 
+                  const mdExt = vscode.extensions.getExtension('vscode.markdown-language-features');
+                  if (mdExt && !mdExt.isActive) {
+                    await mdExt.activate();
+                  }
+                  // Open directly in rendered Markdown Preview custom editor
+                  await vscode.commands.executeCommand('vscode.openWith', docUri, 'vscode.markdown.preview.editor', {
+                    viewColumn: vscode.ViewColumn.One,
+                    preview: false
                   });
-                  // Also dock live rendered Markdown preview to the side
-                  await vscode.commands.executeCommand('markdown.showPreviewToSide', docUri);
                 } catch (prevErr: any) {
-                  console.warn('[Astrolabe] Could not show text document / preview beside:', prevErr?.message);
+                  console.warn('[Astrolabe] Could not openWith markdown preview editor, trying markdown.showPreview:', prevErr?.message);
+                  try {
+                    await vscode.commands.executeCommand('markdown.showPreview', docUri);
+                  } catch (e2: any) {
+                    const doc = await vscode.workspace.openTextDocument(docUri);
+                    await vscode.window.showTextDocument(doc, { 
+                      viewColumn: vscode.ViewColumn.One, 
+                      preview: false, 
+                      preserveFocus: false 
+                    });
+                  }
                 }
 
                 const wordCount = finalMarkdown.split(/\s+/).filter(Boolean).length;

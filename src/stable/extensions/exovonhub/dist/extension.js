@@ -1913,14 +1913,54 @@ Developer Action Request: "${finalPrompt}"
                     break;
                 }
                 case 'openFile': {
-                    if (data.path) {
+                    const rawTarget = data.path || data.filePath;
+                    if (rawTarget) {
                         const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
-                        const fullPath = path.resolve(workspaceRoot, data.path);
+                        const fullPath = path.isAbsolute(rawTarget) ? rawTarget : path.resolve(workspaceRoot, rawTarget);
+                        const fileUri = vscode.Uri.file(fullPath);
+                        const lowerPath = fullPath.toLowerCase();
+                        if (lowerPath.endsWith('.md') || lowerPath.endsWith('.markdown')) {
+                            try {
+                                const mdExt = vscode.extensions.getExtension('vscode.markdown-language-features');
+                                if (mdExt && !mdExt.isActive) {
+                                    mdExt.activate();
+                                }
+                            }
+                            catch (e) {
+                                console.warn('[Astrolabe] Failed to activate markdown extension:', e);
+                            }
+                            vscode.commands.executeCommand('vscode.openWith', fileUri, 'vscode.markdown.preview.editor', {
+                                viewColumn: vscode.ViewColumn.One,
+                                preview: false
+                            }).then(undefined, () => {
+                                vscode.commands.executeCommand('markdown.showPreview', fileUri).then(undefined, () => {
+                                    vscode.workspace.openTextDocument(fullPath).then(doc => {
+                                        vscode.window.showTextDocument(doc, { preview: false });
+                                    });
+                                });
+                            });
+                            break;
+                        }
+                        if (/\.(png|jpe?g|gif|webp|svg|ico|bmp|pdf)$/i.test(lowerPath)) {
+                            vscode.commands.executeCommand('vscode.open', fileUri, { preview: false }).then(undefined, (err) => {
+                                console.warn('[Astrolabe] vscode.open media failed:', err);
+                                vscode.window.showErrorMessage(`Failed to open media: ${rawTarget}`);
+                            });
+                            break;
+                        }
                         vscode.workspace.openTextDocument(fullPath).then(doc => {
                             vscode.window.showTextDocument(doc, { preview: false });
                         }, (e) => {
-                            vscode.window.showErrorMessage(`Failed to open file: ${data.path}`);
+                            vscode.commands.executeCommand('vscode.open', fileUri).then(undefined, () => {
+                                vscode.window.showErrorMessage(`Failed to open file: ${rawTarget}`);
+                            });
                         });
+                    }
+                    break;
+                }
+                case 'openBrowserPreview': {
+                    if (data.url) {
+                        vscode.commands.executeCommand('simpleBrowser.show', data.url);
                     }
                     break;
                 }
@@ -1938,15 +1978,19 @@ Developer Action Request: "${finalPrompt}"
                 }
                 case 'getChatThreads': {
                     if (this._brainCoordinator) {
-                        const threads = this._brainCoordinator.getChatThreads();
-                        webviewView.webview.postMessage({ type: 'chatThreadsLoaded', threads });
+                        const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
+                        const threads = this._brainCoordinator.getChatThreads(workspaceRoot);
+                        webviewView.webview.postMessage({ type: 'chatThreadsLoaded', threads, workspaceRoot });
                     }
                     break;
                 }
                 case 'createNewThread': {
                     if (this._brainCoordinator) {
-                        const threadId = this._brainCoordinator.createNewThread();
+                        const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
+                        const threadId = this._brainCoordinator.createNewThread(workspaceRoot);
                         webviewView.webview.postMessage({ type: 'newThreadCreated', threadId });
+                        const threads = this._brainCoordinator.getChatThreads(workspaceRoot);
+                        webviewView.webview.postMessage({ type: 'chatThreadsLoaded', threads, workspaceRoot });
                     }
                     break;
                 }
@@ -1954,10 +1998,11 @@ Developer Action Request: "${finalPrompt}"
                     if (this._brainCoordinator && data.threadId) {
                         vscode.window.showWarningMessage('Are you sure you want to delete this chat?', { modal: true }, 'Yes', 'No').then(selection => {
                             if (selection === 'Yes') {
+                                const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
                                 this._brainCoordinator.deleteChatThread(data.threadId);
                                 webviewView.webview.postMessage({ type: 'threadDeleted', threadId: data.threadId });
-                                const threads = this._brainCoordinator.getChatThreads();
-                                webviewView.webview.postMessage({ type: 'chatThreadsLoaded', threads });
+                                const threads = this._brainCoordinator.getChatThreads(workspaceRoot);
+                                webviewView.webview.postMessage({ type: 'chatThreadsLoaded', threads, workspaceRoot });
                             }
                         });
                     }
@@ -1965,22 +2010,24 @@ Developer Action Request: "${finalPrompt}"
                 }
                 case 'renameChatThread': {
                     if (this._brainCoordinator && data.threadId && data.title) {
+                        const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
                         this._brainCoordinator.renameChatThread(data.threadId, data.title);
-                        const threads = this._brainCoordinator.getChatThreads();
-                        webviewView.webview.postMessage({ type: 'chatThreadsLoaded', threads });
+                        const threads = this._brainCoordinator.getChatThreads(workspaceRoot);
+                        webviewView.webview.postMessage({ type: 'chatThreadsLoaded', threads, workspaceRoot });
                     }
                     break;
                 }
                 case 'clearAllChatThreads': {
                     if (this._brainCoordinator) {
-                        vscode.window.showWarningMessage('Are you sure you want to delete ALL chat history?', { modal: true }, 'Yes, Delete All', 'Cancel').then(selection => {
-                            if (selection === 'Yes, Delete All') {
-                                this._brainCoordinator.clearAllChatThreads();
-                                const newThreadId = this._brainCoordinator.createNewThread();
-                                const threads = this._brainCoordinator.getChatThreads();
-                                webviewView.webview.postMessage({ type: 'chatThreadsLoaded', threads });
+                        const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
+                        vscode.window.showWarningMessage('Are you sure you want to delete chat history for this workspace?', { modal: true }, 'Yes, Delete', 'Cancel').then(selection => {
+                            if (selection === 'Yes, Delete') {
+                                this._brainCoordinator.clearAllChatThreads(workspaceRoot);
+                                const newThreadId = this._brainCoordinator.createNewThread(workspaceRoot);
+                                const threads = this._brainCoordinator.getChatThreads(workspaceRoot);
+                                webviewView.webview.postMessage({ type: 'chatThreadsLoaded', threads, workspaceRoot });
                                 webviewView.webview.postMessage({ type: 'newThreadCreated', threadId: newThreadId });
-                                vscode.window.showInformationMessage('All chat history cleared.');
+                                vscode.window.showInformationMessage('Workspace chat history cleared.');
                             }
                         });
                     }
@@ -2274,6 +2321,60 @@ class AgentOrchestrator {
             });
         }
         return res;
+    }
+    static activeDecorations = [];
+    async revealFileInEditor(relPath, startLine, endLine, isEdit = false) {
+        try {
+            const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+            let fullPath = relPath;
+            if (workspaceRoot && !path.isAbsolute(relPath)) {
+                fullPath = path.join(workspaceRoot, relPath);
+            }
+            if (!fs.existsSync(fullPath)) {
+                return;
+            }
+            const docUri = vscode.Uri.file(fullPath);
+            const doc = await vscode.workspace.openTextDocument(docUri);
+            const editor = await vscode.window.showTextDocument(doc, {
+                viewColumn: vscode.ViewColumn.One,
+                preview: isEdit ? false : true,
+                preserveFocus: true
+            });
+            if (startLine !== undefined && !isNaN(Number(startLine))) {
+                const s = Math.max(0, Number(startLine) - 1);
+                const e = (endLine !== undefined && !isNaN(Number(endLine)))
+                    ? Math.max(s, Number(endLine) - 1)
+                    : s;
+                const lineCount = doc.lineCount;
+                const safeStart = Math.min(s, Math.max(0, lineCount - 1));
+                const safeEnd = Math.min(e, Math.max(0, lineCount - 1));
+                const endChar = doc.lineAt(safeEnd).text.length;
+                const range = new vscode.Range(safeStart, 0, safeEnd, endChar);
+                editor.revealRange(range, vscode.TextEditorRevealType.InCenter);
+                // Apply visual highlight decoration to the lines read or edited
+                const decType = vscode.window.createTextEditorDecorationType({
+                    backgroundColor: isEdit ? 'rgba(52, 211, 153, 0.16)' : 'rgba(56, 189, 248, 0.15)',
+                    border: isEdit ? '1px solid rgba(52, 211, 153, 0.45)' : '1px solid rgba(56, 189, 248, 0.4)',
+                    borderRadius: '4px',
+                    isWholeLine: true
+                });
+                editor.setDecorations(decType, [range]);
+                AgentOrchestrator.activeDecorations.push(decType);
+                // Clear decoration after 4.5 seconds to leave editor clean
+                setTimeout(() => {
+                    try {
+                        decType.dispose();
+                        const idx = AgentOrchestrator.activeDecorations.indexOf(decType);
+                        if (idx !== -1)
+                            AgentOrchestrator.activeDecorations.splice(idx, 1);
+                    }
+                    catch (e) { }
+                }, 4500);
+            }
+        }
+        catch (err) {
+            console.warn('[Astrolabe] Could not reveal file in editor:', err?.message);
+        }
     }
     onUpdate(update) {
         if (this._currentMessageId) {
@@ -3634,6 +3735,7 @@ CRITICAL ENVIRONMENT STATUS: NO WORKSPACE FOLDER IS OPEN IN ASTROLABE.
                                 if (typeof endLine === 'string')
                                     endLine = parseInt(endLine, 10);
                                 result = await this.fsTools.viewFile(relPath, isNaN(startLine) ? undefined : startLine, isNaN(endLine) ? undefined : endLine);
+                                await this.revealFileInEditor(relPath, isNaN(startLine) ? undefined : startLine, isNaN(endLine) ? undefined : endLine, false);
                             }
                             else if (toolName === 'applyPatch') {
                                 const patchPath = call.args.relativePath || call.args.path || call.args.file || call.args.filePath || call.args.target_file || relPath;
@@ -3654,6 +3756,22 @@ CRITICAL ENVIRONMENT STATUS: NO WORKSPACE FOLDER IS OPEN IN ASTROLABE.
                                 }
                                 this.modifiedFiles.add(patchPath);
                                 this.onUpdate({ type: 'log', text: `Applied patch to: "${patchPath}"`, logType: 'info' });
+                                try {
+                                    const fullPath = path.isAbsolute(patchPath) ? patchPath : path.join(vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '', patchPath);
+                                    if (fs.existsSync(fullPath)) {
+                                        const text = fs.readFileSync(fullPath, 'utf8');
+                                        const idx = text.indexOf(replaceBlock);
+                                        if (idx !== -1) {
+                                            const line = text.substring(0, idx).split('\n').length;
+                                            const endLine = line + replaceBlock.split('\n').length - 1;
+                                            await this.revealFileInEditor(patchPath, line, endLine, true);
+                                        }
+                                        else {
+                                            await this.revealFileInEditor(patchPath, undefined, undefined, true);
+                                        }
+                                    }
+                                }
+                                catch (e) { }
                             }
                             else if (toolName === 'multiReplaceFileContent') {
                                 const replacePath = call.args.relativePath || call.args.path || call.args.file || call.args.filePath || relPath;
@@ -3669,6 +3787,7 @@ CRITICAL ENVIRONMENT STATUS: NO WORKSPACE FOLDER IS OPEN IN ASTROLABE.
                                 }
                                 this.modifiedFiles.add(replacePath);
                                 this.onUpdate({ type: 'log', text: `Modified lines ${startLine}-${endLine} of: "${replacePath}"`, logType: 'info' });
+                                await this.revealFileInEditor(replacePath, Number(startLine), Number(endLine), true);
                             }
                             else if (toolName === 'createFile') {
                                 const createPath = call.args.relativePath || call.args.path || call.args.file || call.args.filePath || relPath;
@@ -3682,6 +3801,7 @@ CRITICAL ENVIRONMENT STATUS: NO WORKSPACE FOLDER IS OPEN IN ASTROLABE.
                                 }
                                 this.modifiedFiles.add(createPath);
                                 this.onUpdate({ type: 'log', text: `Created file: "${createPath}"`, logType: 'info' });
+                                await this.revealFileInEditor(createPath, 1, Math.min(30, fileContent.split('\n').length), true);
                             }
                             else if (toolName === 'deleteFile') {
                                 const deletePath = call.args.relativePath || call.args.path || call.args.file || relPath;
@@ -4053,18 +4173,31 @@ CRITICAL ENVIRONMENT STATUS: NO WORKSPACE FOLDER IS OPEN IN ASTROLABE.
                                     finalMarkdown = `# ${title}\n\n${finalMarkdown}`;
                                 }
                                 fs.writeFileSync(targetPath, finalMarkdown, 'utf8');
-                                // Trigger split Markdown preview in Astrolabe
+                                // Open the document directly in rendered Markdown Preview mode
                                 const docUri = vscode.Uri.file(targetPath);
                                 try {
-                                    await vscode.commands.executeCommand('markdown.showPreviewToSide', docUri);
+                                    const mdExt = vscode.extensions.getExtension('vscode.markdown-language-features');
+                                    if (mdExt && !mdExt.isActive) {
+                                        await mdExt.activate();
+                                    }
+                                    // Open directly in rendered Markdown Preview custom editor
+                                    await vscode.commands.executeCommand('vscode.openWith', docUri, 'vscode.markdown.preview.editor', {
+                                        viewColumn: vscode.ViewColumn.One,
+                                        preview: false
+                                    });
                                 }
                                 catch (prevErr) {
+                                    console.warn('[Astrolabe] Could not openWith markdown preview editor, trying markdown.showPreview:', prevErr?.message);
                                     try {
-                                        const doc = await vscode.workspace.openTextDocument(docUri);
-                                        await vscode.window.showTextDocument(doc, { preview: true, viewColumn: vscode.ViewColumn.Beside });
+                                        await vscode.commands.executeCommand('markdown.showPreview', docUri);
                                     }
-                                    catch (e) {
-                                        console.warn('[Astrolabe] Could not open preview beside:', e?.message);
+                                    catch (e2) {
+                                        const doc = await vscode.workspace.openTextDocument(docUri);
+                                        await vscode.window.showTextDocument(doc, {
+                                            viewColumn: vscode.ViewColumn.One,
+                                            preview: false,
+                                            preserveFocus: false
+                                        });
                                     }
                                 }
                                 const wordCount = finalMarkdown.split(/\s+/).filter(Boolean).length;
@@ -4141,6 +4274,12 @@ CRITICAL ENVIRONMENT STATUS: NO WORKSPACE FOLDER IS OPEN IN ASTROLABE.
                                         if (b64Data) {
                                             fs.writeFileSync(fullOutputPath, Buffer.from(b64Data, 'base64'));
                                             const relPath = path.relative(workspaceRoot, fullOutputPath);
+                                            try {
+                                                await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(fullOutputPath));
+                                            }
+                                            catch (imgOpenErr) {
+                                                console.warn('[Astrolabe] Could not open generated image in editor:', imgOpenErr?.message);
+                                            }
                                             result = `Image successfully generated and saved to ${relPath}.\n\n![${prompt}](file://${fullOutputPath})`;
                                         }
                                         else {
@@ -52241,12 +52380,40 @@ class BrainCoordinator {
             this.db.exec('ALTER TABLE chat_messages ADD COLUMN meta JSON');
         }
         catch (e) { }
+        try {
+            this.db.exec('ALTER TABLE indexed_files ADD COLUMN workspace_path TEXT');
+        }
+        catch (e) { }
+        try {
+            this.db.exec('ALTER TABLE symbols ADD COLUMN workspace_path TEXT');
+        }
+        catch (e) { }
+        try {
+            this.db.exec('ALTER TABLE edges ADD COLUMN workspace_path TEXT');
+        }
+        catch (e) { }
         // Indexes
         this.db.exec(`
       CREATE INDEX IF NOT EXISTS idx_symbols_file ON symbols(file_path);
       CREATE INDEX IF NOT EXISTS idx_edges_file ON edges(file_path);
       CREATE INDEX IF NOT EXISTS idx_chat_threads_workspace ON chat_threads(workspace_path);
+      CREATE INDEX IF NOT EXISTS idx_symbols_ws ON symbols(workspace_path);
+      CREATE INDEX IF NOT EXISTS idx_edges_ws ON edges(workspace_path);
+      CREATE INDEX IF NOT EXISTS idx_indexed_files_ws ON indexed_files(workspace_path);
     `);
+        // Clean legacy bloated checkpoints from meta to keep database slim
+        try {
+            const hasCheckpointBloat = this.db.prepare("SELECT 1 FROM chat_messages WHERE json_extract(meta, '$.checkpoint') IS NOT NULL LIMIT 1").get();
+            if (hasCheckpointBloat) {
+                this.db.exec(`
+          UPDATE chat_messages 
+          SET meta = json_remove(meta, '$.checkpoint') 
+          WHERE json_extract(meta, '$.checkpoint') IS NOT NULL;
+          VACUUM;
+        `);
+            }
+        }
+        catch (e) { }
         try {
             this.db.exec(`CREATE VIRTUAL TABLE IF NOT EXISTS vec_symbols USING vec0(embedding float[384])`);
         }
@@ -52457,13 +52624,13 @@ class BrainCoordinator {
             const pending = { resolve, reject };
             this.pendingEmbeddings.set(id, pending);
             worker.postMessage({ type: 'embed', text, id });
-            // Timeout after 10s
+            // Timeout after 2.5s to prevent stalling batch indexing
             pending.timer = setTimeout(() => {
                 if (this.pendingEmbeddings.has(id)) {
                     this.pendingEmbeddings.delete(id);
                     resolve(null); // Fail gracefully
                 }
-            }, 10000);
+            }, 2500);
         });
     }
     setSyncing(state) {
@@ -52492,8 +52659,16 @@ class BrainCoordinator {
                 const stat = await fs.promises.stat(this.dbPath);
                 sizeMB = stat.size / (1024 * 1024);
             }
-            const row = this.db.prepare('SELECT COUNT(*) as c FROM symbols').get();
-            const entities = row?.c ?? 0;
+            const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
+            let entities = 0;
+            if (workspaceRoot) {
+                const row = this.db.prepare('SELECT COUNT(*) as c FROM symbols WHERE workspace_path = ?').get(workspaceRoot);
+                entities = row?.c ?? 0;
+            }
+            else {
+                const row = this.db.prepare('SELECT COUNT(*) as c FROM symbols').get();
+                entities = row?.c ?? 0;
+            }
             return {
                 entities,
                 sizeMB: Number(sizeMB.toFixed(2)),
@@ -52508,46 +52683,30 @@ class BrainCoordinator {
             return { entities: 0, sizeMB: 0, status: 'failed', lastError: this.lastError, dbPath: this.dbPath };
         }
     }
-    // Wipe and completely rebuild the Brain database
+    // Wipe and rebuild the Brain database for the current workspace
     async rebuildBrain() {
         try {
             this.setSyncing(true);
             this.status = 'indexing';
             this.lastError = null;
-            this.db.exec(`
-        DROP TABLE IF EXISTS symbols;
-        DROP TABLE IF EXISTS edges;
-        DROP TABLE IF EXISTS indexed_files;
-        DROP TABLE IF EXISTS vec_symbols;
-      `);
-            this.db.exec(`
-        CREATE TABLE IF NOT EXISTS indexed_files (
-          relative_path TEXT PRIMARY KEY,
-          mtime INTEGER,
-          size INTEGER
-        );
-        CREATE TABLE IF NOT EXISTS symbols (
-          id TEXT PRIMARY KEY,
-          hash_id INTEGER,
-          file_path TEXT,
-          name TEXT,
-          kind TEXT,
-          line_start INTEGER,
-          line_end INTEGER,
-          content TEXT
-        );
-        CREATE TABLE IF NOT EXISTS edges (
-          source_id TEXT,
-          target_id TEXT,
-          relation_type TEXT,
-          file_path TEXT,
-          PRIMARY KEY(source_id, target_id, relation_type)
-        );
-      `);
-            try {
-                this.db.exec(`CREATE VIRTUAL TABLE IF NOT EXISTS vec_symbols USING vec0(embedding float[384])`);
+            const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
+            if (workspaceRoot) {
+                const oldSymbols = this.db.prepare('SELECT hash_id FROM symbols WHERE workspace_path = ?').all(workspaceRoot);
+                for (const oldSym of oldSymbols) {
+                    if (oldSym.hash_id) {
+                        try {
+                            this.db.prepare('DELETE FROM vec_symbols WHERE rowid = ?').run(oldSym.hash_id);
+                        }
+                        catch (e) { }
+                    }
+                }
+                this.db.prepare('DELETE FROM symbols WHERE workspace_path = ?').run(workspaceRoot);
+                this.db.prepare('DELETE FROM edges WHERE workspace_path = ?').run(workspaceRoot);
+                this.db.prepare('DELETE FROM indexed_files WHERE workspace_path = ?').run(workspaceRoot);
             }
-            catch (e) { }
+            else {
+                this.db.exec('DELETE FROM symbols; DELETE FROM edges; DELETE FROM indexed_files; DELETE FROM vec_symbols;');
+            }
             await this.seedWorkspace();
             this.status = 'ready';
         }
@@ -52563,12 +52722,16 @@ class BrainCoordinator {
     // Seed the workspace on startup using a gitignore-aware Delta Cache sequence
     async seedWorkspace() {
         console.log('🌱 Delta Cache Engine: Synchronizing Exovon Brain...');
+        const rootUri = vscode.workspace.workspaceFolders?.[0]?.uri;
+        if (!rootUri) {
+            this.setSyncing(false);
+            this.status = 'ready';
+            return;
+        }
+        const workspaceRoot = rootUri.fsPath;
         // 1. Dynamic Privacy Engine (Phase 1): Parse .gitignore and .exovonignore
         const ignorePatterns = [];
         try {
-            const rootUri = vscode.workspace.workspaceFolders?.[0]?.uri;
-            if (!rootUri)
-                return;
             const gitignoreUri = vscode.Uri.joinPath(rootUri, '.gitignore');
             const exovonignoreUri = vscode.Uri.joinPath(rootUri, '.exovonignore');
             const parseIgnoreFile = async (uri) => {
@@ -52597,8 +52760,12 @@ class BrainCoordinator {
             await parseIgnoreFile(exovonignoreUri);
         }
         catch (e) { }
-        // 2. Live Scan: Gather all currently valid files
-        const files = await vscode.workspace.findFiles('**/*', '**/{node_modules,.git,dist,build,out,coverage,.next,.exovon-shadow,*.png,*.jpg,*.jpeg,*.gif,*.webp,*.ico,*.svg,*.pdf,*.mp4,*.zip,*.tar.gz,*.wasm,*.ttf,*.woff,*.woff2}/**');
+        // 2. Live Scan: Strictly Code Files Only (TS/JS/Py/Rust/Go/C/C++/Java/etc.)
+        // User Directive: "BRAIN SHOULDNT INDEX ANYTHING OTHER THEN CODE"
+        // Exclude all docs, markdown, configs, binaries, node_modules, and hidden directories
+        const CODE_EXTENSIONS_GLOB = '**/*.{ts,tsx,js,jsx,mjs,cjs,py,rs,go,java,c,cpp,cc,cxx,h,hpp,cs,rb,php,swift,kt,scala,lua,zig}';
+        const EXCLUDE_FOLDERS_GLOB = '**/{node_modules,.git,.svn,.hg,dist,build,out,coverage,.next,.nuxt,.turbo,.exovon*,.vscode,.astrolabe,target,vendor,venv,.venv,env,__pycache__}/**';
+        const files = await vscode.workspace.findFiles(CODE_EXTENSIONS_GLOB, EXCLUDE_FOLDERS_GLOB);
         // Map live files to a quick lookup and grab mtime/size
         const liveFiles = new Map();
         for (const f of files) {
@@ -52613,8 +52780,8 @@ class BrainCoordinator {
             }
             catch (e) { }
         }
-        // 2. Database Diff: Fetch all previously cached files
-        const cachedFiles = this.db.prepare('SELECT relative_path, mtime, size FROM indexed_files').all();
+        // 2. Database Diff: Fetch all previously cached files for THIS workspace
+        const cachedFiles = this.db.prepare('SELECT relative_path, mtime, size FROM indexed_files WHERE workspace_path = ?').all(workspaceRoot);
         const toDelete = [];
         const toIndex = [];
         for (const cached of cachedFiles) {
@@ -52642,18 +52809,30 @@ class BrainCoordinator {
         if (toDelete.length > 0) {
             const gcTx = this.db.transaction(() => {
                 for (const relPath of toDelete) {
-                    const oldSymbols = this.db.prepare('SELECT hash_id FROM symbols WHERE file_path = ?').all(relPath);
+                    const oldSymbols = this.db.prepare('SELECT hash_id FROM symbols WHERE file_path = ? AND workspace_path = ?').all(relPath, workspaceRoot);
                     for (const oldSym of oldSymbols) {
                         if (oldSym.hash_id) {
-                            this.db.prepare('DELETE FROM vec_symbols WHERE rowid = ?').run(oldSym.hash_id);
+                            try {
+                                this.db.prepare('DELETE FROM vec_symbols WHERE rowid = ?').run(oldSym.hash_id);
+                            }
+                            catch (e) { }
                         }
                     }
-                    this.db.prepare('DELETE FROM symbols WHERE file_path = ?').run(relPath);
-                    this.db.prepare('DELETE FROM edges WHERE file_path = ?').run(relPath);
-                    this.db.prepare('DELETE FROM indexed_files WHERE relative_path = ?').run(relPath);
+                    this.db.prepare('DELETE FROM symbols WHERE file_path = ? AND workspace_path = ?').run(relPath, workspaceRoot);
+                    this.db.prepare('DELETE FROM edges WHERE file_path = ? AND workspace_path = ?').run(relPath, workspaceRoot);
+                    this.db.prepare('DELETE FROM indexed_files WHERE relative_path = ? AND workspace_path = ?').run(relPath, workspaceRoot);
                 }
             });
             gcTx();
+        }
+        // If there are no new/modified files, mark ready immediately!
+        if (toIndex.length === 0) {
+            console.log(`✅ Delta Cache sync complete (0 code files to index).`);
+            if (this.dirtyFiles.size === 0) {
+                this.setSyncing(false);
+                this.status = 'ready';
+            }
+            return;
         }
         // 4. Yielding Queue: Push valid files to be parsed
         const BATCH_SIZE = 50;
@@ -52662,13 +52841,14 @@ class BrainCoordinator {
             const batch = toIndex.slice(processed, processed + BATCH_SIZE);
             if (batch.length === 0) {
                 console.log(`✅ Delta Cache sync complete.`);
+                if (this.dirtyFiles.size === 0) {
+                    this.setSyncing(false);
+                    this.status = 'ready';
+                }
                 return;
             }
             for (const relPath of batch) {
                 try {
-                    const rootUri = vscode.workspace.workspaceFolders?.[0]?.uri;
-                    if (!rootUri)
-                        continue;
                     const uri = vscode.Uri.joinPath(rootUri, relPath);
                     const contentBuffer = await vscode.workspace.fs.readFile(uri);
                     // Auto-Detect Binary vs Text (VS Code / Git Heuristic)
@@ -52709,15 +52889,17 @@ class BrainCoordinator {
     async flushDirtyQueue() {
         if (this.dirtyFiles.size === 0) {
             this.setSyncing(false);
+            this.status = 'ready';
             return;
         }
+        const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
         // Capture current snapshot of dirty files (keys are already relative paths)
         const filesToProcess = Array.from(this.dirtyFiles.entries()).map(([relPath, content]) => ({ relPath, content }));
         this.dirtyFiles.clear();
-        const insertSymbol = this.db.prepare('INSERT OR REPLACE INTO symbols (id, hash_id, file_path, name, kind, line_start, line_end, content) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
-        const insertEdge = this.db.prepare('INSERT OR IGNORE INTO edges (source_id, target_id, relation_type, file_path) VALUES (?, ?, ?, ?)');
+        const insertSymbol = this.db.prepare('INSERT OR REPLACE INTO symbols (id, hash_id, file_path, name, kind, line_start, line_end, content, workspace_path) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
+        const insertEdge = this.db.prepare('INSERT OR IGNORE INTO edges (source_id, target_id, relation_type, file_path, workspace_path) VALUES (?, ?, ?, ?, ?)');
         const insertVec = this.db.prepare('INSERT INTO vec_symbols(rowid, embedding) VALUES(?, ?)');
-        const insertFileMeta = this.db.prepare('INSERT OR REPLACE INTO indexed_files (relative_path, mtime, size) VALUES (?, ?, ?)');
+        const insertFileMeta = this.db.prepare('INSERT OR REPLACE INTO indexed_files (relative_path, mtime, size, workspace_path) VALUES (?, ?, ?, ?)');
         const itemsToInsert = [];
         const filesMetaToInsert = [];
         const pLimit = 4; // concurrency limit
@@ -52778,24 +52960,30 @@ class BrainCoordinator {
         }
         // 2. Execute synchronous SQLite transaction (Problem 10 - Atomic Commits)
         const transaction = this.db.transaction(() => {
-            // Clear old entries for all processed files
+            // Clear old entries for all processed files for THIS workspace
             for (const file of filesToProcess) {
-                const oldSymbols = this.db.prepare('SELECT hash_id FROM symbols WHERE file_path = ?').all(file.relPath);
+                const oldSymbols = this.db.prepare('SELECT hash_id FROM symbols WHERE file_path = ? AND workspace_path = ?').all(file.relPath, workspaceRoot);
                 for (const oldSym of oldSymbols) {
                     if (oldSym.hash_id) {
-                        this.db.prepare('DELETE FROM vec_symbols WHERE rowid = ?').run(oldSym.hash_id);
+                        try {
+                            this.db.prepare('DELETE FROM vec_symbols WHERE rowid = ?').run(oldSym.hash_id);
+                        }
+                        catch (e) { }
                     }
                 }
-                this.db.prepare('DELETE FROM symbols WHERE file_path = ?').run(file.relPath);
-                this.db.prepare('DELETE FROM edges WHERE file_path = ?').run(file.relPath);
+                this.db.prepare('DELETE FROM symbols WHERE file_path = ? AND workspace_path = ?').run(file.relPath, workspaceRoot);
+                this.db.prepare('DELETE FROM edges WHERE file_path = ? AND workspace_path = ?').run(file.relPath, workspaceRoot);
             }
             for (const meta of filesMetaToInsert) {
-                insertFileMeta.run(meta.relPath, meta.mtime, meta.size);
+                insertFileMeta.run(meta.relPath, meta.mtime, meta.size, workspaceRoot);
             }
             for (const item of itemsToInsert) {
-                insertSymbol.run(item.sym.id, item.rowId, item.sym.filePath, item.sym.name, item.sym.kind, item.sym.lineStart, item.sym.lineEnd, item.content);
+                insertSymbol.run(item.sym.id, item.rowId, item.sym.filePath, item.sym.name, item.sym.kind, item.sym.lineStart, item.sym.lineEnd, item.content, workspaceRoot);
                 if (item.embedding) {
-                    insertVec.run(item.rowId, new Float32Array(item.embedding).buffer);
+                    try {
+                        insertVec.run(item.rowId, new Float32Array(item.embedding).buffer);
+                    }
+                    catch (e) { }
                 }
                 for (let edge of item.edges) {
                     // Reconcile 'unresolved:name'
@@ -52810,7 +52998,7 @@ class BrainCoordinator {
                     const rootPath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
                     const relSourceId = edge.sourceId.replace(rootPath + path.sep, '');
                     const relTargetId = targetId.replace(rootPath + path.sep, '');
-                    insertEdge.run(relSourceId, relTargetId, edge.relationType, item.sym.filePath);
+                    insertEdge.run(relSourceId, relTargetId, edge.relationType, item.sym.filePath, workspaceRoot);
                 }
             }
         });
@@ -52824,6 +53012,7 @@ class BrainCoordinator {
         // Check if more files trickled in during processing
         if (this.dirtyFiles.size === 0) {
             this.setSyncing(false);
+            this.status = 'ready';
         }
         else {
             this.flushDirtyQueue();
@@ -53017,8 +53206,15 @@ class BrainCoordinator {
     getGovernorStatus() {
         let nodeCount = 0;
         try {
-            const result = this.db.prepare('SELECT COUNT(*) as count FROM symbols').get();
-            nodeCount = result.count;
+            const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
+            if (workspaceRoot) {
+                const result = this.db.prepare('SELECT COUNT(*) as count FROM symbols WHERE workspace_path = ?').get(workspaceRoot);
+                nodeCount = result?.count ?? 0;
+            }
+            else {
+                const result = this.db.prepare('SELECT COUNT(*) as count FROM symbols').get();
+                nodeCount = result?.count ?? 0;
+            }
         }
         catch (e) {
             console.error(e);
@@ -53036,19 +53232,38 @@ class BrainCoordinator {
         };
     }
     // --- CHAT PERSISTENCE METHODS ---
-    getChatThreads() {
+    getChatThreads(workspacePath) {
         try {
-            const threads = this.db.prepare(`
-        SELECT 
-          ct.id, 
-          ct.title, 
-          ct.updated_at,
-          (SELECT COUNT(*) FROM chat_messages cm WHERE cm.thread_id = ct.id AND cm.id != 'welcome') as message_count,
-          (SELECT text FROM chat_messages cm WHERE cm.thread_id = ct.id AND cm.id != 'welcome' AND cm.text IS NOT NULL AND TRIM(cm.text) != '' ORDER BY cm.timestamp DESC, cm.id DESC LIMIT 1) as preview
-        FROM chat_threads ct 
-        ORDER BY ct.updated_at DESC
-        LIMIT 200
-      `).all();
+            const currentWorkspace = workspacePath !== undefined
+                ? workspacePath
+                : (vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '');
+            const threads = currentWorkspace
+                ? this.db.prepare(`
+            SELECT 
+              ct.id, 
+              ct.title, 
+              ct.updated_at,
+              ct.workspace_path,
+              (SELECT COUNT(*) FROM chat_messages cm WHERE cm.thread_id = ct.id AND cm.id != 'welcome') as message_count,
+              (SELECT text FROM chat_messages cm WHERE cm.thread_id = ct.id AND cm.id != 'welcome' AND cm.text IS NOT NULL AND TRIM(cm.text) != '' ORDER BY cm.timestamp DESC, cm.id DESC LIMIT 1) as preview
+            FROM chat_threads ct 
+            WHERE ct.workspace_path = ?
+            ORDER BY ct.updated_at DESC
+            LIMIT 200
+          `).all(currentWorkspace)
+                : this.db.prepare(`
+            SELECT 
+              ct.id, 
+              ct.title, 
+              ct.updated_at,
+              ct.workspace_path,
+              (SELECT COUNT(*) FROM chat_messages cm WHERE cm.thread_id = ct.id AND cm.id != 'welcome') as message_count,
+              (SELECT text FROM chat_messages cm WHERE cm.thread_id = ct.id AND cm.id != 'welcome' AND cm.text IS NOT NULL AND TRIM(cm.text) != '' ORDER BY cm.timestamp DESC, cm.id DESC LIMIT 1) as preview
+            FROM chat_threads ct 
+            WHERE ct.workspace_path IS NULL OR ct.workspace_path = ''
+            ORDER BY ct.updated_at DESC
+            LIMIT 200
+          `).all();
             // Auto-repair stale generic titles (e.g. 'HI', 'hi', 'hello', 'New Chat')
             for (const t of threads) {
                 const lower = (t.title || '').toLowerCase().trim();
@@ -53089,9 +53304,9 @@ class BrainCoordinator {
             return [];
         }
     }
-    createNewThread() {
+    createNewThread(workspacePath) {
         const threadId = `thread-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-        const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
+        const workspaceRoot = workspacePath !== undefined ? workspacePath : (vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '');
         try {
             this.db.prepare('INSERT INTO chat_threads (id, title, created_at, updated_at, workspace_path) VALUES (?, ?, ?, ?, ?)').run(threadId, 'New Chat', Date.now(), Date.now(), workspaceRoot);
         }
@@ -53120,10 +53335,25 @@ class BrainCoordinator {
             console.error('deleteChatThread error:', e);
         }
     }
-    clearAllChatThreads() {
+    clearAllChatThreads(workspacePath) {
         try {
-            this.db.prepare('DELETE FROM chat_messages').run();
-            this.db.prepare('DELETE FROM chat_threads').run();
+            const workspaceRoot = workspacePath !== undefined ? workspacePath : (vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '');
+            if (workspaceRoot) {
+                const threads = this.db.prepare('SELECT id FROM chat_threads WHERE workspace_path = ?').all(workspaceRoot);
+                const delMsg = this.db.prepare('DELETE FROM chat_messages WHERE thread_id = ?');
+                for (const t of threads) {
+                    delMsg.run(t.id);
+                }
+                this.db.prepare('DELETE FROM chat_threads WHERE workspace_path = ?').run(workspaceRoot);
+            }
+            else {
+                const threads = this.db.prepare('SELECT id FROM chat_threads WHERE workspace_path IS NULL OR workspace_path = ""').all();
+                const delMsg = this.db.prepare('DELETE FROM chat_messages WHERE thread_id = ?');
+                for (const t of threads) {
+                    delMsg.run(t.id);
+                }
+                this.db.prepare('DELETE FROM chat_threads WHERE workspace_path IS NULL OR workspace_path = ""').run();
+            }
         }
         catch (e) {
             console.error('clearAllChatThreads error:', e);
@@ -53156,7 +53386,7 @@ class BrainCoordinator {
                 images: message.images,
                 metrics: message.metrics,
                 checkpointId: message.checkpointId,
-                checkpoint: message.checkpoint,
+                // CRITICAL: NEVER store full message.checkpoint object in SQLite; checkpointId references it on disk.
                 promptTokens: message.promptTokens,
                 promptProcessed: message.promptProcessed
             }));
@@ -53373,23 +53603,122 @@ module.exports = require("worker_threads");
 
 /***/ }),
 /* 287 */
-/***/ ((__unused_webpack_module, exports) => {
+/***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 "use strict";
 
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.GraphIndexer = void 0;
+const path = __importStar(__webpack_require__(3));
+const fs = __importStar(__webpack_require__(2));
 // Import the native Rust N-API module lazily
 let parseFileFn;
+function fallbackParseFile(filePath, fileContent) {
+    const symbols = [];
+    const lines = fileContent.split('\n');
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const lineNum = i + 1;
+        // Functions / Methods: function foo, async function foo, def foo, fn foo
+        const fnMatch = line.match(/(?:async\s+)?(?:function\*?|def|fn)\s+([a-zA-Z0-9_$]+)/);
+        if (fnMatch) {
+            symbols.push({
+                id: `${filePath}:${fnMatch[1]}:${lineNum}`,
+                filePath,
+                name: fnMatch[1],
+                kind: 'function',
+                lineStart: lineNum,
+                lineEnd: lineNum
+            });
+            continue;
+        }
+        // Arrow functions / const funcs: const foo = (...) => or const foo = function
+        const constFnMatch = line.match(/(?:export\s+)?(?:const|let|var)\s+([a-zA-Z0-9_$]+)\s*=\s*(?:async\s*)?(?:\([^)]*\)|[a-zA-Z0-9_$]+)\s*=>/);
+        if (constFnMatch) {
+            symbols.push({
+                id: `${filePath}:${constFnMatch[1]}:${lineNum}`,
+                filePath,
+                name: constFnMatch[1],
+                kind: 'function',
+                lineStart: lineNum,
+                lineEnd: lineNum
+            });
+            continue;
+        }
+        // Classes / Structs / Interfaces: class Foo, interface Foo, struct Foo
+        const classMatch = line.match(/(?:export\s+)?(?:class|interface|struct|enum|type)\s+([a-zA-Z0-9_$]+)/);
+        if (classMatch) {
+            symbols.push({
+                id: `${filePath}:${classMatch[1]}:${lineNum}`,
+                filePath,
+                name: classMatch[1],
+                kind: 'class',
+                lineStart: lineNum,
+                lineEnd: lineNum
+            });
+            continue;
+        }
+    }
+    return { symbols, edges: [] };
+}
 function getParseFile() {
     if (parseFileFn)
         return parseFileFn;
-    try {
-        parseFileFn = eval('require')('../../../exovon-core/index.js').parseFile;
+    const homeDir = process.env.HOME || '/home/maakstar';
+    const candidatePaths = [
+        path.join(__dirname, '..', '..', '..', 'exovon-core', 'index.js'),
+        path.join(__dirname, '..', 'exovon-core', 'index.js'),
+        path.join(homeDir, 'EXOVON_ECOSYSTEM', 'exovon-core', 'index.js'),
+        '/home/maakstar/EXOVON_ECOSYSTEM/exovon-core/index.js'
+    ];
+    for (const candidate of candidatePaths) {
+        try {
+            if (fs.existsSync(candidate)) {
+                const mod = eval('require')(candidate);
+                if (mod && typeof mod.parseFile === 'function') {
+                    parseFileFn = mod.parseFile;
+                    return parseFileFn;
+                }
+            }
+        }
+        catch (e) {
+            // try next candidate
+        }
     }
-    catch (e) {
-        parseFileFn = () => ({ symbols: [], edges: [] }); // Safe fallback
-    }
+    parseFileFn = fallbackParseFile;
     return parseFileFn;
 }
 class GraphIndexer {

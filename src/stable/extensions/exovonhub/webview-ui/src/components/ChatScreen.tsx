@@ -18,7 +18,7 @@ import {
   StepStatusBadge
 } from './icons/AnimatedToolIcons';
 
-function TypewriterMarkdown({ content, chatEndRef, disableAnimation }: { content: string; chatEndRef?: React.RefObject<HTMLDivElement | null>, disableAnimation?: boolean }) {
+function TypewriterMarkdown({ content, chatEndRef, disableAnimation, vscodeApi }: { content: string; chatEndRef?: React.RefObject<HTMLDivElement | null>, disableAnimation?: boolean; vscodeApi?: VsCodeApi }) {
   const [displayed, setDisplayed] = React.useState(disableAnimation ? content : '');
   const indexRef = React.useRef(disableAnimation ? content.length : 0);
 
@@ -78,31 +78,79 @@ function TypewriterMarkdown({ content, chatEndRef, disableAnimation }: { content
           th: ({ children }) => <th className="px-3.5 py-2.5 font-medium">{children}</th>,
           td: ({ children }) => <td className="px-3.5 py-2.5 text-zinc-200">{children}</td>,
           hr: () => <hr className="my-4 border-white/10" />,
+          a: ({ href, children }) => (
+            <a
+              href={href}
+              onClick={(e) => {
+                e.preventDefault();
+                if (href) {
+                  if (href.startsWith('http://') || href.startsWith('https://')) {
+                    vscodeApi?.postMessage({ command: 'openBrowserPreview', url: href });
+                  } else {
+                    vscodeApi?.postMessage({ command: 'openFile', path: href });
+                  }
+                }
+              }}
+              className="text-sky-400 hover:text-sky-300 underline underline-offset-2 cursor-pointer transition-colors"
+            >
+              {children}
+            </a>
+          ),
           code({ inline, className, children, ...props }: React.ComponentPropsWithoutRef<'code'> & { inline?: boolean; node?: unknown }) {
             const match = /language-(\w+)/.exec(className || '');
-            return !inline && match ? (
-              <div className="relative group mt-3 mb-3 border border-zinc-800 rounded-xl overflow-hidden bg-zinc-950">
-                <div className="flex items-center justify-between bg-zinc-900 border-b border-zinc-800 px-3.5 py-2 select-none">
-                  <span className="text-[12px] font-mono text-zinc-400 uppercase tracking-wider">{match[1]}</span>
-                  <button
-                    onClick={(e) => {
-                      navigator.clipboard.writeText(String(children).replace(/\n$/, ''));
-                      const btn = e.currentTarget;
-                      btn.textContent = 'Copied!';
-                      setTimeout(() => btn.textContent = 'Copy', 2000);
-                    }}
-                    className="text-[11.5px] text-zinc-400 hover:text-zinc-200 font-mono transition-colors cursor-pointer px-2 py-0.5 rounded hover:bg-white/5"
-                  >
-                    Copy
-                  </button>
+            if (!inline && match) {
+              return (
+                <div className="relative group mt-3 mb-3 border border-zinc-800 rounded-xl overflow-hidden bg-zinc-950">
+                  <div className="flex items-center justify-between bg-zinc-900 border-b border-zinc-800 px-3.5 py-2 select-none">
+                    <span className="text-[12px] font-mono text-zinc-400 uppercase tracking-wider">{match[1]}</span>
+                    <button
+                      onClick={(e) => {
+                        navigator.clipboard.writeText(String(children).replace(/\n$/, ''));
+                        const btn = e.currentTarget;
+                        btn.textContent = 'Copied!';
+                        setTimeout(() => btn.textContent = 'Copy', 2000);
+                      }}
+                      className="text-[11.5px] text-zinc-400 hover:text-zinc-200 font-mono transition-colors cursor-pointer px-2 py-0.5 rounded hover:bg-white/5"
+                    >
+                      Copy
+                    </button>
+                  </div>
+                  <div className="p-3.5 overflow-x-auto scrollbar-thin text-[14px] font-mono leading-relaxed text-zinc-200">
+                    <code className={className} {...props}>
+                      {children}
+                    </code>
+                  </div>
                 </div>
-                <div className="p-3.5 overflow-x-auto scrollbar-thin text-[14px] font-mono leading-relaxed text-zinc-200">
-                  <code className={className} {...props}>
-                    {children}
-                  </code>
-                </div>
-              </div>
-            ) : (
+              );
+            }
+
+            const rawText = String(children).trim();
+            const isFilePath = rawText.length > 2 && (
+              /\.(md|markdown|ts|tsx|js|jsx|json|py|html|css|scss|yaml|yml|rs|go|c|cpp|h|java|png|jpe?g|gif|svg|webp|sh|bash)$/i.test(rawText) ||
+              rawText.startsWith('docs/') ||
+              rawText.startsWith('./') ||
+              rawText.startsWith('/')
+            );
+
+            if (isFilePath) {
+              return (
+                <code
+                  onClick={() => {
+                    vscodeApi?.postMessage({ command: 'openFile', path: rawText });
+                  }}
+                  title={`Click to open ${rawText}`}
+                  className="bg-sky-500/10 hover:bg-sky-500/20 text-sky-300 hover:text-sky-200 px-2 py-0.5 rounded border border-sky-500/30 font-mono text-[15px] font-medium cursor-pointer transition-all inline-flex items-center gap-1 group shadow-sm hover:shadow"
+                  {...props}
+                >
+                  <span>{children}</span>
+                  <svg className="w-3.5 h-3.5 opacity-60 group-hover:opacity-100 transition-opacity" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                  </svg>
+                </code>
+              );
+            }
+
+            return (
               <code className="bg-zinc-850 px-2 py-0.5 rounded border border-white/10 text-sky-300 font-mono text-[15px] font-medium" {...props}>
                 {children}
               </code>
@@ -975,7 +1023,7 @@ export function ChatScreen({
                     </div>
                   )}
                   {msg.text && !msg.isCommandApproval && !msg.isFileApproval && !msg.isPlanReview && (msg.sender === 'agent' ? (
-                    <TypewriterMarkdown content={msg.text} chatEndRef={chatEndRef} disableAnimation={Boolean(msg.isHistory || msg.endTime || idx < messages.length - 1)} />
+                    <TypewriterMarkdown content={msg.text} chatEndRef={chatEndRef} disableAnimation={Boolean(msg.isHistory || msg.endTime || idx < messages.length - 1)} vscodeApi={vscodeApi} />
                   ) : (
                     <div className="text-zinc-100 text-[18.5px] leading-[1.68]">
                       <ReactMarkdown

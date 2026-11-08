@@ -1389,14 +1389,58 @@ Developer Action Request: "${finalPrompt}"
         }
 
         case 'openFile': {
-          if (data.path) {
+          const rawTarget = data.path || data.filePath;
+          if (rawTarget) {
             const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
-            const fullPath = path.resolve(workspaceRoot, data.path);
+            const fullPath = path.isAbsolute(rawTarget) ? rawTarget : path.resolve(workspaceRoot, rawTarget);
+            const fileUri = vscode.Uri.file(fullPath);
+            const lowerPath = fullPath.toLowerCase();
+
+            if (lowerPath.endsWith('.md') || lowerPath.endsWith('.markdown')) {
+              try {
+                const mdExt = vscode.extensions.getExtension('vscode.markdown-language-features');
+                if (mdExt && !mdExt.isActive) {
+                  mdExt.activate();
+                }
+              } catch (e) {
+                console.warn('[Astrolabe] Failed to activate markdown extension:', e);
+              }
+
+              vscode.commands.executeCommand('vscode.openWith', fileUri, 'vscode.markdown.preview.editor', {
+                viewColumn: vscode.ViewColumn.One,
+                preview: false
+              }).then(undefined, () => {
+                vscode.commands.executeCommand('markdown.showPreview', fileUri).then(undefined, () => {
+                  vscode.workspace.openTextDocument(fullPath).then(doc => {
+                    vscode.window.showTextDocument(doc, { preview: false });
+                  });
+                });
+              });
+              break;
+            }
+
+            if (/\.(png|jpe?g|gif|webp|svg|ico|bmp|pdf)$/i.test(lowerPath)) {
+              vscode.commands.executeCommand('vscode.open', fileUri, { preview: false }).then(undefined, (err) => {
+                console.warn('[Astrolabe] vscode.open media failed:', err);
+                vscode.window.showErrorMessage(`Failed to open media: ${rawTarget}`);
+              });
+              break;
+            }
+
             vscode.workspace.openTextDocument(fullPath).then(doc => {
                vscode.window.showTextDocument(doc, { preview: false });
             }, (e: any) => {
-               vscode.window.showErrorMessage(`Failed to open file: ${data.path}`);
+               vscode.commands.executeCommand('vscode.open', fileUri).then(undefined, () => {
+                 vscode.window.showErrorMessage(`Failed to open file: ${rawTarget}`);
+               });
             });
+          }
+          break;
+        }
+
+        case 'openBrowserPreview': {
+          if (data.url) {
+            vscode.commands.executeCommand('simpleBrowser.show', data.url);
           }
           break;
         }
