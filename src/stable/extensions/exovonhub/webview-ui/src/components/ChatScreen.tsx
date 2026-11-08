@@ -1745,7 +1745,7 @@ export function ChatScreen({
           onChange={(e) => setInputValue(e.target.value)}
           onKeyDown={(e) => {
             const isCtrl = e.ctrlKey || e.metaKey;
-            if (isCtrl) {
+            if (isCtrl && e.key) {
               const k = e.key.toLowerCase();
               if (['c', 'v', 'x', 'a', 'z', 'y'].includes(k)) {
                 e.stopPropagation();

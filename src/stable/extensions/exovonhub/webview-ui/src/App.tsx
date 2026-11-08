@@ -1239,7 +1239,7 @@ export default function App() {
   useEffect(() => {
     const handleCaptureKeyDown = (e: KeyboardEvent) => {
       const isCtrl = e.ctrlKey || e.metaKey;
-      if (isCtrl) {
+      if (isCtrl && e.key) {
         const k = e.key.toLowerCase();
         if (['c', 'v', 'x', 'a', 'z', 'y'].includes(k)) {
           const target = e.target as HTMLElement;
