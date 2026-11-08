@@ -943,6 +943,7 @@ class ExovonSidebarProvider {
                     webviewView.webview.postMessage({
                         type: 'workspaceInfo',
                         name: workspaceName,
+                        workspaceRoot: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '',
                         filesCount: filesCount,
                         isAutonomous: isAutonomous,
                         isLoggedIn: isLoggedIn,
@@ -1961,6 +1962,29 @@ Developer Action Request: "${finalPrompt}"
                 case 'openBrowserPreview': {
                     if (data.url) {
                         vscode.commands.executeCommand('simpleBrowser.show', data.url);
+                    }
+                    break;
+                }
+                case 'readImageAsBase64': {
+                    if (data.path) {
+                        try {
+                            const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
+                            const fullPath = path.isAbsolute(data.path) ? data.path : path.resolve(workspaceRoot, data.path);
+                            if (fs.existsSync(fullPath)) {
+                                const ext = path.extname(fullPath).toLowerCase().replace('.', '');
+                                const mime = ext === 'png' ? 'image/png' : ext === 'svg' ? 'image/svg+xml' : ext === 'webp' ? 'image/webp' : ext === 'gif' ? 'image/gif' : 'image/jpeg';
+                                const buffer = fs.readFileSync(fullPath);
+                                const dataUrl = `data:${mime};base64,${buffer.toString('base64')}`;
+                                webviewView.webview.postMessage({
+                                    type: 'imageAttachedFromDisk',
+                                    dataUrl,
+                                    filename: path.basename(fullPath)
+                                });
+                            }
+                        }
+                        catch (err) {
+                            console.warn('[Astrolabe] Failed to read image as base64:', err);
+                        }
                     }
                     break;
                 }

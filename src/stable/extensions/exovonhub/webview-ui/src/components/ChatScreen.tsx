@@ -185,6 +185,7 @@ interface ChatScreenProps {
   vscodeApi?: VsCodeApi;
   chatEndRef: React.RefObject<HTMLDivElement | null>;
   activeEditorFile?: string;
+  workspaceRoot?: string;
   isPreempting?: boolean;
   handlePlanApproval?: (approved: boolean) => void;
   selectedModel?: string;
@@ -745,6 +746,7 @@ export function ChatScreen({
   vscodeApi,
   chatEndRef,
   activeEditorFile,
+  workspaceRoot,
   isPreempting,
   handlePlanApproval,
   selectedModel,
@@ -866,8 +868,165 @@ export function ChatScreen({
     setShowToolbox(false);
   };
 
+  // --- DRAG AND DROP INTEGRATION ---
+  const [isDraggingOver, setIsDraggingOver] = React.useState(false);
+  const dragCounter = React.useRef(0);
+
+  const handleDragEnter = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounter.current += 1;
+    if (e.dataTransfer.items && e.dataTransfer.items.length > 0) {
+      setIsDraggingOver(true);
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = 'copy';
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounter.current -= 1;
+    if (dragCounter.current <= 0) {
+      dragCounter.current = 0;
+      setIsDraggingOver(false);
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounter.current = 0;
+    setIsDraggingOver(false);
+
+    // 1. Process files dropped from OS file manager / desktop
+    const files = Array.from(e.dataTransfer.files || []);
+    if (files.length > 0) {
+      files.forEach((file) => {
+        const isImage = file.type.startsWith('image/') || /\.(png|jpe?g|webp|gif|svg|bmp)$/i.test(file.name);
+        if (isImage) {
+          if (file.size > 5 * 1024 * 1024) {
+            if (vscodeApi) vscodeApi.postMessage({ command: 'log', text: `⚠️ Image "${file.name}" exceeds 5MB limit.`, logType: 'error' });
+            return;
+          }
+          const reader = new FileReader();
+          reader.onload = (event) => {
+            const img = new Image();
+            img.onload = () => {
+              const canvas = document.createElement('canvas');
+              const ctx = canvas.getContext('2d');
+              const MAX_WIDTH = 1024;
+              const MAX_HEIGHT = 1024;
+              let width = img.width;
+              let height = img.height;
+              if (width > height) {
+                if (width > MAX_WIDTH) {
+                  height *= MAX_WIDTH / width;
+                  width = MAX_WIDTH;
+                }
+              } else {
+                if (height > MAX_HEIGHT) {
+                  width *= MAX_HEIGHT / height;
+                  height = MAX_HEIGHT;
+                }
+              }
+              canvas.width = width;
+              canvas.height = height;
+              if (ctx) ctx.drawImage(img, 0, 0, width, height);
+              const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+              if (setAttachedImages) {
+                setAttachedImages(prev => (prev.length < 3 ? [...prev, dataUrl] : prev));
+              }
+              if (vscodeApi) vscodeApi.postMessage({ command: 'log', text: `📸 Attached dropped image: ${file.name}`, logType: 'info' });
+            };
+            img.src = event.target?.result as string;
+          };
+          reader.readAsDataURL(file);
+        } else {
+          // Source code, markdown, document
+          setSelectedContextFiles(prev => {
+            if (prev.some(f => f.name === file.name)) return prev;
+            return [...prev, { name: file.name, type: 'file' }];
+          });
+          const tag = `@${file.name}`;
+          if (!inputValue.includes(tag)) {
+            setInputValue(inputValue ? `${inputValue.trim()} ${tag} ` : `${tag} `);
+          }
+          if (vscodeApi) vscodeApi.postMessage({ command: 'log', text: `📎 Attached context: ${file.name}`, logType: 'info' });
+        }
+      });
+      return;
+    }
+
+    // 2. Process text/uri-list or text/plain from VS Code Explorer tree
+    const uriList = e.dataTransfer.getData('text/uri-list') || e.dataTransfer.getData('text/plain') || '';
+    if (uriList) {
+      const lines = uriList.split(/[\r\n]+/).map(s => s.trim()).filter(Boolean);
+      lines.forEach((line) => {
+        let rawPath = decodeURIComponent(line.replace(/^file:\/\//, '')).trim();
+        if (!rawPath) return;
+
+        let relPath = rawPath;
+        if (workspaceRoot && rawPath.startsWith(workspaceRoot)) {
+          relPath = rawPath.substring(workspaceRoot.length).replace(/^[/\\]+/, '');
+        } else if (rawPath.includes('/')) {
+          const parts = rawPath.split('/').filter(Boolean);
+          relPath = parts.length > 2 ? parts.slice(-2).join('/') : (parts[parts.length - 1] || rawPath);
+        }
+
+        const isImage = /\.(png|jpe?g|webp|gif|svg|bmp)$/i.test(relPath);
+        if (isImage) {
+          if (vscodeApi) {
+            vscodeApi.postMessage({ command: 'readImageAsBase64', path: rawPath });
+          }
+        } else {
+          setSelectedContextFiles(prev => {
+            if (prev.some(f => f.name === relPath)) return prev;
+            return [...prev, { name: relPath, type: 'file' }];
+          });
+          const tag = `@${relPath}`;
+          if (!inputValue.includes(tag)) {
+            setInputValue(inputValue ? `${inputValue.trim()} ${tag} ` : `${tag} `);
+          }
+          if (vscodeApi) vscodeApi.postMessage({ command: 'log', text: `📎 Attached context: ${relPath}`, logType: 'info' });
+        }
+      });
+    }
+  };
+
   return (
-    <div className="flex-1 flex flex-col gap-3 min-h-0 justify-between relative">
+    <div
+      onDragEnter={handleDragEnter}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+      className="flex-1 flex flex-col gap-3 min-h-0 justify-between relative"
+    >
+      {/* DRAG & DROP VISUAL OVERLAY */}
+      {isDraggingOver && (
+        <div className="absolute inset-0 z-50 bg-[#121214]/90 backdrop-blur-md rounded-2xl border-2 border-dashed border-sky-400/70 flex flex-col items-center justify-center p-6 text-center animate-fade-in pointer-events-none shadow-2xl">
+          <div className="w-16 h-16 rounded-2xl bg-sky-500/15 border border-sky-500/30 flex items-center justify-center text-sky-400 mb-3.5 shadow-[0_0_30px_rgba(56,189,248,0.25)] animate-bounce">
+            <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+            </svg>
+          </div>
+          <h3 className="text-[17px] font-bold text-white tracking-wide">Drop Files or Images Here</h3>
+          <p className="text-[13px] text-zinc-400 mt-1.5 max-w-xs leading-relaxed">
+            Images attach for vision analysis. Code, markdown, and documents attach as active context with @file tags.
+          </p>
+          <div className="flex items-center gap-2 mt-4 text-[11px] font-mono text-sky-300 bg-sky-950/50 px-3.5 py-1.5 rounded-full border border-sky-500/30 shadow-inner">
+            <span>🖼️ Images</span>
+            <span className="text-zinc-600">•</span>
+            <span>📄 Code & Docs</span>
+            <span className="text-zinc-600">•</span>
+            <span>📂 Folders</span>
+          </div>
+        </div>
+      )}
 
       {/* UPSIDE EMPTY PLACE: CONTEXT PICKER HEADER */}
       <div className="flex flex-wrap items-center gap-1.5 pb-2 pt-1 px-1 shrink-0 border-b border-white/5">

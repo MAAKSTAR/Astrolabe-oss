@@ -59,6 +59,7 @@ export default function App() {
   const [stopClicks, setStopClicks] = useState<number>(0);
   const [selectedContextFiles, setSelectedContextFiles] = useState<Array<{ name: string; type: string }>>([]);
   const [attachedImages, setAttachedImages] = useState<string[]>([]);
+  const [workspaceRoot, setWorkspaceRoot] = useState<string>('');
   
   // Chat Persistence State
   const [chatThreads, setChatThreads] = useState<ChatThread[]>([]);
@@ -258,10 +259,20 @@ export default function App() {
       const message = event.data;
       switch (message.type) {
         case 'workspaceInfo':
-          // Autonomous mode state is managed natively now
-          // if (message.isAutonomous !== undefined) {
-          //   // ...
-          // }
+          if (message.workspaceRoot) {
+            setWorkspaceRoot(message.workspaceRoot);
+          }
+          break;
+        case 'imageAttachedFromDisk':
+          if (message.dataUrl) {
+            setAttachedImages(prev => {
+              if (prev.length >= 3) return prev;
+              return [...prev, message.dataUrl];
+            });
+            if (vscodeApi) {
+              vscodeApi.postMessage({ command: 'log', text: `📸 Attached dropped image: ${message.filename}`, logType: 'info' });
+            }
+          }
           break;
         case 'settingsState': {
           const currentSelected = selectedModelRef.current;
@@ -1337,6 +1348,7 @@ export default function App() {
             setPlanLevel={setPlanLevel}
             vscodeApi={vscodeApi}
             chatEndRef={chatEndRef}
+            workspaceRoot={workspaceRoot}
             activeEditorFile={activeEditorFile}
             isPreempting={isPreempting}
             selectedModel={selectedModel}
