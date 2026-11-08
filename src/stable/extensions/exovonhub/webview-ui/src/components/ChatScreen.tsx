@@ -868,17 +868,10 @@ export function ChatScreen({
     setShowToolbox(false);
   };
 
-  // --- DRAG AND DROP INTEGRATION (RESTRAINED COMPOSER DOCKING) ---
-  const [isDraggingOver, setIsDraggingOver] = React.useState(false);
-  const dragCounter = React.useRef(0);
-
+  // --- DRAG AND DROP INTEGRATION ---
   const handleDragEnter = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    dragCounter.current += 1;
-    if ((e.dataTransfer.items && e.dataTransfer.items.length > 0) || (e.dataTransfer.types && e.dataTransfer.types.length > 0)) {
-      setIsDraggingOver(true);
-    }
   };
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -890,11 +883,6 @@ export function ChatScreen({
   const handleDragLeave = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    dragCounter.current -= 1;
-    if (dragCounter.current <= 0) {
-      dragCounter.current = 0;
-      setIsDraggingOver(false);
-    }
   };
 
   const attachFileContext = (rawPath: string) => {
@@ -947,8 +935,6 @@ export function ChatScreen({
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    dragCounter.current = 0;
-    setIsDraggingOver(false);
 
     // 1. Process files dropped from OS file manager or browser
     const files = Array.from(e.dataTransfer.files || []);
@@ -1018,6 +1004,9 @@ export function ChatScreen({
         return;
       }
       if (typeof obj === 'object') {
+        if (obj.editor) {
+          extractFromObject(obj.editor);
+        }
         const candidate = obj.fsPath || obj.path || (typeof obj.resource === 'string' ? obj.resource : (obj.resource?.fsPath || obj.resource?.path)) || obj.resourceUri?.fsPath || obj.resourceUri?.path || obj.uri?.fsPath || obj.uri?.path;
         if (candidate && typeof candidate === 'string') {
           extractedFilePaths.push(candidate);
@@ -1117,9 +1106,7 @@ export function ChatScreen({
       className="flex-1 flex flex-col gap-3 min-h-0 justify-between relative"
     >
       {/* UPSIDE EMPTY PLACE: CONTEXT PICKER HEADER */}
-      <div className={`flex flex-wrap items-center gap-1.5 pb-2 pt-1 px-1 shrink-0 border-b transition-colors ${
-        isDraggingOver ? 'border-sky-500/30 bg-sky-950/10' : 'border-white/5'
-      }`}>
+      <div className="flex flex-wrap items-center gap-1.5 pb-2 pt-1 px-1 shrink-0 border-b border-white/5">
         <span className="text-[8px] font-mono text-zinc-500 uppercase tracking-wider pl-1">
           Context:
         </span>
@@ -1719,18 +1706,11 @@ export function ChatScreen({
 
       {/* INTERACTIVE INPUT CONTROL BOX */}
       <div className="w-full max-w-4xl mx-auto px-2 pb-1 shrink-0">
-        <div className={`rounded-2xl p-2.5 flex flex-col shrink-0 transition-all duration-150 relative ${
-          isDraggingOver
-            ? 'bg-[#161d27] border border-sky-500/60 shadow-[0_0_20px_rgba(56,189,248,0.18)] ring-1 ring-sky-500/30'
-            : 'bg-[#1a1a1c] border border-white/10 shadow-md focus-within:border-sky-500/40 focus-within:ring-1 focus-within:ring-sky-500/20'
-        }`}>
-        {/* Restrained Drag Indicator Banner */}
-        {isDraggingOver && (
-          <div className="flex items-center justify-between px-3 py-1 mb-2 rounded-xl bg-sky-500/10 border border-sky-500/20 text-sky-300 font-mono text-[11px] animate-fade-in">
-            <span className="font-medium text-white/90">Drop tab or file to attach context</span>
-            <span className="text-[10px] text-zinc-400">Images attach for vision</span>
-          </div>
-        )}
+        <div
+          onDragOver={handleDragOver}
+          onDrop={handleDrop}
+          className="bg-[#1a1a1c] border border-white/10 rounded-2xl p-2.5 flex flex-col shadow-md shrink-0 transition-all focus-within:border-sky-500/40 focus-within:ring-1 focus-within:ring-sky-500/20 relative"
+        >
 
         {!autoScroll && (
           <div className="absolute bottom-32 right-4 z-10 flex flex-col gap-2">
@@ -1770,9 +1750,7 @@ export function ChatScreen({
             }
           }}
           placeholder={
-            isDraggingOver
-              ? "Drop editor tab, file, or code here..."
-              : isAgentThinking
+            isAgentThinking
               ? "Astrolabe is thinking & analyzing..."
               : "Ask Astrolabe anything, or command it to build & edit code..."
           }
