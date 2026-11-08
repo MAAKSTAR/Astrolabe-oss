@@ -1305,6 +1305,16 @@ export class BrainCoordinator implements IBrainCoordinator {
         ? workspacePath 
         : (vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '');
 
+      // Clean up orphaned empty threads (0 non-welcome messages) older than 15 seconds
+      const expiry = Date.now() - 15000;
+      try {
+        this.db.prepare(`
+          DELETE FROM chat_threads 
+          WHERE (SELECT COUNT(*) FROM chat_messages cm WHERE cm.thread_id = chat_threads.id AND cm.id != 'welcome') = 0
+            AND created_at < ?
+        `).run(expiry);
+      } catch (cleanErr) {}
+
       const threads = currentWorkspace
         ? this.db.prepare(`
             SELECT 
@@ -1313,12 +1323,16 @@ export class BrainCoordinator implements IBrainCoordinator {
               ct.updated_at,
               ct.workspace_path,
               (SELECT COUNT(*) FROM chat_messages cm WHERE cm.thread_id = ct.id AND cm.id != 'welcome') as message_count,
-              (SELECT text FROM chat_messages cm WHERE cm.thread_id = ct.id AND cm.id != 'welcome' AND cm.text IS NOT NULL AND TRIM(cm.text) != '' ORDER BY cm.timestamp DESC, cm.id DESC LIMIT 1) as preview
+              (SELECT text FROM chat_messages cm WHERE cm.thread_id = ct.id AND cm.id != 'welcome' AND cm.text IS NOT NULL AND TRIM(cm.text) != '' ORDER BY cm.rowid DESC LIMIT 1) as preview
             FROM chat_threads ct 
             WHERE ct.workspace_path = ?
+              AND (
+                (SELECT COUNT(*) FROM chat_messages cm WHERE cm.thread_id = ct.id AND cm.id != 'welcome') > 0
+                OR ct.created_at >= ?
+              )
             ORDER BY ct.updated_at DESC
             LIMIT 200
-          `).all(currentWorkspace) as any[]
+          `).all(currentWorkspace, expiry) as any[]
         : this.db.prepare(`
             SELECT 
               ct.id, 
@@ -1326,12 +1340,16 @@ export class BrainCoordinator implements IBrainCoordinator {
               ct.updated_at,
               ct.workspace_path,
               (SELECT COUNT(*) FROM chat_messages cm WHERE cm.thread_id = ct.id AND cm.id != 'welcome') as message_count,
-              (SELECT text FROM chat_messages cm WHERE cm.thread_id = ct.id AND cm.id != 'welcome' AND cm.text IS NOT NULL AND TRIM(cm.text) != '' ORDER BY cm.timestamp DESC, cm.id DESC LIMIT 1) as preview
+              (SELECT text FROM chat_messages cm WHERE cm.thread_id = ct.id AND cm.id != 'welcome' AND cm.text IS NOT NULL AND TRIM(cm.text) != '' ORDER BY cm.rowid DESC LIMIT 1) as preview
             FROM chat_threads ct 
-            WHERE ct.workspace_path IS NULL OR ct.workspace_path = ''
+            WHERE (ct.workspace_path IS NULL OR ct.workspace_path = '')
+              AND (
+                (SELECT COUNT(*) FROM chat_messages cm WHERE cm.thread_id = ct.id AND cm.id != 'welcome') > 0
+                OR ct.created_at >= ?
+              )
             ORDER BY ct.updated_at DESC
             LIMIT 200
-          `).all() as any[];
+          `).all(expiry) as any[];
 
       // Auto-repair stale generic titles (e.g. 'HI', 'hi', 'hello', 'New Chat')
       for (const t of threads) {
@@ -1340,7 +1358,7 @@ export class BrainCoordinator implements IBrainCoordinator {
           const firstMeaningful: any = this.db.prepare(`
             SELECT text FROM chat_messages 
             WHERE thread_id = ? AND sender = 'user' AND text IS NOT NULL AND LENGTH(TRIM(text)) > 3
-            ORDER BY timestamp ASC LIMIT 1
+            ORDER BY rowid ASC LIMIT 1
           `).get(t.id);
           if (firstMeaningful?.text) {
             let clean = firstMeaningful.text

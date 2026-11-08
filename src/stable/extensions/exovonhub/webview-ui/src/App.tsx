@@ -190,16 +190,33 @@ export default function App() {
   }, [messages, activeThreadId]);
 
   const handleClearChat = () => {
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+      if (activeThreadIdRef.current && messagesRef.current.length > 0) {
+        flushSaveMessages(activeThreadIdRef.current, messagesRef.current);
+      }
+    }
+    lastSavedStateRef.current = {};
     if (vscodeApi) {
       vscodeApi.postMessage({ command: 'createNewThread' });
     }
   };
 
   const handleSelectThread = (threadId: string) => {
-    if (vscodeApi && threadId !== activeThreadId) {
-      setIsLoadingThread(true);
-      vscodeApi.postMessage({ command: 'loadChatThread', threadId });
+    if (!vscodeApi) return;
+    if (threadId === activeThreadId) {
+      return;
     }
+    // Flush pending changes before switching
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+      if (activeThreadIdRef.current && messagesRef.current.length > 0) {
+        flushSaveMessages(activeThreadIdRef.current, messagesRef.current);
+      }
+    }
+    setIsLoadingThread(true);
+    lastSavedStateRef.current = {};
+    vscodeApi.postMessage({ command: 'loadChatThread', threadId });
   };
 
   const handleDeleteThread = (threadId: string) => {
@@ -970,27 +987,14 @@ export default function App() {
         case 'chatThreadsLoaded':
           if (message.threads) {
             setChatThreads(message.threads);
-            setActiveThreadId(prev => {
-              // If user is already active in a thread belonging to this workspace, retain it
-              const prevExists = prev && message.threads.some((t: ChatThread) => t.id === prev);
-              if (prevExists) {
-                return prev;
-              }
-              // User requirement: "IT SHUDL ALWAY S OPEN IN NEW CHAT"
-              // "EVERY WORKSPACE SHOULD START WITH EMPTY CHAT HISTORY, EVERY WORKSPACE WILL HAVE ITS OWN CHAT HISTORY"
-              // Start cleanly with a fresh new chat on IDE launch / workspace switch.
-              // Past chats are safely preserved in the History drawer to switch to at any time.
-              if (vscodeApi) {
-                vscodeApi.postMessage({ command: 'createNewThread' });
-              }
-              return null;
-            });
           }
           break;
         case 'newThreadCreated':
           setIsLoadingThread(false);
           if (message.threadId) {
             setActiveThreadId(message.threadId);
+            activeThreadIdRef.current = message.threadId;
+            lastSavedStateRef.current = {};
             setMessages([{
               id: 'welcome',
               sender: 'agent',
@@ -1002,7 +1006,17 @@ export default function App() {
           break;
         case 'chatHistoryLoaded':
           setIsLoadingThread(false);
+          if (message.threadId) {
+            setActiveThreadId(message.threadId);
+            activeThreadIdRef.current = message.threadId;
+          }
+          lastSavedStateRef.current = {};
           if (message.messages && message.messages.length > 0) {
+            message.messages.forEach((m: any) => {
+              if (m && m.id) {
+                lastSavedStateRef.current[m.id] = JSON.stringify(m);
+              }
+            });
             setMessages(message.messages.map((m: unknown) => ({ ...(m as object), isHistory: true })));
           } else {
              setMessages([{
@@ -1089,6 +1103,8 @@ export default function App() {
       vscodeApi.postMessage({ command: 'getWorkspaceInfo' });
       vscodeApi.postMessage({ command: 'getSettingsState' });
       vscodeApi.postMessage({ command: 'getChatThreads' });
+      // Start in a fresh new chat session for this workspace on launch
+      vscodeApi.postMessage({ command: 'createNewThread' });
     }
 
     return () => window.removeEventListener('message', handleMessage);
