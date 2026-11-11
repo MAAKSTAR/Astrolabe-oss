@@ -29,9 +29,11 @@ fn main() {
     );
 
     if let Some(cmake_root) = find_llama_cmake_root(build_dir, &cache_bases) {
-        if let Some(httplib_dir) =
-            find_lib_dir(&cmake_root.join("build/vendor/cpp-httplib"), "cpp-httplib.lib", custom_profile.as_deref())
-        {
+        if let Some(httplib_dir) = find_lib_dir(
+            &cmake_root.join("build").join("vendor").join("cpp-httplib"),
+            "cpp-httplib.lib",
+            custom_profile.as_deref(),
+        ) {
             println!("cargo:rustc-link-search=native={}", httplib_dir.display());
             println!("cargo:rustc-link-lib=static=cpp-httplib");
         } else {
@@ -41,7 +43,7 @@ fn main() {
             );
         }
 
-        let common_root = cmake_root.join("build/common");
+        let common_root = cmake_root.join("build").join("common");
         if !common_root.join("llama-common-base.lib").is_file() {
             if let Some(common_dir) = find_lib_dir(
                 &common_root,

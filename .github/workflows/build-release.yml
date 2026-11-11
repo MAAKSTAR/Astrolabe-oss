@@ -47,6 +47,8 @@ jobs:
           which glslc || true
 
       - name: Build Native AI Daemon (Rust / Vulkan)
+        env:
+          LLAMA_OPENSSL: "OFF"
         run: |
           cd daemon
           cargo build --release
@@ -245,6 +247,8 @@ jobs:
         shell: powershell
 
       - name: Build Native AI Daemon (Windows MSVC)
+        env:
+          LLAMA_OPENSSL: "OFF"
         run: |
           cd daemon
           cargo build --release
