@@ -6,6 +6,7 @@ import rehypeRaw from 'rehype-raw';
 import remarkGfm from 'remark-gfm';
 import 'highlight.js/styles/atom-one-dark.css';
 import TextareaAutosize from 'react-textarea-autosize';
+import { safeMarkdownUrlTransform, extractLegacyMediaText } from './chatMediaHelpers';
 import {
   ThinkIcon,
   ReadFileIcon,
@@ -57,7 +58,22 @@ function TypewriterMarkdown({ content, chatEndRef, disableAnimation, vscodeApi }
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         rehypePlugins={[rehypeRaw, rehypeHighlight]}
+        urlTransform={safeMarkdownUrlTransform}
         components={{
+          img: ({ src, alt, ...props }) => {
+            if (!src) return null;
+            return (
+              <img
+                src={src}
+                alt={alt || 'Generated image'}
+                className="w-full max-w-md rounded-2xl border border-white/10 shadow-xl object-contain my-2 bg-zinc-950/60"
+                onError={(e) => {
+                  (e.currentTarget as HTMLImageElement).style.display = 'none';
+                }}
+                {...props}
+              />
+            );
+          },
           h1: ({ children }) => <h1 className="text-[22px] font-bold text-white mt-6 mb-3 pb-2 border-b border-white/10">{children}</h1>,
           h2: ({ children }) => <h2 className="text-[19px] font-bold text-white mt-5 mb-2.5 pb-1 border-b border-white/5">{children}</h2>,
           h3: ({ children }) => <h3 className="text-[17.5px] font-semibold text-zinc-100 mt-4 mb-2">{children}</h3>,
@@ -196,10 +212,33 @@ interface ChatScreenProps {
   quotaInfo?: { usedPercentage: number, dailyLimit: number, tokensUsed: number, currentTier: string, modelsUsed: string[], resetsIn: string } | null;
   activeLocalModel?: string;
   activeDiffusionModel?: string;
-  availableLocalModels?: Array<{ id: string; name: string; size_display?: string; quantization?: string; architecture?: string; loaded?: boolean; is_primary?: boolean }>;
+  activeDiffusionResolution?: string;
+  activeDiffusionModality?: string;
+  availableLocalModels?: Array<{
+    id: string;
+    name: string;
+    size_display?: string;
+    quantization?: string;
+    architecture?: string;
+    loaded?: boolean;
+    is_primary?: boolean;
+    modality?: string;
+    relative_path?: string;
+    component_role?: string | null;
+    model_family?: string;
+  }>;
   currentContextTokens?: number;
   maxContextTokens?: number;
 }
+
+type ExtendedChatMessage = Message & {
+  generatingModelName?: string;
+  generatingMediaType?: 'image' | 'video';
+  generatedMediaType?: 'image' | 'video';
+  generatedMediaUrl?: string;
+  generatedMediaMime?: string;
+  savedPath?: string;
+};
 
 
 
@@ -515,7 +554,10 @@ function TaskProgressCard({ msg }: { msg: Message }) {
                     !isCancelled && !event.content?.includes('stopped') && !event.content?.includes('aborted') && (event.content?.includes('❌') || event.content?.includes('Failed') || event.content?.includes('SYNTAX ERROR')) ? (
                       <div className="bg-rose-950/40 border border-rose-800/60 rounded-xl p-3 text-[11.5px] font-mono text-rose-200 overflow-x-auto whitespace-pre-wrap leading-relaxed shadow-lg">
                         <div className="flex items-center gap-1.5 mb-1 text-rose-300 font-bold text-xs">
-                          <span>⚠️ Error Diagnostic</span>
+                          <svg className="w-3.5 h-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+                          </svg>
+                          <span>Error Diagnostic</span>
                         </div>
                         {event.content}
                       </div>
@@ -598,15 +640,69 @@ export function formatModelDisplayName(modelStr?: string): string {
   return name;
 }
 
-export function getModelCategory(m: { id?: string; name?: string; architecture?: string }): 'diffusion' | 'projector' | 'llm' {
+export type ModelKind = 'video' | 'image' | 'music' | 'component' | 'llm';
+
+export function inferModelKind(m: {
+  id?: string;
+  name?: string;
+  architecture?: string;
+  modality?: string;
+  relative_path?: string;
+  component_role?: string | null;
+  model_family?: string;
+}): ModelKind {
+  const explicitModality = (m.modality || '').toLowerCase();
+  if (explicitModality === 'video') return 'video';
+  if (explicitModality === 'image' || explicitModality === 'diffusion') return 'image';
+  if (explicitModality === 'music' || explicitModality === 'audio') return 'music';
+  if (explicitModality === 'component' || m.component_role) return 'component';
+  if (explicitModality === 'llm' || explicitModality === 'text') return 'llm';
+
+  const relPath = (m.relative_path || '').replace(/\\/g, '/').toLowerCase();
+  if (relPath.startsWith('video/')) return 'video';
+  if (relPath.startsWith('image/')) return 'image';
+  if (relPath.startsWith('music/') || relPath.startsWith('audio/')) return 'music';
+  if (relPath.startsWith('component/') || relPath.startsWith('components/')) return 'component';
+  if (relPath.startsWith('llm/')) return 'llm';
+
   const name = (m.name || m.id || '').toLowerCase();
+  const normId = (m.id || '').replace(/\\/g, '/').toLowerCase();
   const arch = (m.architecture || '').toLowerCase();
-  
+
   if (name.includes('mmproj') || name.startsWith('mmproj-') || arch.includes('clip')) {
-    return 'projector';
+    return 'component';
   }
-  
-  const isDiffKeyword = (
+
+  if (
+    normId.includes('/video/') ||
+    name.includes('wan-') ||
+    name.includes('wan2') ||
+    name.includes('wan_') ||
+    name.includes('hunyuanvideo') ||
+    name.includes('cogvideo') ||
+    name.includes('ltx-') ||
+    name.includes('ltx_') ||
+    name.includes('mochi')
+  ) {
+    return 'video';
+  }
+
+  const isLlmKeyword = (
+    name.includes('qwen') ||
+    name.includes('gemma') ||
+    name.includes('llama') ||
+    name.includes('bonsai') ||
+    name.includes('ornith') ||
+    name.includes('lfm') ||
+    name.includes('refact') ||
+    name.includes('vibethinker')
+  );
+  if (isLlmKeyword && !name.includes('image')) {
+    return 'llm';
+  }
+
+  const isImageKeyword = (
+    normId.includes('/image/') ||
     name.includes('sd-') ||
     name.includes('sd_') ||
     name.includes('sd1') ||
@@ -619,27 +715,30 @@ export function getModelCategory(m: { id?: string; name?: string; architecture?:
     name.includes('illustrious') ||
     name.includes('pony') ||
     name.includes('stable-diffusion') ||
-    name.includes('wan-') ||
-    name.includes('wan2') ||
+    (name.includes('qwen') && name.includes('image')) ||
     arch.includes('diffusion') ||
     name.endsWith('.safetensors')
   );
-  
-  const isLlmKeyword = (
-    name.includes('qwen') ||
-    name.includes('gemma') ||
-    name.includes('llama') ||
-    name.includes('bonsai') ||
-    name.includes('ornith') ||
-    name.includes('lfm') ||
-    name.includes('refact') ||
-    name.includes('vibethinker')
-  );
-
-  if (isDiffKeyword && !isLlmKeyword) {
-    return 'diffusion';
+  if (isImageKeyword) {
+    return 'image';
   }
 
+  return 'llm';
+}
+
+export function getModelCategory(m: {
+  id?: string;
+  name?: string;
+  architecture?: string;
+  modality?: string;
+  relative_path?: string;
+  component_role?: string | null;
+  model_family?: string;
+}): 'video' | 'diffusion' | 'projector' | 'llm' {
+  const kind = inferModelKind(m);
+  if (kind === 'video') return 'video';
+  if (kind === 'image') return 'diffusion';
+  if (kind === 'component') return 'projector';
   return 'llm';
 }
 
@@ -664,9 +763,9 @@ function TerminalDashProgressBar({
     ? Math.min(100, Math.max(0, Math.round((msg.promptProcessed / msg.promptTokens!) * 100)))
     : null;
 
-  // Active smooth progression during prefill
+  // Active smooth progression during prefill or image generation
   React.useEffect(() => {
-    if (hasFirstToken) {
+    if (hasFirstToken && !msg.isGeneratingImage) {
       setPercent(100);
       percentRef.current = 100;
       return;
@@ -677,7 +776,7 @@ function TerminalDashProgressBar({
         percentRef.current = realPercent;
         setPercent(realPercent);
       } else {
-        // Smoothly advance dashes during prefill so it never looks frozen
+        // Smoothly advance dashes during prefill / image denoising so it never looks frozen
         if (percentRef.current < 95) {
           const step = Math.max(1, Math.round((95 - percentRef.current) * 0.12));
           const next = Math.min(95, percentRef.current + step);
@@ -688,10 +787,10 @@ function TerminalDashProgressBar({
     }, 60);
 
     return () => clearInterval(interval);
-  }, [hasFirstToken, realPercent]);
+  }, [hasFirstToken, realPercent, msg.isGeneratingImage]);
 
-  // If first token arrived or agent stopped thinking, prefill is done
-  if (hasFirstToken || !isAgentThinking) {
+  // If first token arrived or agent stopped thinking, prefill is done (unless generating image)
+  if ((hasFirstToken && !msg.isGeneratingImage) || !isAgentThinking) {
     return null;
   }
 
@@ -702,12 +801,12 @@ function TerminalDashProgressBar({
 
   return (
     <div className="py-1 my-1 w-full font-mono text-[11px] leading-relaxed select-none">
-      {/* Line 1: Model Name (No card, pure monospace text) */}
-      <div className="text-amber-400 font-semibold tracking-tight mb-0.5">
+      {/* Line 1: Model Name (Bigger, pure white font) */}
+      <div className="text-white text-sm font-bold tracking-tight mb-1">
         {modelName}
       </div>
 
-      {/* Line 2: Horizontal Dash Progress Bar (No comments, no card wrapper) */}
+      {/* Line 2: Horizontal Dash Progress Bar */}
       <div className="flex items-center gap-x-1.5 font-mono text-[11px] leading-tight select-none">
         <span className="tracking-tighter inline-flex items-center font-mono">
           <span className="text-amber-400 font-bold">
@@ -757,6 +856,8 @@ export function ChatScreen({
   quotaInfo,
   activeLocalModel,
   activeDiffusionModel,
+  activeDiffusionResolution,
+  activeDiffusionModality,
   availableLocalModels,
   currentContextTokens,
   maxContextTokens
@@ -791,7 +892,7 @@ export function ChatScreen({
 
   const [showQuotaPopover, setShowQuotaPopover] = React.useState(false);
   const [modelDropdownOpen, setModelDropdownOpen] = React.useState(false);
-  const [modelFilterTab, setModelFilterTab] = React.useState<'all' | 'llm' | 'diffusion' | 'projector'>('all');
+  const [modelFilterTab, setModelFilterTab] = React.useState<'all' | 'llm' | 'diffusion' | 'video' | 'projector'>('all');
   const [planDropdownOpen, setPlanDropdownOpen] = React.useState(false);
 
   const [showContextInput, setShowContextInput] = React.useState(false);
@@ -800,33 +901,69 @@ export function ChatScreen({
   const [showToolbox, setShowToolbox] = React.useState(false);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
-  const isVisionSupported = !(
+  const rawSelectedModel = (selectedModel || '').replace(/^(?:diffusion|video|local):/i, '');
+  const matchedActiveModel = (availableLocalModels || []).find(m =>
+    m.id === rawSelectedModel ||
+    m.name === rawSelectedModel ||
+    (m.id?.split(/[\\/]/).pop() || '') === rawSelectedModel ||
+    (activeDiffusionModel && (m.id === activeDiffusionModel || m.name === activeDiffusionModel || (m.id?.split(/[\\/]/).pop() || '') === activeDiffusionModel))
+  );
+  const activeVisualKind = selectedModel
+    ? inferModelKind({
+        ...(matchedActiveModel || {}),
+        id: matchedActiveModel?.id || rawSelectedModel,
+        name: matchedActiveModel?.name || rawSelectedModel,
+        modality: matchedActiveModel?.modality || (selectedModel.startsWith('video:') ? 'video' : (selectedModel.startsWith('diffusion:') ? activeDiffusionModality : undefined))
+      })
+    : (activeDiffusionModel && !activeLocalModel
+        ? inferModelKind({
+            ...(matchedActiveModel || {}),
+            id: activeDiffusionModel,
+            name: activeDiffusionModel,
+            modality: activeDiffusionModality || matchedActiveModel?.modality
+          })
+        : 'llm');
+  const isVideoMode = activeVisualKind === 'video' || (
+    Boolean(activeDiffusionModel) &&
+    !activeLocalModel &&
+    activeDiffusionModality === 'video' &&
+    (!selectedModel || selectedModel.startsWith('diffusion:') || selectedModel.startsWith('video:'))
+  );
+  const isDiffusion = Boolean(
+    selectedModel?.startsWith('diffusion:') ||
+    selectedModel?.startsWith('video:') ||
+    (!selectedModel && activeDiffusionModel && !activeLocalModel) ||
+    activeVisualKind === 'image' ||
+    isVideoMode
+  );
+
+  const isVisionSupported = isDiffusion || !(
     selectedModel?.startsWith('deepseek') ||
     selectedModel?.startsWith('mimo') ||
-    selectedModel?.startsWith('Qwen') ||
+    (selectedModel?.startsWith('Qwen') && !selectedModel.toLowerCase().includes('vl') && !selectedModel.toLowerCase().includes('image')) ||
     selectedModel?.startsWith('glm')
   );
 
   const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!isVisionSupported) {
-      if (vscodeApi) vscodeApi.postMessage({ command: 'log', text: '⚠️ The selected model does not support vision/image inputs.', logType: 'error' });
+      if (vscodeApi) vscodeApi.postMessage({ command: 'log', text: 'The selected model does not support vision/image inputs.', logType: 'error' });
       return;
     }
     const file = e.target.files?.[0];
     if (!file) return;
 
     if (!file.type.startsWith('image/')) {
-      if (vscodeApi) vscodeApi.postMessage({ command: 'log', text: '⚠️ Invalid format. Only standard images are allowed (no videos or documents).', logType: 'error' });
+      if (vscodeApi) vscodeApi.postMessage({ command: 'log', text: 'Invalid format. Only standard images are allowed (no videos or documents).', logType: 'error' });
       return;
     }
 
     if (file.size > 5 * 1024 * 1024) { // 5MB limit
-      if (vscodeApi) vscodeApi.postMessage({ command: 'log', text: '⚠️ Image too large. Please select an image under 5MB.', logType: 'error' });
+      if (vscodeApi) vscodeApi.postMessage({ command: 'log', text: 'Image too large. Please select an image under 5MB.', logType: 'error' });
       return;
     }
 
     if (attachedImages && attachedImages.length >= 3) {
-      if (vscodeApi) vscodeApi.postMessage({ command: 'log', text: '⚠️ Maximum of 3 images can be attached per message.', logType: 'warning' });
+      if (vscodeApi) vscodeApi.postMessage({ command: 'log', text: 'Maximum of 3 images can be attached per message.', logType: 'warning' });
       return;
     }
 
@@ -860,7 +997,7 @@ export function ChatScreen({
         if (setAttachedImages) {
           setAttachedImages(prev => [...prev, dataUrl]);
         }
-        if (vscodeApi) vscodeApi.postMessage({ command: 'log', text: `📸 Attached image: ${file.name} (Resized)`, logType: 'info' });
+        if (vscodeApi) vscodeApi.postMessage({ command: 'log', text: `Attached image: ${file.name} (Resized)`, logType: 'info' });
       };
       img.src = event.target?.result as string;
     };
@@ -943,7 +1080,7 @@ export function ChatScreen({
         const isImage = file.type.startsWith('image/') || /\.(png|jpe?g|webp|gif|svg|bmp)$/i.test(file.name);
         if (isImage) {
           if (file.size > 5 * 1024 * 1024) {
-            if (vscodeApi) vscodeApi.postMessage({ command: 'log', text: `⚠️ Image "${file.name}" exceeds 5MB limit.`, logType: 'error' });
+            if (vscodeApi) vscodeApi.postMessage({ command: 'log', text: `Image "${file.name}" exceeds 5MB limit.`, logType: 'error' });
             return;
           }
           const reader = new FileReader();
@@ -974,7 +1111,7 @@ export function ChatScreen({
               if (setAttachedImages) {
                 setAttachedImages(prev => (prev.length < 3 ? [...prev, dataUrl] : prev));
               }
-              if (vscodeApi) vscodeApi.postMessage({ command: 'log', text: `📸 Attached dropped image: ${file.name}`, logType: 'info' });
+              if (vscodeApi) vscodeApi.postMessage({ command: 'log', text: `Attached dropped image: ${file.name}`, logType: 'info' });
             };
             img.src = event.target?.result as string;
           };
@@ -1192,25 +1329,32 @@ export function ChatScreen({
                 }`}
             >
               {/* Thinking/Working Components (Distinct from Chat Response) */}
-              {msg.sender === 'agent' && msg.isGeneratingImage && (
-                <div className="w-full max-w-md flex flex-col items-start gap-2.5 my-3 z-10 animate-in fade-in duration-200">
-                  <div className="flex items-center gap-2 text-zinc-200 text-xs font-medium tracking-wide">
-                    <span className="text-emerald-400 animate-pulse text-sm">✦</span>
-                    <span>Creating your image</span>
-                  </div>
-                  <div className="w-full aspect-square rounded-3xl bg-[#18181b] border border-white/10 relative overflow-hidden flex flex-col items-center justify-center shadow-2xl">
-                    {/* Subtle elegant shimmer pulse */}
-                    <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/[0.04] to-transparent -translate-x-full animate-[shimmer_2s_infinite]" />
-                    <div className="text-center p-6 space-y-2 z-10">
-                      <div className="w-8 h-8 rounded-full border-2 border-emerald-500/20 border-t-emerald-400 animate-spin mx-auto mb-3" />
-                      <div className="text-xs font-mono text-zinc-300 font-semibold">Diffusion Engine (Port 47992)</div>
-                      <div className="text-[11px] font-mono text-zinc-500">Offloading latent tensors to Vulkan GPU...</div>
+              {msg.sender === 'agent' && msg.isGeneratingImage && (() => {
+                const extMsg = msg as ExtendedChatMessage;
+                const activeMediaModel = formatModelDisplayName(
+                  extMsg.generatingModelName || activeDiffusionModel || activeLocalModel || selectedModel
+                );
+                const isVideoGen = extMsg.generatingMediaType === 'video' || isVideoMode;
+                return (
+                  <div className="w-full max-w-md flex flex-col items-start gap-2.5 my-3 z-10 animate-in fade-in duration-200">
+                    {activeMediaModel && (
+                      <div className="flex items-center gap-2 text-zinc-200 text-xs font-medium tracking-wide">
+                        <span className="text-emerald-400 animate-pulse text-sm">✦</span>
+                        <span className="truncate max-w-[320px]">{activeMediaModel}</span>
+                      </div>
+                    )}
+                    <div className={`w-full ${isVideoGen ? 'aspect-video' : 'aspect-square'} rounded-3xl bg-[#18181b] border border-white/10 relative overflow-hidden shadow-2xl`}>
+                      {/* Smooth metallic shimmer sweep */}
+                      <div
+                        className="absolute inset-0 bg-gradient-to-r from-transparent via-white/[0.08] to-transparent animate-[shimmer_2s_infinite]"
+                        style={{ pointerEvents: 'none' }}
+                      />
                     </div>
                   </div>
-                </div>
-              )}
+                );
+              })()}
 
-              {/* Terminal Dash Progress Bar: Active ONLY during prefill before first token/thought */}
+              {/* Terminal Dash Progress Bar: Active during prefill or image gen */}
               {isPrefilling && (
                 <TerminalDashProgressBar
                   msg={msg}
@@ -1223,27 +1367,31 @@ export function ChatScreen({
               {msg.sender === 'agent' && !msg.isGeneratingImage && msg.timeline && msg.timeline.length > 0 && (
                 <TaskProgressCard msg={msg} />
               )}
-              
-              {msg.sender === 'agent' && !msg.text && (!msg.timeline || msg.timeline.length === 0) && isAgentThinking && msg.isGeneratingImage && (
-                <div className="py-2.5 px-3.5 my-1.5 flex items-center gap-3 bg-cyan-950/30 border border-cyan-500/20 rounded-xl text-cyan-300 font-mono text-[11px] backdrop-blur-sm shadow-sm animate-in fade-in duration-200">
-                  <div className="relative flex items-center justify-center w-5 h-5 shrink-0">
-                    <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-ping absolute"></span>
-                    <span className="w-2 h-2 rounded-full bg-cyan-400"></span>
-                  </div>
-                  <div className="flex flex-col min-w-0">
-                    <span className="font-semibold text-cyan-200 flex items-center gap-1.5">
-                      <span>Generating Image via Diffusion Engine</span>
-                      <span className="text-[9px] px-1.5 py-0.2 rounded bg-cyan-500/20 text-cyan-300 font-mono">Port 47992</span>
-                    </span>
-                    <span className="text-[9px] text-cyan-400/70 truncate">
-                      {msg.generatedImagePrompt ? `"${msg.generatedImagePrompt}"` : 'Rendering visual asset...'}
-                    </span>
-                  </div>
-                </div>
-              )}
 
               {/* Final Response Chat Bubble: Appears immediately when text begins streaming */}
-              {(msg.text || (msg.images && msg.images.length > 0)) && (
+              {(() => {
+                const extMsg = msg as ExtendedChatMessage;
+                const b64ImageFallback = extMsg.generatedMediaType !== 'video' && extMsg.generatedImageB64
+                  ? `data:${extMsg.generatedMediaMime || 'image/png'};base64,${extMsg.generatedImageB64}`
+                  : undefined;
+                const videoSrc = extMsg.generatedMediaUrl && extMsg.generatedMediaType === 'video'
+                  ? extMsg.generatedMediaUrl
+                  : (extMsg.generatedMediaType === 'video' && extMsg.generatedImageB64 && extMsg.generatedMediaMime
+                    ? `data:${extMsg.generatedMediaMime};base64,${extMsg.generatedImageB64}`
+                    : undefined);
+                const parsedMedia = msg.sender === 'agent'
+                  ? extractLegacyMediaText(msg.text, extMsg.savedPath, Boolean(extMsg.generatedMediaUrl || b64ImageFallback))
+                  : { cleanedText: msg.text || '', resolvedSavedPath: extMsg.savedPath, fallbackImageSrc: undefined };
+                const imageSrc = extMsg.generatedMediaType !== 'video'
+                  ? (extMsg.generatedMediaUrl || b64ImageFallback || parsedMedia.fallbackImageSrc)
+                  : undefined;
+                const hasVideoMedia = extMsg.generatedMediaType === 'video' && Boolean(videoSrc);
+                const hasImageMedia = Boolean(imageSrc);
+                const savedPath = parsedMedia.resolvedSavedPath;
+                const savedBasename = savedPath ? (savedPath.split(/[\\/]/).pop() || savedPath) : '';
+                const bodyText = msg.sender === 'agent' ? parsedMedia.cleanedText : msg.text;
+                if (!(bodyText || (msg.images && msg.images.length > 0) || hasVideoMedia || hasImageMedia || savedPath)) return null;
+                return (
               <div className="relative group/message w-full">
                 <div
                   className={`py-2 px-1 text-[16.6px] leading-[1.62] font-sans transition-all duration-150 markdown-body select-text ${msg.sender === 'user'
@@ -1251,6 +1399,51 @@ export function ChatScreen({
                     : 'text-zinc-200 bg-transparent'
                     }`}
                 >
+                  {hasImageMedia && imageSrc && (
+                    <div className="mb-2">
+                      <img
+                        src={imageSrc}
+                        alt="Generated image"
+                        className="w-full max-w-md rounded-2xl border border-white/10 bg-zinc-950/60 shadow-xl object-contain"
+                        onError={(e) => {
+                          const imgEl = e.currentTarget as HTMLImageElement;
+                          if (b64ImageFallback && imgEl.src !== b64ImageFallback) {
+                            imgEl.src = b64ImageFallback;
+                          } else {
+                            imgEl.style.display = 'none';
+                          }
+                        }}
+                      />
+                    </div>
+                  )}
+                  {hasVideoMedia && videoSrc && (
+                    <div className="mb-2">
+                      <video
+                        controls
+                        autoPlay
+                        loop
+                        muted
+                        playsInline
+                        src={videoSrc}
+                        className="w-full max-w-md rounded-2xl border border-white/10 bg-black shadow-xl"
+                      />
+                    </div>
+                  )}
+                  {savedPath && (
+                    <div className="mb-1.5 flex items-center">
+                      <button
+                        type="button"
+                        onClick={() => vscodeApi?.postMessage({ command: 'openFile', path: savedPath })}
+                        title={savedPath}
+                        className="inline-flex items-center gap-1.5 text-[11.5px] font-mono text-zinc-400 hover:text-zinc-200 transition-colors cursor-pointer"
+                      >
+                        <span className="truncate max-w-[320px]">{savedBasename}</span>
+                        <svg className="w-3 h-3 opacity-70 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                        </svg>
+                      </button>
+                    </div>
+                  )}
                   {msg.images && msg.images.length > 0 && (
                     <div className="flex flex-wrap gap-2 mb-2">
                       {msg.images.map((imgData, idx) => (
@@ -1258,13 +1451,14 @@ export function ChatScreen({
                       ))}
                     </div>
                   )}
-                  {msg.text && !msg.isCommandApproval && !msg.isFileApproval && !msg.isPlanReview && (msg.sender === 'agent' ? (
-                    <TypewriterMarkdown content={msg.text} chatEndRef={chatEndRef} disableAnimation={Boolean(msg.isHistory || msg.endTime || idx < messages.length - 1)} vscodeApi={vscodeApi} />
+                  {bodyText && !msg.isCommandApproval && !msg.isFileApproval && !msg.isPlanReview && (msg.sender === 'agent' ? (
+                    <TypewriterMarkdown content={bodyText} chatEndRef={chatEndRef} disableAnimation={Boolean(msg.isHistory || msg.endTime || idx < messages.length - 1)} vscodeApi={vscodeApi} />
                   ) : (
                     <div className="text-zinc-100 text-[16.6px] leading-[1.62]">
                       <ReactMarkdown
                         remarkPlugins={[remarkGfm]}
                         rehypePlugins={[rehypeRaw]}
+                        urlTransform={safeMarkdownUrlTransform}
                         components={{
                           p: ({ children }) => <p className="mb-2 last:mb-0 text-zinc-100 text-[16.6px] leading-[1.62] font-sans">{children}</p>,
                           code: ({ inline, className, children, ...props }: React.ComponentPropsWithoutRef<'code'> & { inline?: boolean; node?: unknown }) => (
@@ -1274,7 +1468,7 @@ export function ChatScreen({
                           )
                         }}
                       >
-                        {msg.text}
+                        {bodyText}
                       </ReactMarkdown>
                     </div>
                   ))}
@@ -1395,7 +1589,8 @@ export function ChatScreen({
                   </div>
                 )}
               </div>
-            )}
+                );
+              })()}
 
             {/* INLINE APPROVAL CARDS (GLASSMORPHIC & SOLID) */}
             {msg.isCommandApproval && (
@@ -1774,7 +1969,7 @@ export function ChatScreen({
                       if (setAttachedImages) {
                         setAttachedImages(prev => (prev.length < 3 ? [...prev, dataUrl] : prev));
                       }
-                      if (vscodeApi) vscodeApi.postMessage({ command: 'log', text: '📸 Attached image from clipboard', logType: 'info' });
+                      if (vscodeApi) vscodeApi.postMessage({ command: 'log', text: 'Attached image from clipboard', logType: 'info' });
                     };
                     reader.readAsDataURL(file);
                     return;
@@ -1844,7 +2039,7 @@ export function ChatScreen({
                     <button
                       onClick={() => {
                         if (!isVisionSupported) {
-                          if (vscodeApi) vscodeApi.postMessage({ command: 'log', text: '⚠️ The selected model does not support vision/image inputs.', logType: 'error' });
+                          if (vscodeApi) vscodeApi.postMessage({ command: 'log', text: 'The selected model does not support vision/image inputs.', logType: 'error' });
                           setShowToolbox(false);
                           return;
                         }
@@ -1903,21 +2098,21 @@ export function ChatScreen({
                 }}
               >
                 <div className={`w-2 h-2 rounded-full ${
-                  (selectedModel?.startsWith('diffusion:') || (!selectedModel && activeDiffusionModel && !activeLocalModel))
+                  isDiffusion
                     ? (activeDiffusionModel ? 'bg-cyan-400 animate-pulse shadow-sm shadow-cyan-400/50' : 'bg-zinc-600')
                     : (activeLocalModel ? 'bg-emerald-500' : 'bg-zinc-600')
                 }`}></div>
                 <span className={`text-[11px] font-semibold tracking-wide uppercase truncate max-w-[160px] ${
-                  (selectedModel?.startsWith('diffusion:') || (!selectedModel && activeDiffusionModel && !activeLocalModel))
+                  isDiffusion
                     ? (activeDiffusionModel ? 'text-zinc-100' : 'text-zinc-400')
                     : (activeLocalModel ? 'text-zinc-100' : 'text-zinc-400')
                 }`} title={
-                  (selectedModel?.startsWith('diffusion:') || (!selectedModel && activeDiffusionModel && !activeLocalModel))
-                    ? (activeDiffusionModel ? `Diffusion: ${formatModelDisplayName(activeDiffusionModel)}` : 'No Image Model')
+                  isDiffusion
+                    ? (activeDiffusionModel ? `${isVideoMode ? 'Video' : 'Diffusion'}: ${formatModelDisplayName(activeDiffusionModel)}` : (isVideoMode ? 'No Video Model' : 'No Image Model'))
                     : (activeLocalModel ? `Local: ${formatModelDisplayName(activeLocalModel)}` : 'No Model Loaded')
                 }>
-                  {(selectedModel?.startsWith('diffusion:') || (!selectedModel && activeDiffusionModel && !activeLocalModel))
-                    ? (activeDiffusionModel ? `Diffusion: ${formatModelDisplayName(activeDiffusionModel)}` : 'No Image Model')
+                  {isDiffusion
+                    ? (activeDiffusionModel ? `${isVideoMode ? 'Video' : 'Diffusion'}: ${formatModelDisplayName(activeDiffusionModel)}${activeDiffusionResolution ? ` (${activeDiffusionResolution})` : ''}` : (isVideoMode ? 'No Video Model' : 'No Image Model'))
                     : (activeLocalModel ? `Local: ${formatModelDisplayName(activeLocalModel)}` : 'No Model Loaded')}
                 </span>
                 <svg className="w-3 h-3 text-zinc-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
@@ -1931,14 +2126,17 @@ export function ChatScreen({
                 }));
                 const llmModels = categorizedModels.filter(m => m.category === 'llm');
                 const diffModels = categorizedModels.filter(m => m.category === 'diffusion');
+                const videoModels = categorizedModels.filter(m => m.category === 'video');
                 const projModels = categorizedModels.filter(m => m.category === 'projector');
                 const filteredModels = modelFilterTab === 'llm'
                   ? llmModels
                   : modelFilterTab === 'diffusion'
                     ? diffModels
-                    : modelFilterTab === 'projector'
-                      ? projModels
-                      : categorizedModels;
+                    : modelFilterTab === 'video'
+                      ? videoModels
+                      : modelFilterTab === 'projector'
+                        ? projModels
+                        : categorizedModels;
 
                 return (
                   <>
@@ -2011,7 +2209,7 @@ export function ChatScreen({
                                   {formatModelDisplayName(activeDiffusionModel)}
                                 </span>
                                 <span className="text-[10px] text-zinc-400 font-mono">
-                                  Active for Images
+                                  {activeDiffusionModality === 'video' ? 'Active for Video' : 'Active for Images'}
                                 </span>
                               </div>
                               <button
@@ -2086,6 +2284,17 @@ export function ChatScreen({
                               </button>
                               <button
                                 type="button"
+                                onClick={() => setModelFilterTab('video')}
+                                className={`flex-1 py-1 text-center rounded transition-all font-medium cursor-pointer ${
+                                  modelFilterTab === 'video'
+                                    ? 'bg-zinc-800 text-white font-semibold'
+                                    : 'text-zinc-400 hover:text-zinc-200'
+                                }`}
+                              >
+                                Video ({videoModels.length})
+                              </button>
+                              <button
+                                type="button"
                                 onClick={() => setModelFilterTab('projector')}
                                 className={`flex-1 py-1 text-center rounded transition-all font-medium cursor-pointer ${
                                   modelFilterTab === 'projector'
@@ -2113,12 +2322,13 @@ export function ChatScreen({
                                     <div
                                       key={m.id}
                                       onClick={() => {
-                                        if (m.category === 'diffusion') {
+                                        if (m.category === 'diffusion' || m.category === 'video') {
+                                          const targetModality = m.category === 'video' ? 'video' : 'image';
                                           handleModelChange?.(`diffusion:${modelBaseName}`);
-                                          vscodeApi?.postMessage({ command: 'loadLocalModel', modelId: m.id, target: 'diffusion' });
+                                          vscodeApi?.postMessage({ command: 'loadLocalModel', modelId: m.id, target: 'diffusion', modality: targetModality });
                                         } else {
                                           handleModelChange?.(`local:${modelBaseName}`);
-                                          vscodeApi?.postMessage({ command: 'loadLocalModel', modelId: m.id, target: 'primary' });
+                                          vscodeApi?.postMessage({ command: 'loadLocalModel', modelId: m.id, target: 'primary', modality: 'llm' });
                                         }
                                         setModelDropdownOpen(false);
                                       }}
@@ -2479,7 +2689,7 @@ export function ChatScreen({
               aria-label="Submit message"
               onClick={() => handleSendMessage()}
               className="w-8 h-8 flex items-center justify-center shrink-0 rounded-full transition-all bg-sky-500 hover:bg-sky-400 text-white disabled:opacity-25 disabled:hover:bg-sky-500 shadow-sm"
-              disabled={!inputValue.trim()}
+              disabled={!inputValue.trim() && (!attachedImages || attachedImages.length === 0)}
             >
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg>
             </button>

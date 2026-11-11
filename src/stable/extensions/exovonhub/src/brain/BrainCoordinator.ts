@@ -1486,7 +1486,10 @@ export class BrainCoordinator implements IBrainCoordinator {
           images: message.images,
           metrics: message.metrics,
           checkpointId: message.checkpointId,
-          // CRITICAL: NEVER store full message.checkpoint object in SQLite; checkpointId references it on disk.
+          savedPath: message.savedPath,
+          generatedMediaType: message.generatedMediaType,
+          generatedMediaMime: message.generatedMediaMime,
+          // CRITICAL: NEVER store full message.checkpoint object or megabyte b64 strings in SQLite; savedPath restores media on load.
           promptTokens: message.promptTokens,
           promptProcessed: message.promptProcessed
         })

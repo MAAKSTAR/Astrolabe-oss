@@ -1,13 +1,36 @@
 import { useState, useEffect, useRef } from 'react'
 import { flushSync } from 'react-dom'
 import type { Message, ToolCall, ChatThread } from './types'
-import { ChatScreen } from './components/ChatScreen'
+import { ChatScreen, inferModelKind } from './components/ChatScreen'
 import { ChatHistoryDrawer } from './components/ChatHistoryDrawer'
 import { CortexCanvas } from './components/CortexCanvas'
 import { HubScreen } from './components/HubScreen'
 import { getVsCodeApi } from './vscodeApi'
 
 import { MotionStudioPanel } from './components/MotionStudioPanel'
+
+type LocalModelEntry = {
+  id: string;
+  name: string;
+  size_display?: string;
+  quantization?: string;
+  architecture?: string;
+  loaded?: boolean;
+  is_primary?: boolean;
+  modality?: string;
+  relative_path?: string;
+  component_role?: string | null;
+  model_family?: string;
+};
+
+type ExtendedMessage = Message & {
+  generatingModelName?: string;
+  generatingMediaType?: 'image' | 'video';
+  generatedMediaType?: 'image' | 'video';
+  generatedMediaUrl?: string;
+  generatedMediaMime?: string;
+  savedPath?: string;
+};
 
 // Safely obtain VS Code API (graceful fail to mock in local browser HMR development)
 const vscodeApi = getVsCodeApi();
@@ -45,7 +68,35 @@ export default function App() {
   }, [selectedModel]);
   const [activeLocalModel, setActiveLocalModel] = useState<string>('');
   const [activeDiffusionModel, setActiveDiffusionModel] = useState<string>('');
-  const [availableLocalModels, setAvailableLocalModels] = useState<Array<{ id: string; name: string; size_display?: string; quantization?: string }>>([]);
+  const [activeDiffusionResolution, setActiveDiffusionResolution] = useState<string>('');
+  const [activeDiffusionModality, setActiveDiffusionModality] = useState<string>('');
+  const activeDiffusionModalityRef = useRef<string>(activeDiffusionModality);
+  useEffect(() => {
+    activeDiffusionModalityRef.current = activeDiffusionModality;
+  }, [activeDiffusionModality]);
+  const [availableLocalModels, setAvailableLocalModels] = useState<LocalModelEntry[]>([]);
+
+  const resolveVisualModelMeta = (modelStr: string, modelsList: LocalModelEntry[], currentDiffModality: string) => {
+    const raw = (modelStr || '').replace(/^(?:diffusion|video|local):/i, '');
+    const rawBase = raw.split(/[\\/]/).pop() || raw;
+    const match = modelsList.find(m =>
+      m.id === raw || m.name === raw || (m.id?.split(/[\\/]/).pop() || '') === rawBase
+    );
+    const explicitModality = match?.modality || (modelStr.startsWith('video:') ? 'video' : (modelStr.startsWith('diffusion:') ? currentDiffModality : undefined));
+    const kind = inferModelKind({
+      ...(match || {}),
+      id: match?.id || raw,
+      name: match?.name || raw,
+      modality: explicitModality
+    });
+    const isVideo = kind === 'video' || (modelStr.startsWith('diffusion:') && currentDiffModality === 'video');
+    const isVisual = isVideo || kind === 'image' || modelStr.startsWith('diffusion:') || modelStr.startsWith('video:');
+    return {
+      isVisual,
+      isVideo,
+      modality: (isVideo ? 'video' : (isVisual ? 'image' : 'llm')) as 'video' | 'image' | 'llm'
+    };
+  };
   
   // Cortex State
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -270,7 +321,7 @@ export default function App() {
               return [...prev, message.dataUrl];
             });
             if (vscodeApi) {
-              vscodeApi.postMessage({ command: 'log', text: `📸 Attached dropped image: ${message.filename}`, logType: 'info' });
+              vscodeApi.postMessage({ command: 'log', text: `Attached dropped image: ${message.filename}`, logType: 'info' });
             }
           }
           break;
@@ -281,6 +332,14 @@ export default function App() {
           }
           if (message.activeDiffusionModel !== undefined) {
             setActiveDiffusionModel(message.activeDiffusionModel || '');
+          }
+          if (message.activeDiffusionResolution !== undefined) {
+            setActiveDiffusionResolution(message.activeDiffusionResolution || '');
+          }
+          if (message.activeDiffusionModality !== undefined) {
+            setActiveDiffusionModality(message.activeDiffusionModality || '');
+          } else if (message.activeDiffusionModel === '') {
+            setActiveDiffusionModality('');
           }
 
           if (message.model) {
@@ -323,12 +382,18 @@ export default function App() {
             const copy = [...prev];
             const targetIdx = message.messageId ? copy.findIndex(m => m.id === message.messageId) : copy.length - 1;
             if (targetIdx !== -1) {
+              const prevMsg = copy[targetIdx] as ExtendedMessage;
+              const isVideoStart = message.mediaType === 'video'
+                || prevMsg.generatingMediaType === 'video'
+                || activeDiffusionModalityRef.current === 'video';
               copy[targetIdx] = {
                 ...copy[targetIdx],
                 isGeneratingImage: true,
                 generatedImagePrompt: message.prompt,
+                generatingModelName: message.modelName || prevMsg.generatingModelName,
+                generatingMediaType: isVideoStart ? 'video' : 'image',
                 startTime: Date.now()
-              };
+              } as ExtendedMessage;
             }
             return copy;
           });
@@ -340,13 +405,24 @@ export default function App() {
             const copy = [...prev];
             const targetIdx = message.messageId ? copy.findIndex(m => m.id === message.messageId) : copy.length - 1;
             if (targetIdx !== -1) {
+              const prevMsg = copy[targetIdx] as ExtendedMessage;
+              const isVideoResult = message.mediaType === 'video'
+                || String(message.mimeType || '').startsWith('video/')
+                || prevMsg.generatingMediaType === 'video';
+              const resolvedMediaUrl = message.mediaUrl
+                || message.videoUrl
+                || (!isVideoResult && message.b64_json ? `data:${message.mimeType || 'image/png'};base64,${message.b64_json}` : undefined);
               copy[targetIdx] = {
                 ...copy[targetIdx],
                 isGeneratingImage: false,
                 endTime: Date.now(),
-                text: `![Generated Art](data:image/png;base64,${message.b64_json})\n\n*Saved to \`${message.savedPath}\`*`,
-                generatedImageB64: message.b64_json
-              };
+                text: '',
+                generatedImageB64: isVideoResult ? undefined : message.b64_json,
+                generatedMediaType: isVideoResult ? 'video' : 'image',
+                generatedMediaUrl: resolvedMediaUrl,
+                generatedMediaMime: message.mimeType,
+                savedPath: message.savedPath
+              } as ExtendedMessage;
             }
             return copy;
           });
@@ -358,11 +434,13 @@ export default function App() {
             const copy = [...prev];
             const targetIdx = message.messageId ? copy.findIndex(m => m.id === message.messageId) : copy.length - 1;
             if (targetIdx !== -1) {
+              const prevMsg = copy[targetIdx] as ExtendedMessage;
+              const isVideoFail = prevMsg.generatingMediaType === 'video' || activeDiffusionModalityRef.current === 'video';
               copy[targetIdx] = {
                 ...copy[targetIdx],
                 isGeneratingImage: false,
                 endTime: Date.now(),
-                text: `❌ Image generation failed: ${message.error || 'Diffusion Engine error'}`
+                text: `${isVideoFail ? 'Video' : 'Image'} generation failed: ${message.error || 'Visual Engine error'}`
               };
             }
             return copy;
@@ -371,9 +449,19 @@ export default function App() {
 
         case 'modelLoaded':
           if (message.modelId) {
-            const baseName = message.modelId.split('/').pop() || message.modelId;
-            setActiveLocalModel(baseName);
-            setSelectedModel(`local:${baseName}`);
+            const baseName = message.modelId.split(/[\\/]/).pop() || message.modelId;
+            const loadedModality = String(message.modality || '').toLowerCase();
+            if (loadedModality === 'video' || loadedModality === 'image') {
+              setActiveLocalModel('');
+              setActiveDiffusionModel(baseName);
+              setActiveDiffusionModality(loadedModality);
+              setSelectedModel(`diffusion:${baseName}`);
+            } else {
+              setActiveDiffusionModel('');
+              setActiveDiffusionModality('');
+              setActiveLocalModel(baseName);
+              setSelectedModel(`local:${baseName}`);
+            }
           }
           if (message.ctx_size) {
             setMaxContextTokens(message.ctx_size);
@@ -382,6 +470,9 @@ export default function App() {
 
         case 'modelUnloaded':
           setActiveLocalModel('');
+          setActiveDiffusionModel('');
+          setActiveDiffusionModality('');
+          setActiveDiffusionResolution('');
           setSelectedModel('');
           break;
 
@@ -1199,15 +1290,18 @@ export default function App() {
 
       // Append initial agent response structure WITHOUT hardcoded plans
       const effectiveModel = selectedModel || (activeDiffusionModel && !activeLocalModel ? `diffusion:${activeDiffusionModel}` : (activeLocalModel ? `local:${activeLocalModel}` : ''));
-      const isDiff = effectiveModel?.startsWith('diffusion:');
-      const agentPlaceholderMsg: Message = {
+      const visualMeta = resolveVisualModelMeta(effectiveModel, availableLocalModels, activeDiffusionModality);
+      const isDiff = visualMeta.isVisual;
+      const agentPlaceholderMsg: ExtendedMessage = {
         id: agentId,
         sender: 'agent',
         text: '',
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         startTime: Date.now(),
         isGeneratingImage: isDiff,
-        generatedImagePrompt: isDiff ? promptText : undefined
+        generatedImagePrompt: isDiff ? promptText : undefined,
+        generatingModelName: isDiff ? (effectiveModel || activeDiffusionModel || activeLocalModel) : undefined,
+        generatingMediaType: isDiff ? (visualMeta.isVideo ? 'video' : 'image') : undefined
       };
       
       setMessages(prev => [...prev, userMsg, agentPlaceholderMsg]);
@@ -1219,12 +1313,15 @@ export default function App() {
     // Call Backend Extension
     if (vscodeApi) {
       const effectiveModel = selectedModel || (activeDiffusionModel && !activeLocalModel ? `diffusion:${activeDiffusionModel}` : (activeLocalModel ? `local:${activeLocalModel}` : ''));
-      const isDiff = effectiveModel?.startsWith('diffusion:');
+      const visualMeta = resolveVisualModelMeta(effectiveModel, availableLocalModels, activeDiffusionModality);
+      const isDiff = visualMeta.isVisual;
       vscodeApi.postMessage({
         command: 'initiateAgent',
         mode: 'architect',
         model: effectiveModel || undefined,
         isDiffusion: isDiff,
+        modality: isDiff ? visualMeta.modality : undefined,
+        resolution: isDiff ? (activeDiffusionResolution || undefined) : undefined,
         prompt: promptText,
         contextFiles: selectedContextFiles.map(f => f.name),
         images: imagesToSubmit,
@@ -1383,6 +1480,8 @@ export default function App() {
             quotaInfo={quotaInfo}
             activeLocalModel={activeLocalModel}
             activeDiffusionModel={activeDiffusionModel}
+            activeDiffusionResolution={activeDiffusionResolution}
+            activeDiffusionModality={activeDiffusionModality}
             availableLocalModels={availableLocalModels}
             currentContextTokens={currentContextTokens}
             maxContextTokens={maxContextTokens}

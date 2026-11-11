@@ -136,12 +136,64 @@ export const MicrophoneIcon: React.FC<ModelCapabilityProps> = ({
   </svg>
 );
 
+/**
+ * 🎬 Video Icon - Video Synthesis & DiT Flow
+ */
+export const VideoIcon: React.FC<ModelCapabilityProps> = ({
+  className = 'w-3.5 h-3.5',
+  title = 'Video Generation'
+}) => (
+  <svg
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className={className}
+    aria-label={title}
+    role="img"
+  >
+    {title && <title>{title}</title>}
+    <polygon points="23 7 16 12 23 17 23 7" />
+    <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
+  </svg>
+);
+
+/**
+ * 🎵 Music Icon - Audio & Music Synthesis
+ */
+export const MusicIcon: React.FC<ModelCapabilityProps> = ({
+  className = 'w-3.5 h-3.5',
+  title = 'Music & Audio Generation'
+}) => (
+  <svg
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className={className}
+    aria-label={title}
+    role="img"
+  >
+    {title && <title>{title}</title>}
+    <path d="M9 18V5l12-2v13" />
+    <circle cx="6" cy="18" r="3" />
+    <circle cx="18" cy="16" r="3" />
+  </svg>
+);
+
 export interface ModelCapabilities {
   isVision?: boolean;
   isToolUse?: boolean;
   isReasoning?: boolean;
   isImageGen?: boolean;
+  isVideo?: boolean;
+  isMusic?: boolean;
   isAudio?: boolean;
+  isComponent?: boolean;
 }
 
 export interface ModelCapabilityBadgesProps {
@@ -158,8 +210,8 @@ export const ModelCapabilityBadges: React.FC<ModelCapabilityBadgesProps> = ({
   className = '',
   showLlmFallback = true
 }) => {
-  const { isVision, isToolUse, isReasoning, isImageGen, isAudio } = capabilities;
-  const hasSpecial = isVision || isToolUse || isReasoning || isImageGen || isAudio;
+  const { isVision, isToolUse, isReasoning, isImageGen, isVideo, isMusic, isAudio, isComponent } = capabilities;
+  const hasSpecial = isVision || isToolUse || isReasoning || isImageGen || isVideo || isMusic || isAudio || isComponent;
 
   return (
     <div className={`flex items-center gap-1 shrink-0 ${className}`}>
@@ -194,7 +246,7 @@ export const ModelCapabilityBadges: React.FC<ModelCapabilityBadgesProps> = ({
       )}
 
       {/* 4. Image Generation / Diffusion */}
-      {isImageGen && (
+      {isImageGen && !isVideo && (
         <span
           className="p-1 rounded-md bg-zinc-800/80 hover:bg-zinc-700/80 text-zinc-300 hover:text-white border border-white/10 transition-colors flex items-center justify-center shrink-0 cursor-help"
           title="Diffusion & Image Synthesis"
@@ -203,7 +255,27 @@ export const ModelCapabilityBadges: React.FC<ModelCapabilityBadgesProps> = ({
         </span>
       )}
 
-      {/* 5. Voice / Audio / TTS */}
+      {/* 5. Video Generation */}
+      {isVideo && (
+        <span
+          className="p-1 rounded-md bg-zinc-800/80 hover:bg-zinc-700/80 text-zinc-300 hover:text-white border border-white/10 transition-colors flex items-center justify-center shrink-0 cursor-help"
+          title="Video Synthesis"
+        >
+          <VideoIcon className="w-3.5 h-3.5" title="Video Synthesis" />
+        </span>
+      )}
+
+      {/* 6. Music / Audio Generation */}
+      {isMusic && (
+        <span
+          className="p-1 rounded-md bg-zinc-800/80 hover:bg-zinc-700/80 text-zinc-300 hover:text-white border border-white/10 transition-colors flex items-center justify-center shrink-0 cursor-help"
+          title="Music & Audio Synthesis"
+        >
+          <MusicIcon className="w-3.5 h-3.5" title="Music & Audio Synthesis" />
+        </span>
+      )}
+
+      {/* 7. Voice / Audio / TTS */}
       {isAudio && (
         <span
           className="p-1 rounded-md bg-zinc-800/80 hover:bg-zinc-700/80 text-zinc-300 hover:text-white border border-white/10 transition-colors flex items-center justify-center shrink-0 cursor-help"
@@ -213,7 +285,17 @@ export const ModelCapabilityBadges: React.FC<ModelCapabilityBadgesProps> = ({
         </span>
       )}
 
-      {/* 6. Standard LLM (only when no special modalities) */}
+      {/* 8. Pipeline Component */}
+      {isComponent && (
+        <span
+          className="px-1.5 py-0.5 rounded text-[10px] font-mono font-medium bg-zinc-800/80 text-zinc-400 border border-white/5"
+          title="Pipeline Component"
+        >
+          COMP
+        </span>
+      )}
+
+      {/* 9. Standard LLM (only when no special modalities) */}
       {!hasSpecial && showLlmFallback && (
         <span
           className="px-1.5 py-0.5 rounded text-[10px] font-mono font-medium bg-zinc-800/80 text-zinc-400 border border-white/5"

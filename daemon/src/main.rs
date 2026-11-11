@@ -27,16 +27,47 @@ pub enum ActiveEngine {
 
 use std::collections::HashMap;
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct LoadingProgressDto {
+    pub model_id: String,
+    pub percent: u8,
+    pub stage: String,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct ActiveDiffusionConfig {
+    pub model_path: Option<String>,
+    pub modality: Option<String>,
+    pub steps: Option<u32>,
+    pub cfg_scale: Option<f32>,
+    pub resolution: Option<String>,
+    pub vae_tiling: Option<bool>,
+    pub temporal_tiling: Option<bool>,
+    pub sampler: Option<String>,
+    pub clip_path: Option<String>,
+    pub vae_path: Option<String>,
+    pub t5_path: Option<String>,
+    pub lora_path: Option<String>,
+    pub lora_scale: Option<f32>,
+    pub video_frames: Option<u32>,
+    pub fps: Option<u32>,
+    pub flow_shift: Option<f32>,
+    pub offload_to_cpu: Option<bool>,
+    pub diffusion_flash_attn: Option<String>,
+}
+
 /// Shared application state accessible by all Axum handlers.
 pub struct AppState {
     pub engine: RwLock<Option<ActiveEngine>>,
     pub models_dir: String,
     pub active_model: RwLock<Option<String>>,
+    pub loading_model: Arc<RwLock<Option<LoadingProgressDto>>>,
     pub active_downloads: RwLock<HashMap<String, crate::models::DownloadProgress>>,
     pub download_tasks: RwLock<HashMap<String, tokio::task::AbortHandle>>,
     pub download_urls: RwLock<HashMap<String, String>>,
     pub hf_token: RwLock<Option<String>>,
     pub use_mirror: RwLock<bool>,
+    pub active_diffusion: RwLock<ActiveDiffusionConfig>,
 }
 
 #[derive(Parser, Debug)]
@@ -89,16 +120,36 @@ async fn main() {
 
     for (fname, record) in manifest {
         initial_urls.insert(fname.clone(), record.url.clone());
-        let file_path = std::path::PathBuf::from(&models_dir).join(&fname);
+        let file_path = models::resolve_download_file_path(&models_dir, &fname, Some(&record));
+        let aria2_companion = std::path::PathBuf::from(format!("{}.aria2", file_path.display()));
+        let has_aria2 = aria2_companion.exists();
         let existing = if file_path.exists() {
             std::fs::metadata(&file_path).map(|m| m.len()).unwrap_or(0)
         } else {
             0
         };
 
-        let is_done = record.total_bytes > 0 && existing >= record.total_bytes;
+        let is_done = record.total_bytes > 0 && existing >= record.total_bytes && !has_aria2 && record.status == "finished";
+        let actual_bytes = if has_aria2 {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::MetadataExt;
+                std::fs::metadata(&file_path).map(|m| m.blocks() * 512).unwrap_or(0)
+            }
+            #[cfg(not(unix))]
+            {
+                0
+            }
+        } else {
+            existing
+        };
+
         let pct = if record.total_bytes > 0 {
-            ((existing as f64 / record.total_bytes as f64) * 100.0).min(100.0)
+            if has_aria2 {
+                ((actual_bytes as f64 / record.total_bytes as f64) * 100.0).min(99.0)
+            } else {
+                ((existing as f64 / record.total_bytes as f64) * 100.0).min(100.0)
+            }
         } else {
             0.0
         };
@@ -109,12 +160,18 @@ async fn main() {
             "paused".to_string()
         };
 
+        let rel_path_opt = file_path
+            .strip_prefix(&models_dir)
+            .ok()
+            .map(|p| p.to_string_lossy().replace('\\', "/"))
+            .or_else(|| record.relative_path.clone());
+
         // If not completed yet and has partial bytes, restore to active_downloads as paused
         if !is_done && existing > 0 {
-            tracing::info!("Found partial download for {} ({} bytes, {:.1}%), ready to resume", fname, existing, pct);
+            tracing::info!("Found partial download for {} (actual: {} bytes, {:.1}%), ready to resume", fname, actual_bytes, pct);
             initial_downloads.insert(fname.clone(), models::DownloadProgress {
                 model_name: fname,
-                downloaded_bytes: existing,
+                downloaded_bytes: actual_bytes,
                 total_bytes: record.total_bytes,
                 percent: pct,
                 speed_bytes_per_sec: None,
@@ -122,6 +179,8 @@ async fn main() {
                 eta_seconds: None,
                 status,
                 url: Some(record.url.clone()),
+                relative_path: rel_path_opt,
+                modality: record.modality.clone(),
             });
         }
     }
@@ -138,11 +197,13 @@ async fn main() {
         engine: RwLock::new(None),
         models_dir: models_dir.clone(),
         active_model: RwLock::new(None),
+        loading_model: Arc::new(RwLock::new(None)),
         active_downloads: RwLock::new(initial_downloads),
         download_tasks: RwLock::new(HashMap::new()),
         download_urls: RwLock::new(initial_urls),
         hf_token: RwLock::new(initial_hf_token),
         use_mirror: RwLock::new(initial_use_mirror),
+        active_diffusion: RwLock::new(ActiveDiffusionConfig::default()),
     });
 
     let app = api::build_router(state);

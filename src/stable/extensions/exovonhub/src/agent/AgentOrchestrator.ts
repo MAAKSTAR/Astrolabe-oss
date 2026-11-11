@@ -377,7 +377,7 @@ export class AgentOrchestrator {
     if (!isLocal && (!this.apiKey || !this.ai)) {
       this.onUpdate({
         type: 'log',
-        text: '❌ ERROR: Google Gen AI API Key is not configured. Please add your `exovonhub.googleApiKey` in VS Code Settings or set `GEMINI_API_KEY` in your environment.',
+        text: 'ERROR: Google Gen AI API Key is not configured. Please add your `exovonhub.googleApiKey` in VS Code Settings or set `GEMINI_API_KEY` in your environment.',
         logType: 'error'
       });
       this.onUpdate({ type: 'complete' });
@@ -427,7 +427,7 @@ export class AgentOrchestrator {
 
       if (images && images.length > 0) {
         if (resolvedModel.startsWith('deepseek') || resolvedModel.startsWith('mimo')) {
-           this.onUpdate({ type: 'log', text: `❌ ERROR: ${resolvedModel} does not support image inputs. Please select a vision-capable model like Gemini 3.5 Flash.`, logType: 'error' });
+           this.onUpdate({ type: 'log', text: `ERROR: ${resolvedModel} does not support image inputs. Please select a vision-capable model like Gemini 3.5 Flash.`, logType: 'error' });
            this.onUpdate({ type: 'finalAnswer', text: `**Vision Not Supported.**\nThe currently selected model (${resolvedModel}) cannot process image inputs. Please remove the images or switch to a multimodal model like Gemini.` });
            this.onUpdate({ type: 'complete' });
            return;
@@ -444,7 +444,7 @@ export class AgentOrchestrator {
         if (!token) {
           this.onUpdate({
             type: 'log',
-            text: `❌ API Key Required: Please configure your API key in Settings or select a Local Model.`,
+            text: `API Key Required: Please configure your API key in Settings or select a Local Model.`,
             logType: 'error'
           });
           this.onUpdate({ type: 'finalAnswer', text: `**API Key Required.**\nPlease add your API key in **Astrolabe Settings** (BYOK) or switch to a **Local Model** from the bottom toolbar to run 100% offline.` });
@@ -2866,58 +2866,200 @@ ${transcript.slice(-15000)}
     let authHeaderKey = this.apiKey || 'missing-pat';
     let targetModel = model;
 
-    if (model.startsWith('diffusion:')) {
-      const diffModelName = model.replace('diffusion:', '');
+    const modelLower = model.toLowerCase();
+    const normModelPath = modelLower.replace(/\\/g, '/');
+    const isVideoKeyword = model.startsWith('video:')
+      || normModelPath.includes('/video/')
+      || normModelPath.startsWith('video/')
+      || modelLower.includes('wan')
+      || modelLower.includes('ltx')
+      || modelLower.includes('hunyuanvideo')
+      || modelLower.includes('cogvideo')
+      || modelLower.includes('mochi');
+    const isDiffusionModel = model.startsWith('diffusion:')
+      || isVideoKeyword
+      || modelLower.includes('flux')
+      || modelLower.includes('sd-')
+      || modelLower.includes('sd_')
+      || modelLower.includes('sdxl')
+      || modelLower.includes('diffusion')
+      || (modelLower.includes('qwen') && modelLower.includes('image'))
+      || modelLower.includes('dit');
+
+    if (isDiffusionModel) {
+      const diffModelName = model.replace(/^diffusion:/i, '').replace(/^local:/i, '');
       try {
         const lastUserMsg = [...openAiMessages].reverse().find(m => m.role === 'user');
-        const userPrompt = typeof lastUserMsg?.content === 'string'
+        let userPrompt = typeof lastUserMsg?.content === 'string'
           ? lastUserMsg.content
           : (Array.isArray(lastUserMsg?.content) ? lastUserMsg.content.map((c: any) => c.text || '').join(' ') : 'a creative artwork');
 
+        if (userPrompt.includes('You are a project memory summarizer') || userPrompt.includes('Review the following transcript')) {
+          console.log('[Astrolabe] Ignoring background summarizer prompt for diffusion model.');
+          return;
+        }
+
+        const actionMatch = userPrompt.match(/Developer Action Request:\s*["']?([\s\S]+?)["']?\s*$/);
+        if (actionMatch && actionMatch[1]) {
+          userPrompt = actionMatch[1].trim();
+        }
+
+        userPrompt = userPrompt.replace(/\[IDE WORKSPACE ACTIVE CONTEXT\][\s\S]*?\[\/IDE WORKSPACE ACTIVE CONTEXT\]/g, '').trim();
+
+        const diffModelLower = diffModelName.toLowerCase();
+        const isFlux = diffModelLower.includes('flux');
+        const isQwen = diffModelLower.includes('qwen');
+        const isSchnellOrTurbo = isFlux || isQwen || diffModelLower.includes('schnell') || diffModelLower.includes('turbo');
+        const defaultCfgScale = (isFlux || isQwen) ? 1.0 : 7.0;
+        const defaultSteps = isSchnellOrTurbo ? 4 : 20;
+
+        let initImage: string | undefined = undefined;
+        if (Array.isArray(lastUserMsg?.content)) {
+          const imgItem = lastUserMsg.content.find((c: any) => c.type === 'image_url');
+          if (imgItem && imgItem.image_url?.url) {
+            initImage = imgItem.image_url.url;
+          }
+        }
+        if (!initImage && Array.isArray(messages)) {
+          for (const m of [...messages].reverse()) {
+            const inline = m.parts?.find((p: any) => p.inlineData);
+            if (inline) {
+              initImage = `data:${inline.inlineData.mimeType};base64,${inline.inlineData.data}`;
+              break;
+            }
+          }
+        }
+
         const fetch = (await import('node-fetch')).default;
-        const genRes = await fetch('http://127.0.0.1:47992/v1/images/generations', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            prompt: userPrompt,
-            model: diffModelName,
-            size: '512x512',
-            steps: 4,
-            cfg_scale: 1.8
-          })
-        });
+        let isVideo = isVideoKeyword;
+        let storedDiffusion: any = null;
+        try {
+          const [hRes, mRes] = await Promise.all([
+            fetch('http://127.0.0.1:47990/v1/health').catch(() => null),
+            fetch('http://127.0.0.1:47990/v1/models').catch(() => null)
+          ]);
+          if (hRes && hRes.ok) {
+            const hData = await hRes.json() as any;
+            storedDiffusion = hData?.active_diffusion || null;
+            if (storedDiffusion?.modality === 'video') {
+              isVideo = true;
+            }
+          }
+          if (!isVideo && mRes && mRes.ok) {
+            const mData = await mRes.json() as any;
+            const list = Array.isArray(mData?.data) ? mData.data : [];
+            const cleanRef = diffModelName.replace(/^(?:diffusion|video|local):/i, '');
+            const match = list.find((m: any) =>
+              m.id === cleanRef || path.basename(String(m.id || '')) === path.basename(cleanRef) || m.name === cleanRef
+            );
+            const rel = String(match?.relative_path || '').replace(/\\/g, '/').toLowerCase();
+            if (match?.modality === 'video' || rel.startsWith('video/')) {
+              isVideo = true;
+            }
+          }
+        } catch {}
+
+        const cleanDiffModel = diffModelName.replace(/^(?:diffusion|video|local):/i, '');
+        const endpoint = isVideo ? '/v1/videos/generations' : (initImage ? '/v1/images/edits' : '/v1/images/generations');
+        const requestBody: any = {
+          prompt: userPrompt,
+          model: cleanDiffModel,
+          size: storedDiffusion?.resolution || undefined,
+          cfg_scale: storedDiffusion?.cfg_scale ?? defaultCfgScale,
+          steps: storedDiffusion?.steps ?? defaultSteps
+        };
+        if (storedDiffusion?.sampler) requestBody.sampler = storedDiffusion.sampler;
+        if (storedDiffusion?.vae_tiling !== undefined) requestBody.vae_tiling = storedDiffusion.vae_tiling;
+        if (storedDiffusion?.diffusion_flash_attn !== undefined) {
+          requestBody.diffusion_flash_attn = storedDiffusion.diffusion_flash_attn;
+        }
+        if (isVideo && storedDiffusion) {
+          if (storedDiffusion.video_frames !== undefined) requestBody.video_frames = storedDiffusion.video_frames;
+          if (storedDiffusion.fps !== undefined) requestBody.fps = storedDiffusion.fps;
+          if (storedDiffusion.flow_shift !== undefined) requestBody.flow_shift = storedDiffusion.flow_shift;
+          if (storedDiffusion.temporal_tiling !== undefined) requestBody.temporal_tiling = storedDiffusion.temporal_tiling;
+          if (storedDiffusion.offload_to_cpu !== undefined) requestBody.offload_to_cpu = storedDiffusion.offload_to_cpu;
+        }
+        if (initImage) {
+          requestBody.image = initImage;
+          requestBody.strength = 0.65;
+        }
+
+        let genRes: any;
+        try {
+          genRes = await fetch(`http://127.0.0.1:47990${endpoint}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(requestBody)
+          });
+        } catch {
+          genRes = await fetch(`http://127.0.0.1:47992${endpoint}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(requestBody)
+          });
+        }
         if (genRes.ok) {
           const genData = await genRes.json() as any;
-          const b64 = genData.data?.[0]?.b64_json;
-          if (b64) {
+          const firstItem = genData.data?.[0] || genData;
+          const b64 = firstItem?.b64_json;
+          const returnedPath = firstItem?.path || firstItem?.file_path || genData.path || genData.file_path;
+          const rawExt = String(firstItem?.ext || genData.ext || (returnedPath ? path.extname(String(returnedPath)) : '') || (isVideo ? 'mp4' : 'png'))
+            .replace(/^\./, '')
+            .toLowerCase();
+          const ext = rawExt || (isVideo ? 'mp4' : 'png');
+          const mimeType = String(firstItem?.mime_type || genData.mime_type || (
+            isVideo
+              ? (ext === 'webm' ? 'video/webm' : ext === 'mov' ? 'video/quicktime' : ext === 'avi' ? 'video/x-msvideo' : 'video/mp4')
+              : (ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : ext === 'webp' ? 'image/webp' : 'image/png')
+          ));
+
+          const fsMod = require('fs');
+          if (b64 || (returnedPath && fsMod.existsSync(String(returnedPath)))) {
             const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '/tmp';
             const outDir = path.join(workspaceRoot, 'assets');
-            const fs = require('fs');
-            if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
-            const fileName = `generated_${Date.now()}.png`;
+            if (!fsMod.existsSync(outDir)) fsMod.mkdirSync(outDir, { recursive: true });
+            const fileName = `generated_${Date.now()}.${ext}`;
             const outPath = path.join(outDir, fileName);
-            fs.writeFileSync(outPath, Buffer.from(b64, 'base64'));
+            if (b64) {
+              fsMod.writeFileSync(outPath, Buffer.from(b64, 'base64'));
+            } else {
+              fsMod.copyFileSync(String(returnedPath), outPath);
+            }
 
-            yield {
-              candidates: [{
-                content: {
-                  parts: [{
-                    text: `✦ Image generated successfully using ${diffModelName} on Port 47992!\n\n![Generated Art](data:image/png;base64,${b64})\n\n*Saved to: \`${outPath}\`*`
-                  }]
-                }
-              }]
-            };
+            if (isVideo) {
+              const videoSrc = b64 ? `data:${mimeType};base64,${b64}` : vscode.Uri.file(outPath).toString();
+              yield {
+                candidates: [{
+                  content: {
+                    parts: [{
+                      text: `✦ Video generated successfully using ${cleanDiffModel} on Astrolabe Visual Engine!\n\n<video controls autoplay loop muted playsinline class="w-full max-w-md rounded-xl border border-white/10 bg-black" src="${videoSrc}"></video>\n\n*Saved to: \`${outPath}\`*`
+                    }]
+                  }
+                }]
+              };
+            } else {
+              yield {
+                candidates: [{
+                  content: {
+                    parts: [{
+                      text: `✦ Image generated successfully using ${cleanDiffModel} on Astrolabe Visual Engine!\n\n![Generated Art](data:${mimeType};base64,${b64})\n\n*Saved to: \`${outPath}\`*`
+                    }]
+                  }
+                }]
+              };
+            }
             return;
           }
         }
         const errText = await genRes.text();
-        throw new Error(`Diffusion Engine failed: ${errText || 'Unknown error'}`);
+        throw new Error(`${isVideo ? 'Video' : 'Diffusion'} Engine failed: ${errText || 'Unknown error'}`);
       } catch (err: any) {
         yield {
           candidates: [{
             content: {
               parts: [{
-                text: `❌ Image generation failed on Port 47992: ${err.message || 'Diffusion Engine error'}`
+                text: `${isVideoKeyword ? 'Video' : 'Image'} generation failed: ${err.message || 'Visual Engine error'}`
               }]
             }
           }]

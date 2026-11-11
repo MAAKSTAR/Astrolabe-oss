@@ -1,97 +1,25 @@
-import { useState, useEffect, useRef, memo, useMemo } from 'react';
-import ReactMarkdown from 'react-markdown';
-import rehypeRaw from 'rehype-raw';
-import rehypeHighlight from 'rehype-highlight';
-import remarkGfm from 'remark-gfm';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { ModelOrgAvatar, KNOWN_ORG_LOGOS } from './components/settings/ModelOrgAvatar';
 import { TrustedBadge, isTrustedPublisher } from './components/settings/TrustedBadge';
 import { ModelCapabilityBadges } from './components/settings/ModelCapabilityIcons';
 import { SystemEngineView } from './components/settings/SystemEngineView';
 import { LocalModelsView } from './components/settings/LocalModelsView';
+import { DiscoverModelDetailsPane } from './components/settings/DiscoverModelDetailsPane';
+import {
+  type HfLiveModel,
+  type HfModelDetails,
+  type LiveQuantOption,
+  type ModelModality,
+  formatRelativeTime,
+  parseNextLinkHeader,
+  buildHfModelsUrl,
+  extractQuantOptions,
+  pickPreferredQuantIndex,
+  getModelModalityInfo
+} from './components/settings/discoverHelpers';
 
-export { ModelOrgAvatar, KNOWN_ORG_LOGOS, TrustedBadge, isTrustedPublisher, ModelCapabilityBadges };
-
-const REMARK_PLUGINS = [remarkGfm];
-const REHYPE_PLUGINS = [rehypeRaw, rehypeHighlight];
-
-const MARKDOWN_COMPONENTS = {
-  h1: ({ node, ...props }: any) => <h1 className="text-base font-bold text-white mt-5 mb-2 pb-1 border-b border-white/10" {...props} />,
-  h2: ({ node, ...props }: any) => <h2 className="text-sm font-bold text-white mt-4 mb-2" {...props} />,
-  h3: ({ node, ...props }: any) => <h3 className="text-xs font-bold text-zinc-100 mt-3 mb-1" {...props} />,
-  p: ({ node, ...props }: any) => <p className="mb-2.5 text-zinc-300 leading-relaxed text-xs" {...props} />,
-  a: ({ node, ...props }: any) => <a className="text-zinc-100 underline hover:text-white" target="_blank" rel="noreferrer" {...props} />,
-  ul: ({ node, ...props }: any) => <ul className="list-disc pl-5 mb-2.5 space-y-1 text-zinc-300 text-xs" {...props} />,
-  ol: ({ node, ...props }: any) => <ol className="list-decimal pl-5 mb-2.5 space-y-1 text-zinc-300 text-xs" {...props} />,
-  li: ({ node, ...props }: any) => <li className="text-zinc-300 text-xs" {...props} />,
-  blockquote: ({ node, ...props }: any) => <blockquote className="border-l-2 border-white/20 pl-3 my-2 text-zinc-400 italic text-xs" {...props} />,
-  table: ({ node, ...props }: any) => (
-    <div className="my-3 overflow-x-auto rounded-xl border border-white/10">
-      <table className="w-full text-xs text-left text-zinc-300 border-collapse" {...props} />
-    </div>
-  ),
-  th: ({ node, ...props }: any) => <th className="p-2 bg-zinc-800/80 font-bold border-b border-white/10 text-white font-mono text-[11px]" {...props} />,
-  td: ({ node, ...props }: any) => <td className="p-2 border-b border-white/5 font-mono text-[11px]" {...props} />,
-  img: ({ node, src, alt, ...props }: any) => (
-    <img 
-      src={src} 
-      alt={alt || 'Model illustration'} 
-      className="max-w-full h-auto rounded-xl my-3 border border-white/10 shadow-lg object-contain block" 
-      loading="lazy" 
-      onError={(e) => {
-        // Hide broken image links gracefully
-        (e.target as HTMLElement).style.display = 'none';
-      }}
-      {...props} 
-    />
-  ),
-  details: ({ node, ...props }: any) => <details className="my-2 p-2 bg-zinc-950/60 rounded-xl border border-white/10 text-xs text-zinc-300" {...props} />,
-  summary: ({ node, ...props }: any) => <summary className="cursor-pointer font-semibold text-zinc-200 hover:text-white select-none py-1" {...props} />,
-  code: ({ node, className, children, ...props }: any) => {
-    const match = /language-(\w+)/.exec(className || '');
-    return match ? (
-      <div className="my-2.5 rounded-xl overflow-hidden bg-zinc-950 border border-white/10">
-        <pre className="p-3 text-[11px] font-mono text-zinc-200 overflow-x-auto custom-scrollbar">
-          <code className={className} {...props}>{children}</code>
-        </pre>
-      </div>
-    ) : (
-      <code className="px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-200 font-mono text-[11px] border border-white/5" {...props}>
-        {children}
-      </code>
-    );
-  }
-};
-
-const ModelReadmeViewer = memo(function ModelReadmeViewer({ content, modelId }: { content: string; modelId?: string }) {
-  const sanitized = useMemo(() => {
-    let text = (content || '').replace(/^---[\s\S]*?---\s*/, '');
-    if (modelId) {
-      // Resolve relative images to HuggingFace CDN: src="assets/..." or src="./assets/..."
-      text = text.replace(/<img\b([^>]*?)src=["'](?:\.\/)?([^"':]+)["']([^>]*?)>/gi, (match, prefix, src, suffix) => {
-        if (src.startsWith('http://') || src.startsWith('https://') || src.startsWith('data:')) return match;
-        const resolved = `https://huggingface.co/${modelId}/resolve/main/${src.replace(/^\/+/, '')}`;
-        return `<img ${prefix}src="${resolved}"${suffix}>`;
-      });
-      // Resolve markdown relative images: ![alt](assets/...)
-      text = text.replace(/!\[([^\]]*)\]\((?:\.\/)?([^):]+)\)/gi, (match, alt, src) => {
-        if (src.startsWith('http://') || src.startsWith('https://') || src.startsWith('data:')) return match;
-        const resolved = `https://huggingface.co/${modelId}/resolve/main/${src.replace(/^\/+/, '')}`;
-        return `![${alt}](${resolved})`;
-      });
-    }
-    return text;
-  }, [content, modelId]);
-
-  return (
-    <ReactMarkdown
-      remarkPlugins={REMARK_PLUGINS}
-      rehypePlugins={REHYPE_PLUGINS}
-      components={MARKDOWN_COMPONENTS}
-    >
-      {sanitized}
-    </ReactMarkdown>
-  );
-});
+export { ModelOrgAvatar, KNOWN_ORG_LOGOS, TrustedBadge, isTrustedPublisher, ModelCapabilityBadges, getModelModalityInfo };
+export type { ModelModality };
 
 import { getVsCodeApi } from './vscodeApi';
 
@@ -382,45 +310,6 @@ export function resolveImageGenPipeline(modelId: string, localModels: LocalModel
   };
 }
 
-interface HfLiveModel {
-  id: string;
-  author?: string;
-  downloads?: number;
-  likes?: number;
-  lastModified?: string;
-  pipeline_tag?: string;
-  tags?: string[];
-}
-
-interface HfModelDetails {
-  id: string;
-  author?: string;
-  downloads?: number;
-  likes?: number;
-  lastModified?: string;
-  pipeline_tag?: string;
-  tags?: string[];
-  gguf?: {
-    architecture?: string;
-    context_length?: number;
-    total?: number;
-  };
-  cardData?: {
-    license?: string;
-    language?: string[];
-    base_model?: string[];
-  };
-  siblings?: Array<{ rfilename: string; size?: number; lfs?: { size?: number; sha256?: string } }>;
-}
-
-interface LiveQuantOption {
-  filename: string;
-  quant: string;
-  sizeGB: number;
-  sizeDisplay: string;
-  directUrl: string;
-}
-
 export interface UnifiedImagePack {
   id: string;
   title: string;
@@ -435,8 +324,70 @@ export interface UnifiedImagePack {
     size: string;
     filename: string;
     url: string;
+    repoId?: string;
+    pipelineTag?: string;
+    modalityHint?: 'llm' | 'image' | 'video' | 'music' | 'component';
+    componentRole?: 'vae' | 'encoders' | 'mmproj' | 'loras' | null;
   }>;
 }
+
+const extractHfRepoFromUrl = (url?: string): string | undefined => {
+  if (!url) return undefined;
+  const match = url.match(/huggingface\.co\/([^/]+\/[^/]+)\//i);
+  return match ? match[1] : undefined;
+};
+
+const inferHubDownloadMeta = (
+  filename: string,
+  details: { id?: string; pipeline_tag?: string; tags?: string[] } | null,
+  hubModality: string,
+  url?: string
+): {
+  repo_id?: string;
+  pipeline_tag?: string;
+  tags?: string[];
+  modality_hint?: 'llm' | 'image' | 'video' | 'music' | 'component';
+  component_role?: 'vae' | 'encoders' | 'mmproj' | 'loras' | null;
+} => {
+  const lower = filename.toLowerCase();
+  let component_role: 'vae' | 'encoders' | 'mmproj' | 'loras' | null = null;
+  if (lower.includes('mmproj')) component_role = 'mmproj';
+  else if (lower.includes('lora')) component_role = 'loras';
+  else if (lower.includes('vae') || lower === 'ae.safetensors' || lower.startsWith('ae.') || lower.endsWith('.ae.safetensors')) component_role = 'vae';
+  else if (lower.includes('clip') || lower.includes('t5') || lower.includes('umt5') || lower.includes('text_encoder')) component_role = 'encoders';
+
+  let modality_hint: 'llm' | 'image' | 'video' | 'music' | 'component' | undefined = component_role ? 'component' : undefined;
+  const pTag = (details?.pipeline_tag || '').toLowerCase();
+  const tagList = Array.isArray(details?.tags) ? details.tags.map(t => t.toLowerCase()) : [];
+
+  if (!modality_hint) {
+    if (pTag.includes('video') || tagList.includes('text-to-video') || tagList.includes('image-to-video')) {
+      modality_hint = 'video';
+    } else if (pTag.includes('audio') || pTag.includes('music') || tagList.includes('text-to-audio')) {
+      modality_hint = 'music';
+    } else if (pTag.includes('image') && !pTag.includes('image-text-to-text') && !pTag.includes('image-to-text')) {
+      modality_hint = 'image';
+    } else if (pTag.includes('text-generation') || pTag.includes('image-text-to-text') || pTag.includes('conversational')) {
+      modality_hint = 'llm';
+    } else if (hubModality === 'video') {
+      modality_hint = 'video';
+    } else if (hubModality === 'audio') {
+      modality_hint = 'music';
+    } else if (hubModality === 'image') {
+      modality_hint = 'image';
+    } else if (hubModality === 'llm') {
+      modality_hint = 'llm';
+    }
+  }
+
+  return {
+    repo_id: details?.id || extractHfRepoFromUrl(url),
+    pipeline_tag: details?.pipeline_tag || undefined,
+    tags: Array.isArray(details?.tags) ? details.tags : undefined,
+    modality_hint,
+    component_role
+  };
+};
 
 export const VERIFIED_IMAGE_PACKS: UnifiedImagePack[] = [
   {
@@ -453,7 +404,11 @@ export const VERIFIED_IMAGE_PACKS: UnifiedImagePack[] = [
         role: 'Complete All-in-One Engine (Baked CLIP + VAE)',
         size: '2.1 GB',
         filename: 'sd-turbo-f16.gguf',
-        url: 'https://huggingface.co/stabilityai/sd-turbo/resolve/main/sd_turbo.safetensors'
+        url: 'https://huggingface.co/stabilityai/sd-turbo/resolve/main/sd_turbo.safetensors',
+        repoId: 'stabilityai/sd-turbo',
+        pipelineTag: 'text-to-image',
+        modalityHint: 'image',
+        componentRole: null
       }
     ]
   },
@@ -471,21 +426,33 @@ export const VERIFIED_IMAGE_PACKS: UnifiedImagePack[] = [
         role: 'Diffusion Backbone Transformer',
         size: '4.1 GB',
         filename: 'Qwen-Image-2.1-Instruct-Q4_K_M.gguf',
-        url: 'https://huggingface.co/Qwen/Qwen-Image-2.1-Instruct-GGUF/resolve/main/Qwen-Image-2.1-Instruct-Q4_K_M.gguf'
+        url: 'https://huggingface.co/Qwen/Qwen-Image-2.1-Instruct-GGUF/resolve/main/Qwen-Image-2.1-Instruct-Q4_K_M.gguf',
+        repoId: 'Qwen/Qwen-Image-2.1-Instruct-GGUF',
+        pipelineTag: 'text-to-image',
+        modalityHint: 'image',
+        componentRole: null
       },
       {
         name: 'Qwen3-VL Vision Text Projector',
         role: 'Prompt & Visual Conditioning Encoder',
         size: '1.2 GB',
         filename: 'mmproj-Qwen3-VL-8B-Instruct-F16.gguf',
-        url: 'https://huggingface.co/Qwen/Qwen3-VL-8B-Instruct-GGUF/resolve/main/mmproj-Qwen3-VL-8B-Instruct-F16.gguf'
+        url: 'https://huggingface.co/Qwen/Qwen3-VL-8B-Instruct-GGUF/resolve/main/mmproj-Qwen3-VL-8B-Instruct-F16.gguf',
+        repoId: 'Qwen/Qwen3-VL-8B-Instruct-GGUF',
+        pipelineTag: 'text-to-image',
+        modalityHint: 'component',
+        componentRole: 'mmproj'
       },
       {
         name: 'Qwen-Image 2.1 Autoencoder VAE',
         role: 'Latent-to-RGB Pixel Decoder',
         size: '480 MB',
         filename: 'qwen_image_2.1_vae_bf16.safetensors',
-        url: 'https://huggingface.co/Qwen/Qwen-Image-2.1/resolve/main/qwen_image_2.1_vae_bf16.safetensors'
+        url: 'https://huggingface.co/Qwen/Qwen-Image-2.1/resolve/main/qwen_image_2.1_vae_bf16.safetensors',
+        repoId: 'Qwen/Qwen-Image-2.1',
+        pipelineTag: 'text-to-image',
+        modalityHint: 'component',
+        componentRole: 'vae'
       }
     ]
   },
@@ -503,66 +470,37 @@ export const VERIFIED_IMAGE_PACKS: UnifiedImagePack[] = [
         role: 'Rectified Flow Transformer Backbone',
         size: '6.4 GB',
         filename: 'flux1-schnell-Q4_K_S.gguf',
-        url: 'https://huggingface.co/city96/FLUX.1-schnell-gguf/resolve/main/flux1-schnell-Q4_K_S.gguf'
+        url: 'https://huggingface.co/city96/FLUX.1-schnell-gguf/resolve/main/flux1-schnell-Q4_K_S.gguf',
+        repoId: 'city96/FLUX.1-schnell-gguf',
+        pipelineTag: 'text-to-image',
+        modalityHint: 'image',
+        componentRole: null
       },
       {
         name: 'CLIP-L Conditioner',
         role: 'Text Token Projector',
         size: '246 MB',
         filename: 'clip_l.safetensors',
-        url: 'https://huggingface.co/second-state/FLUX.1-dev-GGUF/resolve/main/clip_l.safetensors'
+        url: 'https://huggingface.co/second-state/FLUX.1-dev-GGUF/resolve/main/clip_l.safetensors',
+        repoId: 'second-state/FLUX.1-dev-GGUF',
+        pipelineTag: 'text-to-image',
+        modalityHint: 'component',
+        componentRole: 'encoders'
       },
       {
         name: 'FLUX 16-Channel Autoencoder',
         role: 'Latent Space VAE',
         size: '335 MB',
         filename: 'ae.safetensors',
-        url: 'https://huggingface.co/second-state/FLUX.1-dev-GGUF/resolve/main/ae.safetensors'
+        url: 'https://huggingface.co/second-state/FLUX.1-dev-GGUF/resolve/main/ae.safetensors',
+        repoId: 'second-state/FLUX.1-dev-GGUF',
+        pipelineTag: 'text-to-image',
+        modalityHint: 'component',
+        componentRole: 'vae'
       }
     ]
   }
 ];
-
-export type ModelModality = 'all' | 'llm' | 'image' | 'video' | 'voice' | 'audio';
-
-export function getModelModalityInfo(m: HfLiveModel): { label: string; color: string } {
-  const p = (m.pipeline_tag || '').toLowerCase();
-  const id = m.id.toLowerCase();
-  const tags = (m.tags || []).map(t => t.toLowerCase());
-
-  if (p === 'text-to-image' || p === 'image-to-image' || id.includes('flux') || id.includes('sdxl') || id.includes('stable-diffusion') || id.includes('janus') || tags.includes('text-to-image')) {
-    return { label: 'IMAGE', color: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30' };
-  }
-  if (p === 'text-to-video' || p === 'image-to-video' || id.includes('wan') || id.includes('cogvideo') || id.includes('animatediff') || id.includes('svd') || tags.includes('text-to-video')) {
-    return { label: 'VIDEO', color: 'bg-sky-500/15 text-sky-300 border-sky-500/30' };
-  }
-  if (p === 'text-to-speech' || id.includes('kokoro') || id.includes('piper') || id.includes('bark') || tags.includes('text-to-speech')) {
-    return { label: 'TTS', color: 'bg-amber-500/15 text-amber-300 border-amber-500/30' };
-  }
-  if (p === 'automatic-speech-recognition' || id.includes('whisper') || tags.includes('automatic-speech-recognition')) {
-    return { label: 'STT', color: 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30' };
-  }
-  if (p === 'text-to-audio' || p === 'audio-to-audio' || id.includes('musicgen') || id.includes('audiocraft') || tags.includes('text-to-audio')) {
-    return { label: 'MUSIC', color: 'bg-rose-500/15 text-rose-300 border-rose-500/30' };
-  }
-  return { label: 'LLM', color: 'bg-sky-500/15 text-sky-300 border-sky-500/30' };
-}
-
-function formatRelativeTime(dateStr?: string): string {
-  if (!dateStr) return 'Recently';
-  try {
-    const diffMs = Date.now() - new Date(dateStr).getTime();
-    const diffMinutes = Math.floor(diffMs / (1000 * 60));
-    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
-    const diffDays = Math.floor(diffHours / 24);
-    if (diffDays > 0) return `${diffDays}d ago`;
-    if (diffHours > 0) return `${diffHours}h ago`;
-    if (diffMinutes > 0) return `${diffMinutes}m ago`;
-    return 'Just now';
-  } catch {
-    return 'Recently';
-  }
-}
 
 
 
@@ -637,6 +575,10 @@ export default function SettingsApp() {
   interface LocalModel {
     id: string;
     name?: string;
+    path?: string;
+    relative_path?: string;
+    modality?: 'llm' | 'image' | 'video' | 'music' | 'component';
+    component_role?: 'vae' | 'encoders' | 'mmproj' | 'loras' | null;
     size_display?: string;
     size_bytes?: number;
     max_context_length?: number;
@@ -713,6 +655,11 @@ export default function SettingsApp() {
   const [selectedModality, setSelectedModality] = useState<ModelModality>('all');
   const [liveModelsList, setLiveModelsList] = useState<HfLiveModel[]>([]);
   const [isLoadingModelsList, setIsLoadingModelsList] = useState(false);
+  const [nextHubPageUrl, setNextHubPageUrl] = useState<string | null>(null);
+  const [isLoadingMoreHubModels, setIsLoadingMoreHubModels] = useState(false);
+  const hubListScrollRef = useRef<HTMLDivElement>(null);
+  const hubRequestSeqRef = useRef(0);
+  const hubDetailsSeqRef = useRef(0);
   const [selectedHubModelId, setSelectedHubModelId] = useState<string>('');
   const [selectedModelDetails, setSelectedModelDetails] = useState<HfModelDetails | null>(null);
   const [modelReadme, setModelReadme] = useState<string>('');
@@ -850,6 +797,14 @@ export default function SettingsApp() {
 
     localModels.forEach(m => {
       if (clearedCompleted.has(m.id)) return;
+      const mFname = m.id.split('/').pop() || m.id;
+      // Do not list model as completed if it is actively downloading, starting, or paused
+      const activeDl = activeDownloads.find(d => 
+        d.model_name === mFname || d.model_name === m.name || d.model_name === m.id
+      );
+      if (activeDl && (activeDl.status === 'downloading' || activeDl.status === 'starting' || activeDl.status === 'paused')) {
+        return;
+      }
       const isLoaded = activeLocalModel === m.id || m.loaded;
       const isRuntime = m.id.toLowerCase().includes('llama.cpp') || m.id.toLowerCase().includes('vulkan');
       const displayName = m.name || formatModelDisplayName(m.id);
@@ -860,7 +815,7 @@ export default function SettingsApp() {
         sizeBytes: m.size_bytes || 0,
         isRuntime,
         isLoaded: !!isLoaded,
-        filename: m.id.split('/').pop() || m.id,
+        filename: mFname,
         fullPath: `${localModelsDir}/${m.id}`
       });
     });
@@ -869,6 +824,7 @@ export default function SettingsApp() {
   }, [localModels, daemonHealth, daemonRunning, clearedCompleted, activeLocalModel, localModelsDir]);
 
   const filteredActiveDownloads = activeDownloads.filter(d => {
+    if (d.status === 'finished') return false;
     if (!downloadsFilterQuery.trim()) return true;
     const q = downloadsFilterQuery.toLowerCase();
     return d.model_name.toLowerCase().includes(q);
@@ -880,70 +836,87 @@ export default function SettingsApp() {
     return item.displayName.toLowerCase().includes(q) || item.id.toLowerCase().includes(q);
   });
 
-  // 1. Fetch live models list directly from Hugging Face API with modality routing
+  // 1. Fetch live models list directly from Hugging Face API with cursor pagination (limit=20)
   const fetchLiveModels = async (
-    sortMode: 'lastModified' | 'trendingScore' | 'downloads', 
+    sortMode: 'lastModified' | 'trendingScore' | 'downloads',
     search?: string,
     modality: ModelModality = selectedModality
   ) => {
+    const seq = ++hubRequestSeqRef.current;
     setIsLoadingModelsList(true);
+    setIsLoadingMoreHubModels(false);
+    setNextHubPageUrl(null);
+    if (hubListScrollRef.current) {
+      hubListScrollRef.current.scrollTop = 0;
+    }
+
     try {
-      let filterParam = 'filter=gguf';
-      let defaultSearchTerm = '';
-
-      switch (modality) {
-        case 'llm':
-          filterParam = 'pipeline_tag=text-generation&filter=gguf';
-          break;
-        case 'image':
-          filterParam = 'pipeline_tag=text-to-image';
-          if (!search?.trim()) defaultSearchTerm = 'flux';
-          break;
-        case 'video':
-          filterParam = 'pipeline_tag=text-to-video';
-          break;
-        case 'voice':
-          filterParam = 'pipeline_tag=automatic-speech-recognition';
-          if (!search?.trim()) defaultSearchTerm = 'whisper';
-          break;
-        case 'audio':
-          filterParam = 'pipeline_tag=text-to-audio';
-          if (!search?.trim()) defaultSearchTerm = 'musicgen';
-          break;
-        case 'all':
-        default:
-          filterParam = 'filter=gguf';
-          break;
-      }
-
-      const queryTerm = (search?.trim() || defaultSearchTerm).trim();
-      let url = `https://huggingface.co/api/models?${filterParam}&sort=${sortMode}&direction=-1&limit=35`;
-      if (queryTerm) {
-        url = `https://huggingface.co/api/models?search=${encodeURIComponent(queryTerm)}&${filterParam}&sort=downloads&direction=-1&limit=35`;
-      }
-
+      const url = buildHfModelsUrl(sortMode, search, modality);
       const res = await fetch(url);
+      if (seq !== hubRequestSeqRef.current) return;
+
       if (res.ok) {
         const data = await res.json();
+        if (seq !== hubRequestSeqRef.current) return;
+        const nextUrl = parseNextLinkHeader(res.headers.get('link'));
         if (Array.isArray(data)) {
           setLiveModelsList(data);
-          if (data.length > 0) {
-            const firstId = data[0].id;
-            setSelectedHubModelId(firstId);
-            fetchModelDetails(firstId);
+          setNextHubPageUrl(nextUrl);
+          if (data.length > 0 && data[0]?.id) {
+            setSelectedHubModelId(data[0].id);
+            fetchModelDetails(data[0].id);
+          } else {
+            setSelectedHubModelId('');
+            setSelectedModelDetails(null);
+            setAvailableQuants([]);
+            setModelReadme('');
           }
         }
       }
     } catch (err) {
       console.error('Failed to fetch Hugging Face models:', err);
     } finally {
-      setIsLoadingModelsList(false);
+      if (seq === hubRequestSeqRef.current) {
+        setIsLoadingModelsList(false);
+      }
+    }
+  };
+
+  // 1b. Fetch next 20 models using HF cursor Link header
+  const fetchMoreHubModels = async () => {
+    if (!nextHubPageUrl || isLoadingModelsList || isLoadingMoreHubModels) return;
+    const seq = hubRequestSeqRef.current;
+    const targetUrl = nextHubPageUrl;
+    setIsLoadingMoreHubModels(true);
+    try {
+      const res = await fetch(targetUrl);
+      if (seq !== hubRequestSeqRef.current) return;
+      if (res.ok) {
+        const data = await res.json();
+        if (seq !== hubRequestSeqRef.current) return;
+        const nextUrl = parseNextLinkHeader(res.headers.get('link'));
+        setNextHubPageUrl(nextUrl && nextUrl !== targetUrl ? nextUrl : null);
+        if (Array.isArray(data) && data.length > 0) {
+          setLiveModelsList((prev) => {
+            const seen = new Set(prev.map((item) => item.id));
+            const appended = data.filter((item: HfLiveModel) => item?.id && !seen.has(item.id));
+            return appended.length > 0 ? [...prev, ...appended] : prev;
+          });
+        }
+      }
+    } catch (err) {
+      console.error('Failed to paginate Hugging Face models:', err);
+    } finally {
+      if (seq === hubRequestSeqRef.current) {
+        setIsLoadingMoreHubModels(false);
+      }
     }
   };
 
   // 2. Fetch live model details and real README from Hugging Face API
   const fetchModelDetails = async (modelId: string) => {
     if (!modelId) return;
+    const detailSeq = ++hubDetailsSeqRef.current;
     setIsLoadingDetails(true);
     setSelectedHubModelId(modelId);
     setSelectedQuantIndex(0);
@@ -952,76 +925,31 @@ export default function SettingsApp() {
         fetch(`https://huggingface.co/api/models/${modelId}?blobs=true`),
         fetch(`https://huggingface.co/${modelId}/raw/main/README.md`)
       ]);
+      if (detailSeq !== hubDetailsSeqRef.current) return;
 
       if (infoRes.ok) {
-        const info = await infoRes.json() as HfModelDetails;
+        const info = (await infoRes.json()) as HfModelDetails;
+        if (detailSeq !== hubDetailsSeqRef.current) return;
         setSelectedModelDetails(info);
-
-        // Extract real model weights siblings (.gguf, .safetensors, .onnx, .bin)
-        const validFiles = (info.siblings || []).filter(s => {
-          if (!s.rfilename) return false;
-          const fn = s.rfilename.toLowerCase();
-          return fn.endsWith('.gguf') || fn.endsWith('.safetensors') || fn.endsWith('.onnx') || fn.endsWith('.bin');
-        });
-
-        const quants: LiveQuantOption[] = validFiles.map(f => {
-          const fn = f.rfilename;
-          const quantMatch = fn.match(/(Q\d+_[A-Za-z0-9_]+|IQ\d+_[A-Za-z0-9_]+|F16|F32|Q8_0|Q4_0|Q4_1|Q5_0|Q5_1|BF16|NVFP4|FP8|FP4)/i);
-          const extMatch = fn.match(/\.(safetensors|onnx|bin|gguf)$/i);
-          const ext = extMatch ? extMatch[1].toUpperCase() : 'WEIGHTS';
-          const quant = quantMatch ? quantMatch[1].toUpperCase() : ext;
-          const rawBytes = f.lfs?.size || f.size || 0;
-          let sizeGB = 0;
-          let sizeDisplay = '';
-          if (rawBytes > 0) {
-            sizeGB = Number((rawBytes / (1024 * 1024 * 1024)).toFixed(2));
-            if (sizeGB >= 1.0) {
-              sizeDisplay = `${sizeGB} GB`;
-            } else {
-              const sizeMB = Number((rawBytes / (1024 * 1024)).toFixed(0));
-              sizeDisplay = `${sizeMB} MB`;
-            }
-          } else {
-            const paramMatch = (fn + ' ' + modelId).match(/(\d+(\.\d+)?B)/i);
-            const param = paramMatch ? parseFloat(paramMatch[1]) : 7;
-            sizeGB = Number((param * 0.58).toFixed(1));
-            sizeDisplay = `~${sizeGB} GB`;
-          }
-          return {
-            filename: fn,
-            quant,
-            sizeGB,
-            sizeDisplay,
-            directUrl: `https://huggingface.co/${modelId}/resolve/main/${fn}`
-          };
-        });
-
-        // Fallback default quant if siblings list is empty
-        if (quants.length === 0) {
-          const baseName = modelId.split('/').pop() || 'model';
-          quants.push({
-            filename: `${baseName.toLowerCase()}-q4_k_m.gguf`,
-            quant: 'Q4_K_M',
-            sizeGB: 4.8,
-            sizeDisplay: '4.8 GB',
-            directUrl: `https://huggingface.co/${modelId}`
-          });
-        }
-
+        const quants = extractQuantOptions(modelId, info.siblings);
         setAvailableQuants(quants);
+        setSelectedQuantIndex(pickPreferredQuantIndex(quants));
       }
 
       if (readmeRes.ok) {
         const rawReadme = await readmeRes.text();
+        if (detailSeq !== hubDetailsSeqRef.current) return;
         const cleanReadme = rawReadme.replace(/^---[\s\S]*?---/, '').trim();
         setModelReadme(cleanReadme || 'No README provided for this repository.');
-      } else {
+      } else if (detailSeq === hubDetailsSeqRef.current) {
         setModelReadme('No README provided for this repository.');
       }
     } catch (err) {
       console.error('Failed to fetch model details:', err);
     } finally {
-      setIsLoadingDetails(false);
+      if (detailSeq === hubDetailsSeqRef.current) {
+        setIsLoadingDetails(false);
+      }
     }
   };
 
@@ -1216,8 +1144,41 @@ export default function SettingsApp() {
         <div className="w-56 sm:w-64 bg-[#141416] border-r border-white/10 flex flex-col justify-between shrink-0 overflow-y-auto">
           {/* Top Navigation Items */}
           <div className="p-4 space-y-4">
-            <div className="window-drag h-6 flex items-center cursor-move">
+            <div className="window-drag h-6 flex items-center justify-between gap-2 cursor-move">
               <h1 className="text-xs font-bold text-zinc-400 uppercase tracking-widest px-2 pointer-events-none">Settings</h1>
+              {activeTab === 'Models' && (
+                <div className="window-no-drag flex items-center gap-1 shrink-0">
+                  <button
+                    ref={downloadsButtonRef}
+                    onClick={() => setIsDownloadsTrayOpen(prev => !prev)}
+                    className={`relative p-1 rounded-md border transition-all cursor-pointer ${
+                      isDownloadsTrayOpen
+                        ? 'bg-white/15 text-white border-white/20 shadow-inner'
+                        : 'text-zinc-300 hover:text-white bg-white/5 hover:bg-white/10 border-white/10'
+                    }`}
+                    title="Downloads (Active & Completed)"
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                    </svg>
+                    {activeDownloads.length > 0 && (
+                      <span className="absolute -top-1 -right-1 flex h-3.5 min-w-3.5 px-1 items-center justify-center rounded-full bg-emerald-500 text-[9px] font-bold text-zinc-950 ring-1 ring-[#141416] shadow-sm animate-pulse">
+                        {activeDownloads.length}
+                      </span>
+                    )}
+                  </button>
+
+                  <button
+                    onClick={() => vscodeApi?.postMessage({ command: 'popOutWindow' })}
+                    className="p-1 text-zinc-400 hover:text-white rounded-md hover:bg-white/10 border border-transparent hover:border-white/10 transition-colors cursor-pointer"
+                    title="Pop Out into Separate Window"
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                    </svg>
+                  </button>
+                </div>
+              )}
             </div>
 
             {/* Main Tabs Group */}
@@ -1354,60 +1315,64 @@ export default function SettingsApp() {
 
           {/* Right Main Content Panel */}
           <div className="flex-1 flex flex-col min-w-0 bg-[#1a1a1c] overflow-hidden relative">
-            {/* Header Bar */}
-            <div 
-              className="window-drag px-6 py-4 border-b border-white/5 flex items-center justify-between shrink-0 bg-[#1a1a1c] cursor-move select-none"
-              onDoubleClick={() => {
-                vscodeApi?.postMessage({ command: 'toggleMaximizeSettings' });
-              }}
-            >
-              <div className="pointer-events-none">
-                <h2 className="text-lg font-bold text-white tracking-wide">
-                  {activeTab === 'Discover' ? 'Discover Models' : activeTab === 'System' ? 'System & Engine' : activeTab === 'Customizations' ? 'Appearance' : activeTab}
-                </h2>
-                <p className="text-xs text-zinc-400 mt-0.5">{getTabDescription(activeTab)}</p>
-              </div>
-              
-              <div className="window-no-drag flex items-center gap-1.5">
-                {/* Downloads Popover Tray Toggle Button */}
-                <button
-                  ref={downloadsButtonRef}
-                  onClick={() => setIsDownloadsTrayOpen(prev => !prev)}
-                  className={`relative p-1.5 rounded-lg border transition-all cursor-pointer ${
-                    isDownloadsTrayOpen
-                      ? 'bg-white/15 text-white border-white/20 shadow-inner'
-                      : 'text-zinc-300 hover:text-white bg-white/5 hover:bg-white/10 border-white/10'
-                  }`}
-                  title="Downloads (Active & Completed)"
-                >
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                  </svg>
-                  {activeDownloads.length > 0 && (
-                    <span className="absolute -top-1 -right-1 flex h-4 min-w-4 px-1 items-center justify-center rounded-full bg-emerald-500 text-[9px] font-bold text-zinc-950 ring-2 ring-[#18181c] shadow-sm animate-pulse">
-                      {activeDownloads.length}
-                    </span>
-                  )}
-                </button>
+            {/* Header Bar (reclaimed on Models page; utility controls live in sidebar header) */}
+            {activeTab !== 'Models' && (
+              <div 
+                className="window-drag px-6 py-4 border-b border-white/5 flex items-center justify-between shrink-0 bg-[#1a1a1c] cursor-move select-none"
+                onDoubleClick={() => {
+                  vscodeApi?.postMessage({ command: 'toggleMaximizeSettings' });
+                }}
+              >
+                <div className="pointer-events-none">
+                  <h2 className="text-lg font-bold text-white tracking-wide">
+                    {activeTab === 'Discover' ? 'Discover Models' : activeTab === 'System' ? 'System & Engine' : activeTab === 'Customizations' ? 'Appearance' : activeTab}
+                  </h2>
+                  <p className="text-xs text-zinc-400 mt-0.5">{getTabDescription(activeTab)}</p>
+                </div>
+                
+                <div className="window-no-drag flex items-center gap-1.5">
+                  {/* Downloads Popover Tray Toggle Button */}
+                  <button
+                    ref={downloadsButtonRef}
+                    onClick={() => setIsDownloadsTrayOpen(prev => !prev)}
+                    className={`relative p-1.5 rounded-lg border transition-all cursor-pointer ${
+                      isDownloadsTrayOpen
+                        ? 'bg-white/15 text-white border-white/20 shadow-inner'
+                        : 'text-zinc-300 hover:text-white bg-white/5 hover:bg-white/10 border-white/10'
+                    }`}
+                    title="Downloads (Active & Completed)"
+                  >
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                    </svg>
+                    {activeDownloads.length > 0 && (
+                      <span className="absolute -top-1 -right-1 flex h-4 min-w-4 px-1 items-center justify-center rounded-full bg-emerald-500 text-[9px] font-bold text-zinc-950 ring-2 ring-[#18181c] shadow-sm animate-pulse">
+                        {activeDownloads.length}
+                      </span>
+                    )}
+                  </button>
 
-                {/* Pop Out to Dedicated Window Button */}
-                <button
-                  onClick={() => vscodeApi?.postMessage({ command: 'popOutWindow' })}
-                  className="p-1.5 text-zinc-400 hover:text-white rounded-lg hover:bg-white/10 border border-transparent hover:border-white/10 transition-colors cursor-pointer"
-                  title="Pop Out into Separate Window"
-                >
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                  </svg>
-                </button>
+                  {/* Pop Out to Dedicated Window Button */}
+                  <button
+                    onClick={() => vscodeApi?.postMessage({ command: 'popOutWindow' })}
+                    className="p-1.5 text-zinc-400 hover:text-white rounded-lg hover:bg-white/10 border border-transparent hover:border-white/10 transition-colors cursor-pointer"
+                    title="Pop Out into Separate Window"
+                  >
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                    </svg>
+                  </button>
+                </div>
               </div>
-            </div>
+            )}
 
-            {/* Floating Downloads Popover Tray (matching LM Studio 1:1) */}
+            {/* Floating Downloads Popover Tray */}
             {isDownloadsTrayOpen && (
               <div
                 ref={downloadsTrayRef}
-                className="absolute right-6 top-16 w-[380px] max-h-[520px] bg-[#18181c] border border-white/10 rounded-2xl shadow-2xl z-50 flex flex-col overflow-hidden text-zinc-100 animate-in fade-in zoom-in-95 duration-150 backdrop-blur-md"
+                className={`absolute ${
+                  activeTab === 'Models' ? 'left-3 top-3' : 'right-6 top-16'
+                } w-[380px] max-h-[520px] bg-[#18181c] border border-white/10 rounded-2xl shadow-2xl z-50 flex flex-col overflow-hidden text-zinc-100 animate-in fade-in zoom-in-95 duration-150 backdrop-blur-md`}
               >
                 {/* Tray Header */}
                 <div className="px-4 py-3 border-b border-white/5 flex items-center justify-between shrink-0 bg-[#141416]/50">
@@ -1510,19 +1475,25 @@ export default function SettingsApp() {
                                       </svg>
                                     </button>
                                   )}
-                                  {isPaused && (
+                                  {(isPaused || isError) && (
                                     <button
                                       type="button"
                                       onClick={() => {
                                         setActiveDownloads(prev => prev.map(d => d.model_name === dl.model_name ? { ...d, status: 'starting' } : d));
                                         vscodeApi?.postMessage({ command: 'controlDownload', filename: dl.model_name, action: 'retry', url: fallbackUrl });
                                       }}
-                                      className="p-1 text-emerald-400 hover:text-emerald-300 rounded hover:bg-emerald-500/10 transition-colors"
-                                      title="Resume download"
+                                      className={`p-1 rounded hover:bg-white/10 transition-colors ${isError ? 'text-amber-400 hover:text-amber-300' : 'text-emerald-400 hover:text-emerald-300'}`}
+                                      title={isError ? "Retry download" : "Resume download"}
                                     >
-                                      <svg className="w-3 h-3" viewBox="0 0 24 24" fill="currentColor">
-                                        <polygon points="5 3 19 12 5 21 5 3" />
-                                      </svg>
+                                      {isError ? (
+                                        <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                                          <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+                                        </svg>
+                                      ) : (
+                                        <svg className="w-3 h-3" viewBox="0 0 24 24" fill="currentColor">
+                                          <polygon points="5 3 19 12 5 21 5 3" />
+                                        </svg>
+                                      )}
                                     </button>
                                   )}
                                   <button
@@ -1550,7 +1521,7 @@ export default function SettingsApp() {
 
                               <div className="flex justify-between items-center text-[10px] font-mono text-zinc-400">
                                 <span>{dl.percent.toFixed(1)}% • {downloadedGb} GB / {totalGb} GB</span>
-                                <span>{speed || (isPaused ? 'Paused' : 'Connecting...')}{eta ? ` • ETA ${eta}` : ''}</span>
+                                <span>{speed || (isPaused ? 'Paused' : isError ? 'Interrupted (Click retry)' : isFinished ? 'Completed' : 'Connecting...')}{eta ? ` • ETA ${eta}` : ''}</span>
                               </div>
                             </div>
                           );
@@ -1713,13 +1684,7 @@ export default function SettingsApp() {
             )}
 
             {/* Main Content Area: Full Discover Models View OR Standard Scrollable Container */}
-            {activeTab === 'Discover' ? (() => {
-              const selectedQuant = availableQuants[selectedQuantIndex] || availableQuants[0];
-              const isDownloaded = selectedQuant && localModels.some(m => m.id.toLowerCase().includes(selectedQuant.filename.toLowerCase()));
-              const activeDownloadItem = selectedQuant && activeDownloads.find(d => d.model_name.toLowerCase().includes(selectedQuant.filename.toLowerCase()));
-              const speedInfo = activeDownloadItem ? getSpeedAndEta(activeDownloadItem) : { speed: '', eta: '' };
-
-              return (
+            {activeTab === 'Discover' ? (
                 <div className="flex-1 flex min-h-0 w-full overflow-hidden bg-[#121214] text-zinc-100">
                   {/* Left Column: Search & Live Model List */}
                   <div className="w-[360px] md:w-[390px] xl:w-[420px] border-r border-white/10 flex flex-col bg-[#141417] shrink-0 h-full overflow-hidden">
@@ -1817,7 +1782,16 @@ export default function SettingsApp() {
                     </div>
 
                     {/* Model Cards Scroll List */}
-                    <div className="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-2">
+                    <div
+                      ref={hubListScrollRef}
+                      onScroll={(e) => {
+                        const el = e.currentTarget;
+                        if (el.scrollHeight - el.scrollTop - el.clientHeight < 140) {
+                          fetchMoreHubModels();
+                        }
+                      }}
+                      className="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-2"
+                    >
                       {isLoadingModelsList ? (
                         <div className="flex flex-col items-center justify-center py-20 text-zinc-400 text-xs space-y-3">
                           <svg className="animate-spin w-5 h-5 text-zinc-300" viewBox="0 0 24 24" fill="none">
@@ -1831,77 +1805,104 @@ export default function SettingsApp() {
                           No models found matching query.
                         </div>
                       ) : (
-                        liveModelsList.map((m) => {
-                          const isSelected = selectedHubModelId === m.id;
-                          const parts = m.id.split('/');
-                          const author = parts.length > 1 ? parts[0] : '';
-                          const modelName = parts.length > 1 ? parts[1] : m.id;
-                          const isModelPresent = localModels.some(lm => lm.id.toLowerCase().includes(modelName.toLowerCase()));
-                          const caps = getModelCapabilities(m);
+                        <>
+                          {liveModelsList.map((m) => {
+                            const isSelected = selectedHubModelId === m.id;
+                            const parts = m.id.split('/');
+                            const author = parts.length > 1 ? parts[0] : '';
+                            const modelName = parts.length > 1 ? parts[1] : m.id;
+                            const isModelPresent = localModels.some(lm => lm.id.toLowerCase().includes(modelName.toLowerCase()));
+                            const caps = getModelCapabilities(m);
 
-                          return (
-                            <div 
-                              key={m.id}
-                              onClick={() => fetchModelDetails(m.id)}
-                              className={`p-3 rounded-xl border transition-all cursor-pointer flex items-start gap-3 ${
-                                isSelected 
-                                  ? 'bg-[#222227] border-white/20 text-white shadow-lg ring-1 ring-white/10' 
-                                  : 'bg-[#151518] border-white/5 hover:border-white/15 hover:bg-[#1a1a1e] text-zinc-300'
-                              }`}
-                            >
-                              {renderProviderLogo(m.id, author)}
+                            return (
+                              <div 
+                                key={m.id}
+                                onClick={() => fetchModelDetails(m.id)}
+                                className={`p-3 rounded-xl border transition-all cursor-pointer flex items-start gap-3 ${
+                                  isSelected 
+                                    ? 'bg-[#222227] border-white/20 text-white shadow-lg ring-1 ring-white/10' 
+                                    : 'bg-[#151518] border-white/5 hover:border-white/15 hover:bg-[#1a1a1e] text-zinc-300'
+                                }`}
+                              >
+                                {renderProviderLogo(m.id, author)}
 
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center justify-between gap-1 mb-1">
-                                  <div className="flex items-center gap-1.5 min-w-0">
-                                    <span className="text-[13px] font-semibold text-white tracking-tight truncate">
-                                      {modelName}
-                                    </span>
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center justify-between gap-1 mb-1">
+                                    <div className="flex items-center gap-1.5 min-w-0">
+                                      <span className="text-[13px] font-semibold text-white tracking-tight truncate">
+                                        {modelName}
+                                      </span>
+                                    </div>
+
+                                    {/* Right Capability Tags & Timestamp */}
+                                    <div className="flex items-center gap-1.5 shrink-0">
+                                      <ModelCapabilityBadges capabilities={caps} />
+                                      <span className="text-xs text-zinc-400 font-mono ml-1 flex items-center gap-1">
+                                        {formatRelativeTime(m.lastModified, m.createdAt)}
+                                      </span>
+                                    </div>
                                   </div>
 
-                                  {/* Right Capability Tags & Timestamp */}
-                                  <div className="flex items-center gap-1.5 shrink-0">
-                                    <ModelCapabilityBadges capabilities={caps} />
-                                    <span className="text-xs text-zinc-400 font-mono ml-1 flex items-center gap-1">
-                                      {formatRelativeTime(m.lastModified)}
-                                    </span>
-                                  </div>
-                                </div>
+                                  {author && (
+                                    <div className="flex items-center gap-1 mb-1.5">
+                                      <p className="text-xs text-zinc-300 font-medium truncate">
+                                        by {author}
+                                      </p>
+                                      {isTrustedPublisher(author, m.id) && (
+                                        <TrustedBadge className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                                      )}
+                                    </div>
+                                  )}
 
-                                {author && (
-                                  <div className="flex items-center gap-1 mb-1.5">
-                                    <p className="text-xs text-zinc-300 font-medium truncate">
-                                      by {author}
-                                    </p>
-                                    {isTrustedPublisher(author, m.id) && (
-                                      <TrustedBadge className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                                  <div className="flex items-center gap-3 text-xs text-zinc-400 font-mono">
+                                    <span className="flex items-center gap-1">
+                                      <svg className="w-3.5 h-3.5 text-zinc-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                      </svg>
+                                      {(m.downloads || 0).toLocaleString()}
+                                    </span>
+                                    <span className="flex items-center gap-1">
+                                      <svg className="w-3.5 h-3.5 text-zinc-400 shrink-0" fill="currentColor" viewBox="0 0 24 24">
+                                        <path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z" />
+                                      </svg>
+                                      {m.likes || 0}
+                                    </span>
+                                    {isModelPresent && (
+                                      <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-medium bg-zinc-800 text-zinc-300 border border-white/10">
+                                        ✓ Local
+                                      </span>
                                     )}
                                   </div>
-                                )}
-
-                                <div className="flex items-center gap-3 text-xs text-zinc-400 font-mono">
-                                  <span className="flex items-center gap-1">
-                                    <svg className="w-3.5 h-3.5 text-zinc-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                                    </svg>
-                                    {(m.downloads || 0).toLocaleString()}
-                                  </span>
-                                  <span className="flex items-center gap-1">
-                                    <svg className="w-3.5 h-3.5 text-zinc-400 shrink-0" fill="currentColor" viewBox="0 0 24 24">
-                                      <path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z" />
-                                    </svg>
-                                    {m.likes || 0}
-                                  </span>
-                                  {isModelPresent && (
-                                    <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-medium bg-zinc-800 text-zinc-300 border border-white/10">
-                                      ✓ Local
-                                    </span>
-                                  )}
                                 </div>
                               </div>
-                            </div>
-                          );
-                        })
+                            );
+                          })}
+
+                          {/* Pagination Footer */}
+                          <div className="pt-2 pb-4 flex items-center justify-center">
+                            {isLoadingMoreHubModels ? (
+                              <span className="text-[11px] font-mono text-zinc-400 flex items-center gap-2">
+                                <svg className="animate-spin w-3.5 h-3.5 text-zinc-300" viewBox="0 0 24 24" fill="none">
+                                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                </svg>
+                                <span>Loading next 20 models...</span>
+                              </span>
+                            ) : nextHubPageUrl ? (
+                              <button
+                                type="button"
+                                onClick={fetchMoreHubModels}
+                                className="px-3 py-1.5 rounded-lg text-[11px] font-mono text-zinc-300 hover:text-white bg-zinc-900 hover:bg-zinc-800 border border-white/10 transition-colors cursor-pointer"
+                              >
+                                Load next 20 models
+                              </button>
+                            ) : (
+                              <span className="text-[11px] font-mono text-zinc-500">
+                                Showing all {liveModelsList.length} matching models
+                              </span>
+                            )}
+                          </div>
+                        </>
                       )}
                     </div>
                   </div>
@@ -1917,275 +1918,63 @@ export default function SettingsApp() {
                         <span>Fetching model weights & repository README...</span>
                       </div>
                     ) : selectedModelDetails ? (
-                      <div className="p-6 md:p-8 space-y-6 max-w-5xl">
-                        {/* Header Bar */}
-                        <div className="flex items-start justify-between gap-4 pb-4 border-b border-white/10">
-                          <div className="flex items-center gap-3.5 min-w-0">
-                            {renderProviderLogo(selectedModelDetails.id)}
-                            <div className="min-w-0">
-                              <div className="flex items-center gap-1.5 min-w-0">
-                                <h2 className="text-base font-bold text-white tracking-tight truncate font-sans">
-                                  {selectedModelDetails.id}
-                                </h2>
-                                {isTrustedPublisher(selectedModelDetails.author || selectedModelDetails.id.split('/')[0]) && (
-                                  <TrustedBadge className="w-4 h-4 shrink-0" title="Trusted Publisher" />
-                                )}
-                              </div>
-                              <div className="flex items-center gap-2 mt-1">
-                                <button 
-                                  type="button"
-                                  onClick={() => {
-                                    navigator.clipboard.writeText(selectedModelDetails.id);
-                                    setCopiedRepoId(true);
-                                    setTimeout(() => setCopiedRepoId(false), 2000);
-                                  }}
-                                  className="px-2.5 py-1 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white border border-white/10 text-[11px] font-mono transition-colors flex items-center gap-1.5 cursor-pointer"
-                                  title="Copy Model ID"
-                                >
-                                  <svg className="w-3 h-3 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                                  </svg>
-                                  {copiedRepoId ? 'Copied' : 'Copy ID'}
-                                </button>
-                                <a
-                                  href={`https://huggingface.co/${selectedModelDetails.id}`}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="px-2.5 py-1 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white border border-white/10 text-[11px] font-mono transition-colors flex items-center gap-1.5"
-                                >
-                                  <span>Hugging Face</span>
-                                  <svg className="w-3 h-3 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                                  </svg>
-                                </a>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Stats & Tags Row */}
-                        <div className="flex flex-wrap items-center gap-2.5 text-xs text-zinc-300 font-mono">
-                          <span className="flex items-center gap-1.5 bg-zinc-900/90 px-3 py-1.5 rounded-xl border border-white/10">
-                            <svg className="w-3.5 h-3.5 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                            </svg>
-                            <span>{(selectedModelDetails.downloads || 0).toLocaleString()} downloads</span>
-                          </span>
-
-                          <span className="flex items-center gap-1.5 bg-zinc-900/90 px-3 py-1.5 rounded-xl border border-white/10">
-                            <svg className="w-3.5 h-3.5 text-zinc-400" fill="currentColor" viewBox="0 0 24 24">
-                              <path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z" />
-                            </svg>
-                            <span>{selectedModelDetails.likes || 0} likes</span>
-                          </span>
-
-                          <span className="bg-zinc-900/90 px-3 py-1.5 rounded-xl border border-white/10 text-zinc-400">
-                            Updated {formatRelativeTime(selectedModelDetails.lastModified)}
-                          </span>
-
-                          {selectedModelDetails.pipeline_tag && (
-                            <span className="bg-zinc-900/90 px-3 py-1.5 rounded-xl border border-white/10 text-zinc-300 font-mono">
-                              {selectedModelDetails.pipeline_tag}
-                            </span>
-                          )}
-                        </div>
-
-                        {/* Specifications Grid */}
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                          <div className="bg-zinc-900/70 border border-white/10 rounded-xl p-3.5">
-                            <span className="text-[10px] text-zinc-400 uppercase tracking-widest block mb-1 font-mono">Architecture</span>
-                            <span className="text-xs font-mono font-semibold text-white">
-                              {selectedModelDetails.gguf?.architecture || 'GGUF / Llama'}
-                            </span>
-                          </div>
-
-                          <div className="bg-zinc-900/70 border border-white/10 rounded-xl p-3.5">
-                            <span className="text-[10px] text-zinc-400 uppercase tracking-widest block mb-1 font-mono">Context Length</span>
-                            <span className="text-xs font-mono font-semibold text-white">
-                              {selectedModelDetails.gguf?.context_length ? `${selectedModelDetails.gguf.context_length.toLocaleString()} tokens` : '131,072 tokens'}
-                            </span>
-                          </div>
-
-                          <div className="bg-zinc-900/70 border border-white/10 rounded-xl p-3.5">
-                            <span className="text-[10px] text-zinc-400 uppercase tracking-widest block mb-1 font-mono">License</span>
-                            <span className="text-xs font-mono font-semibold text-white truncate block">
-                              {selectedModelDetails.cardData?.license || 'Open Weights'}
-                            </span>
-                          </div>
-                        </div>
-
-                        {/* Download & Quantization Box (Hero Component) */}
-                        <div className="bg-zinc-900/90 border border-white/15 rounded-2xl p-5 space-y-4 shadow-xl">
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                              <svg className="w-4 h-4 text-zinc-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                              </svg>
-                              <h4 className="text-xs font-bold text-white uppercase tracking-wider font-mono">
-                                Download Quantization ({availableQuants.length} files available)
-                              </h4>
-                            </div>
-                            <span className="text-[10px] font-mono text-zinc-400">16-Stream Parallel Acceleration</span>
-                          </div>
-
-                          {/* Dropdown Selector */}
-                          <div className="relative">
-                            <select 
-                              value={selectedQuantIndex}
-                              onChange={(e) => setSelectedQuantIndex(Number(e.target.value))}
-                              className="w-full bg-zinc-950 border border-white/15 rounded-xl px-4 py-2.5 text-xs text-white font-mono appearance-none focus:outline-none focus:border-white/40 cursor-pointer shadow-inner"
-                            >
-                              {availableQuants.map((q, idx) => (
-                                <option key={idx} value={idx}>
-                                  [{q.quant}] {q.filename} - {q.sizeDisplay}
-                                </option>
-                              ))}
-                            </select>
-                            <div className="absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none text-zinc-400">
-                              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 9l4-4 4 4m0 6l-4 4-4-4" />
-                              </svg>
-                            </div>
-                          </div>
-
-                          {/* Active Download Progress Details if currently running */}
-                          {activeDownloadItem && (
-                            <div className="bg-zinc-950/80 border border-white/10 rounded-xl p-3.5 space-y-2 font-mono">
-                              <div className="flex items-center justify-between text-xs">
-                                <span className="text-zinc-300 font-semibold flex items-center gap-2">
-                                  <span className="w-2 h-2 rounded-full bg-sky-400 animate-pulse"></span>
-                                  Downloading {activeDownloadItem.model_name}
-                                </span>
-                                <span className="text-white font-bold">{activeDownloadItem.percent.toFixed(1)}%</span>
-                              </div>
-                              {/* Progress Bar */}
-                              <div className="w-full h-1.5 bg-zinc-800 rounded-full overflow-hidden">
-                                <div 
-                                  className="h-full bg-white transition-all duration-300 rounded-full" 
-                                  style={{ width: `${activeDownloadItem.percent}%` }}
-                                />
-                              </div>
-                              <div className="flex items-center justify-between text-[11px] text-zinc-400 pt-1">
-                                <span>
-                                  {((activeDownloadItem.downloaded_bytes || 0) / (1024 * 1024 * 1024)).toFixed(2)} GB / {((activeDownloadItem.total_bytes || 0) / (1024 * 1024 * 1024)).toFixed(2)} GB
-                                </span>
-                                <span>
-                                  {speedInfo.speed ? `${speedInfo.speed} • ETA: ${speedInfo.eta || '--'}` : 'Connecting...'}
-                                </span>
-                              </div>
-                            </div>
-                          )}
-
-                          {/* Hardware Check & Action CTA */}
-                          <div className="flex items-center justify-between pt-2">
-                            <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-mono bg-zinc-800/90 text-zinc-200 border border-white/10">
-                              <svg className="w-3.5 h-3.5 text-amber-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                              </svg>
-                              <span>Estimated Memory: ~{selectedQuant?.sizeDisplay || '4.5 GB'} RAM/VRAM</span>
-                            </span>
-
-                            {isDownloaded ? (
-                              <div className="flex items-center gap-2">
-                                <span className="px-3.5 py-2 rounded-xl text-xs font-semibold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 flex items-center gap-1.5">
-                                  <svg className="w-3.5 h-3.5 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                                  </svg>
-                                  <span>Downloaded</span>
-                                </span>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    const match = localModels.find(m => m.id.toLowerCase().includes(selectedQuant.filename.toLowerCase()));
-                                    if (match) {
-                                      setSelectedModelToLoad(match.id);
-                                      setLoadTarget('primary');
-                                      setLoadBackend('llama.cpp');
-                                      setLoadModelModalOpen(true);
-                                    }
-                                  }}
-                                  className="px-4 py-2 rounded-xl text-xs font-bold text-zinc-950 bg-white hover:bg-zinc-200 transition-all shadow-md cursor-pointer"
-                                >
-                                  Load in Engine →
-                                </button>
-                              </div>
-                            ) : activeDownloadItem ? (
-                              <div className="flex items-center gap-2">
-                                <button 
-                                  type="button"
-                                  onClick={() => {
-                                    vscodeApi?.postMessage({
-                                      command: 'controlDownload',
-                                      filename: activeDownloadItem.model_name,
-                                      action: activeDownloadItem.status === 'paused' ? 'resume' : 'pause'
-                                    });
-                                  }}
-                                  className="px-3 py-2 rounded-xl text-xs font-semibold bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-white/10 transition-colors cursor-pointer"
-                                >
-                                  {activeDownloadItem.status === 'paused' ? 'Resume' : 'Pause'}
-                                </button>
-                                <button 
-                                  type="button"
-                                  onClick={() => setDownloadConfirmDelete(activeDownloadItem)}
-                                  className="px-3 py-2 rounded-xl text-xs font-semibold bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/30 transition-colors cursor-pointer"
-                                >
-                                  Cancel
-                                </button>
-                              </div>
-                            ) : (
-                              <button 
-                                type="button"
-                                onClick={() => {
-                                  if (selectedQuant) {
-                                    setActiveDownloads(prev => [
-                                      ...prev.filter(d => d.model_name !== selectedQuant.filename),
-                                      {
-                                        model_name: selectedQuant.filename,
-                                        downloaded_bytes: 0,
-                                        total_bytes: Math.round((selectedQuant.sizeGB || 1) * 1024 * 1024 * 1024),
-                                        percent: 0,
-                                        speed_bytes_per_sec: 0,
-                                        speed_display: 'Connecting...',
-                                        status: 'starting',
-                                        url: selectedQuant.directUrl
-                                      }
-                                    ]);
-                                    vscodeApi?.postMessage({ command: 'downloadLocalModel', url: selectedQuant.directUrl, filename: selectedQuant.filename });
-                                    vscodeApi?.postMessage({ command: 'showNotification', message: `Started accelerated download for ${selectedQuant.filename}` });
-                                    setIsDownloadsTrayOpen(true);
-                                  }
-                                }}
-                                className="px-6 py-2.5 rounded-xl text-xs font-bold text-zinc-950 bg-white hover:bg-zinc-200 active:scale-[0.98] shadow-lg flex items-center gap-2 transition-all cursor-pointer"
-                              >
-                                <svg className="w-4 h-4 text-zinc-950" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                                </svg>
-                                <span>Download {selectedQuant?.sizeDisplay || ''}</span>
-                              </button>
-                            )}
-                          </div>
-                        </div>
-
-                        {/* Repository Documentation / README */}
-                        <div className="space-y-3 pt-2">
-                          <div className="flex items-center justify-between">
-                            <h4 className="text-xs font-bold text-zinc-300 uppercase tracking-widest flex items-center gap-2 font-mono">
-                              <svg className="w-4 h-4 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                              </svg>
-                              <span>Repository Model Card</span>
-                            </h4>
-                          </div>
-
-                          <div className="bg-zinc-900/60 border border-white/10 rounded-2xl p-6 text-xs text-zinc-200 leading-relaxed font-sans">
-                            {modelReadme ? (
-                              <ModelReadmeViewer content={modelReadme} modelId={selectedModelDetails?.id} />
-                            ) : (
-                              <span className="text-zinc-500 italic">No README content available for this model repository.</span>
-                            )}
-                          </div>
-                        </div>
-                      </div>
+                      <DiscoverModelDetailsPane
+                        details={selectedModelDetails}
+                        modelReadme={modelReadme}
+                        availableQuants={availableQuants}
+                        selectedQuantIndex={selectedQuantIndex}
+                        onSelectQuantIndex={setSelectedQuantIndex}
+                        copiedRepoId={copiedRepoId}
+                        onCopyRepoId={(repoId) => {
+                          navigator.clipboard.writeText(repoId);
+                          setCopiedRepoId(true);
+                          setTimeout(() => setCopiedRepoId(false), 2000);
+                        }}
+                        localModels={localModels}
+                        activeDownloads={activeDownloads}
+                        getSpeedAndEta={getSpeedAndEta}
+                        onLoadInEngine={(matchedId) => {
+                          setSelectedModelToLoad(matchedId);
+                          setLoadTarget('primary');
+                          setLoadBackend('llama.cpp');
+                          setLoadModelModalOpen(true);
+                        }}
+                        onControlDownload={(filename, action) => {
+                          vscodeApi?.postMessage({
+                            command: 'controlDownload',
+                            filename,
+                            action
+                          });
+                        }}
+                        onRequestCancelDownload={(item) => setDownloadConfirmDelete(item)}
+                        onStartDownload={(quant, details) => {
+                          setActiveDownloads((prev) => [
+                            ...prev.filter((d) => d.model_name !== quant.filename),
+                            {
+                              model_name: quant.filename,
+                              downloaded_bytes: 0,
+                              total_bytes: quant.sizeBytes > 0 ? quant.sizeBytes : Math.round((quant.sizeGB || 1) * 1024 * 1024 * 1024),
+                              percent: 0,
+                              speed_bytes_per_sec: 0,
+                              speed_display: 'Connecting...',
+                              status: 'starting',
+                              url: quant.directUrl
+                            }
+                          ]);
+                          const dlMeta = inferHubDownloadMeta(quant.filename, details, selectedModality, quant.directUrl);
+                          vscodeApi?.postMessage({
+                            command: 'downloadLocalModel',
+                            url: quant.directUrl,
+                            filename: quant.filename,
+                            ...dlMeta
+                          });
+                          vscodeApi?.postMessage({
+                            command: 'showNotification',
+                            message: `Started accelerated download for ${quant.filename}`
+                          });
+                          setIsDownloadsTrayOpen(true);
+                        }}
+                      />
                     ) : (
                       /* Curated 1-Click Packs Fallback View */
                       <div className="p-6 md:p-8 space-y-6 max-w-5xl">
@@ -2292,10 +2081,21 @@ export default function SettingsApp() {
                                       disabled={anyDownloading}
                                       onClick={() => {
                                         filesStatus.filter(f => !f.isPresent).forEach(f => {
+                                          const fallbackMeta = inferHubDownloadMeta(
+                                            f.filename,
+                                            { id: f.repoId || extractHfRepoFromUrl(f.url), pipeline_tag: f.pipelineTag || 'text-to-image' },
+                                            'image',
+                                            f.url
+                                          );
                                           vscodeApi?.postMessage({
                                             command: 'downloadLocalModel',
                                             url: f.url,
-                                            filename: f.filename
+                                            filename: f.filename,
+                                            repo_id: f.repoId || fallbackMeta.repo_id,
+                                            pipeline_tag: f.pipelineTag || fallbackMeta.pipeline_tag,
+                                            tags: fallbackMeta.tags,
+                                            modality_hint: f.modalityHint || fallbackMeta.modality_hint,
+                                            component_role: f.componentRole !== undefined ? f.componentRole : fallbackMeta.component_role
                                           });
                                         });
                                         vscodeApi?.postMessage({
@@ -2320,9 +2120,8 @@ export default function SettingsApp() {
                     )}
                   </div>
                 </div>
-              );
-            })() : (
-              <div className="flex-1 overflow-y-auto p-6 md:p-8 w-full min-w-0">
+              ) : (
+              <div className={`flex-1 overflow-y-auto w-full min-w-0 ${activeTab === 'Models' ? 'p-3' : 'p-6 md:p-8'}`}>
 
         {activeTab === 'Account' && (
           <div className="space-y-10 animate-in fade-in duration-300">
@@ -3090,7 +2889,7 @@ export default function SettingsApp() {
                   )}
                 </div>
 
-                {/* Diffusion Multimodal Pipeline Configuration (Port 47992) */}
+                {/* Diffusion Multimodal Pipeline Configuration */}
                 {loadTarget === 'diffusion' && (() => {
                   const pipe = resolveImageGenPipeline(selectedModelToLoad, localModels);
                   const isStandalone = pipe.family === 'sd15' || pipe.family === 'sdxl' || pipe.family === 'standalone' || pipe.vaeType === 'embedded';
@@ -3118,12 +2917,26 @@ export default function SettingsApp() {
                             {pipe.architectureDescription}
                           </p>
                         </div>
-                        <span className={`text-[10px] font-mono px-2 py-0.5 rounded border shrink-0 ${
+                        <span className={`inline-flex items-center gap-1.5 text-[10px] font-mono px-2 py-0.5 rounded border shrink-0 ${
                           pipe.isReady 
                             ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' 
                             : 'bg-amber-500/10 text-amber-300 border-amber-500/20'
                         }`}>
-                          {pipe.isReady ? '✓ READY TO ATOMIC LOAD' : '⚠️ COMPANIONS REQUIRED'}
+                          {pipe.isReady ? (
+                            <>
+                              <svg className="w-3 h-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                              </svg>
+                              READY TO ATOMIC LOAD
+                            </>
+                          ) : (
+                            <>
+                              <svg className="w-3 h-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+                              </svg>
+                              COMPANIONS REQUIRED
+                            </>
+                          )}
                         </span>
                       </div>
 
@@ -3196,10 +3009,19 @@ export default function SettingsApp() {
                                   <button
                                     type="button"
                                     onClick={() => {
+                                      const dlMeta = inferHubDownloadMeta(
+                                        pipe.recommendedEncoderName,
+                                        { id: extractHfRepoFromUrl(pipe.encoderDownloadUrl), pipeline_tag: 'text-to-image' },
+                                        'image',
+                                        pipe.encoderDownloadUrl
+                                      );
                                       vscodeApi?.postMessage({
                                         command: 'downloadLocalModel',
                                         url: pipe.encoderDownloadUrl,
-                                        filename: pipe.recommendedEncoderName
+                                        filename: pipe.recommendedEncoderName,
+                                        ...dlMeta,
+                                        modality_hint: 'component',
+                                        component_role: dlMeta.component_role || 'encoders'
                                       });
                                       vscodeApi?.postMessage({
                                         command: 'showNotification',
@@ -3283,10 +3105,19 @@ export default function SettingsApp() {
                                   <button
                                     type="button"
                                     onClick={() => {
+                                      const dlMeta = inferHubDownloadMeta(
+                                        pipe.recommendedVaeName,
+                                        { id: extractHfRepoFromUrl(pipe.vaeDownloadUrl), pipeline_tag: 'text-to-image' },
+                                        'image',
+                                        pipe.vaeDownloadUrl
+                                      );
                                       vscodeApi?.postMessage({
                                         command: 'downloadLocalModel',
                                         url: pipe.vaeDownloadUrl,
-                                        filename: pipe.recommendedVaeName
+                                        filename: pipe.recommendedVaeName,
+                                        ...dlMeta,
+                                        modality_hint: 'component',
+                                        component_role: 'vae'
                                       });
                                       vscodeApi?.postMessage({
                                         command: 'showNotification',
@@ -3338,9 +3169,6 @@ export default function SettingsApp() {
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div className="flex items-center gap-2">
                         <span className="text-xs font-semibold text-zinc-200">Diffusion Footprint</span>
-                        <span className="text-[10px] bg-zinc-800 text-zinc-300 border border-white/5 px-2 py-0.5 rounded font-mono font-medium">
-                          Port 47992 Visual Pipeline
-                        </span>
                       </div>
                       <div className="flex items-center gap-3 font-mono text-xs">
                         <div className="bg-zinc-950/80 border border-white/5 px-2.5 py-1 rounded-lg flex items-center gap-1.5">
@@ -3521,9 +3349,9 @@ export default function SettingsApp() {
                             key={steps}
                             type="button"
                             onClick={() => setDiffusionSteps(steps)}
-                            className={`text-[10px] font-mono px-2 py-0.5 rounded border transition-colors cursor-pointer ${diffusionSteps === steps ? 'bg-blue-600/30 text-blue-300 border-blue-500/50 font-bold' : 'bg-zinc-900 text-zinc-400 border-white/5 hover:bg-zinc-800 hover:text-zinc-200'}`}
+                            className={`text-[10px] font-mono px-2.5 py-0.5 rounded border transition-colors cursor-pointer ${diffusionSteps === steps ? 'bg-blue-600/30 text-blue-300 border-blue-500/50 font-bold' : 'bg-zinc-900 text-zinc-400 border-white/5 hover:bg-zinc-800 hover:text-zinc-200'}`}
                           >
-                            {steps === 4 ? '4 (Turbo)' : steps === 20 ? '20 (Fast)' : steps === 28 ? '28 (Standard)' : `${steps} steps`}
+                            {steps}
                           </button>
                         ))}
                       </div>
@@ -3560,19 +3388,14 @@ export default function SettingsApp() {
                         className="w-full accent-blue-500 bg-zinc-800 h-1.5 rounded-lg appearance-none cursor-pointer"
                       />
                       <div className="flex items-center gap-1.5 pt-1">
-                        {[
-                          { val: 1.0, label: '1.0 (Schnell / Distilled)' },
-                          { val: 3.5, label: '3.5 (FLUX Dev)' },
-                          { val: 7.0, label: '7.0 (SDXL / SD1.5 Standard)' },
-                          { val: 9.0, label: '9.0 (High Guidance)' }
-                        ].map(p => (
+                        {[1.0, 3.5, 5.0, 7.0, 9.0].map(val => (
                           <button
-                            key={p.val}
+                            key={val}
                             type="button"
-                            onClick={() => setDiffusionCfgScale(p.val)}
-                            className={`text-[10px] font-mono px-2 py-0.5 rounded border transition-colors cursor-pointer ${diffusionCfgScale === p.val ? 'bg-blue-600/30 text-blue-300 border-blue-500/50 font-bold' : 'bg-zinc-900 text-zinc-400 border-white/5 hover:bg-zinc-800 hover:text-zinc-200'}`}
+                            onClick={() => setDiffusionCfgScale(val)}
+                            className={`text-[10px] font-mono px-2.5 py-0.5 rounded border transition-colors cursor-pointer ${diffusionCfgScale === val ? 'bg-blue-600/30 text-blue-300 border-blue-500/50 font-bold' : 'bg-zinc-900 text-zinc-400 border-white/5 hover:bg-zinc-800 hover:text-zinc-200'}`}
                           >
-                            {p.label}
+                            {val.toFixed(1)}
                           </button>
                         ))}
                       </div>
@@ -3724,7 +3547,7 @@ export default function SettingsApp() {
                     </div>
                   </div>
                   <div className="text-[10px] text-zinc-500">
-                    Offload layers to <span className="text-zinc-400 font-medium">AMD Radeon 760M (Vulkan)</span> ({offloadLayers}/{totalModelLayers} layers)
+                    Offload layers to <span className="text-zinc-400 font-medium">{daemonHealth?.hardware?.gpu || 'GPU Accelerator'}</span> ({offloadLayers}/{totalModelLayers} layers)
                   </div>
                   <input 
                     type="range"
@@ -3753,12 +3576,12 @@ export default function SettingsApp() {
                     />
                   </div>
                   <div className="text-[10px] text-zinc-500">
-                    Physical Zen 4 CPU cores for host execution (recommended: 4 or 6)
+                    Host CPU compute threads ({daemonHealth?.hardware?.cpu_threads ? `${daemonHealth.hardware.cpu_threads} threads detected` : 'auto-detected host cores'})
                   </div>
                   <input 
                     type="range"
                     min={1}
-                    max={12}
+                    max={Math.max(1, daemonHealth?.hardware?.cpu_threads || (typeof navigator !== 'undefined' ? navigator.hardwareConcurrency : 0) || 12)}
                     value={nThreads}
                     onChange={(e) => setNThreads(Number(e.target.value))}
                     className="w-full accent-sky-500 bg-zinc-800 h-1.5 rounded-lg appearance-none cursor-pointer"
@@ -4018,7 +3841,7 @@ export default function SettingsApp() {
                 >
                   <span>
                     {loadTarget === 'diffusion'
-                      ? 'Launch Diffusion Engine (Port 47992)'
+                      ? 'Launch Diffusion Engine'
                       : loadTarget === 'ghost' 
                       ? 'Load Inline Ghost' 
                       : `Load Primary Agent (${kvQuant.toUpperCase()})`}
@@ -4032,7 +3855,27 @@ export default function SettingsApp() {
       })()}
 
       {/* Interactive Visual Synthesis Studio Modal */}
-      {isImageStudioOpen && (
+      {isImageStudioOpen && (() => {
+        const activeStudioModelId =
+          selectedModelToLoad ||
+          daemonHealth?.active_diffusion_model ||
+          daemonHealth?.active_video_model ||
+          localModels.find(m =>
+            m.modality === 'image' ||
+            m.modality === 'video' ||
+            m.id.toLowerCase().includes('sd') ||
+            m.id.toLowerCase().includes('turbo') ||
+            m.id.toLowerCase().includes('diffusion')
+          )?.id ||
+          localModels[0]?.id ||
+          '';
+        const activeStudioModelObj = localModels.find(m => m.id === activeStudioModelId);
+        const activeStudioModelLabel =
+          activeStudioModelObj?.name ||
+          (activeStudioModelId ? formatModelDisplayName(activeStudioModelId) : '') ||
+          'Visual Engine';
+
+        return (
         <div 
           className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-3 sm:p-5 md:p-8"
           onClick={() => setIsImageStudioOpen(false)}
@@ -4043,17 +3886,17 @@ export default function SettingsApp() {
           >
             {/* Modal Header */}
             <div className="p-4 sm:px-6 border-b border-white/5 flex items-center justify-between shrink-0 bg-[#161619]">
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="w-8 h-8 rounded-xl bg-zinc-800 border border-white/10 flex items-center justify-center text-zinc-200 shrink-0">
                   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                   </svg>
                 </div>
-                <div>
-                  <h3 className="text-sm font-bold text-white tracking-wide flex items-center gap-2">
-                    Visual Synthesis Studio
-                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-mono font-medium">
-                      Port 47992
+                <div className="min-w-0">
+                  <h3 className="text-sm font-bold text-white tracking-wide flex items-center gap-2 flex-wrap">
+                    <span>Visual Synthesis Studio</span>
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-200 border border-white/10 font-mono font-medium truncate max-w-[260px]" title={activeStudioModelId}>
+                      {activeStudioModelLabel}
                     </span>
                   </h3>
                   <p className="text-[11px] text-zinc-400 mt-0.5">
@@ -4082,14 +3925,13 @@ export default function SettingsApp() {
                 {/* Active Model Selector */}
                 <div className="bg-[#18181b] border border-white/5 rounded-xl p-3 space-y-1.5">
                   <div className="flex items-center justify-between text-[10px] font-mono text-zinc-400">
-                    <span>DIFFUSION ENGINE MODEL</span>
-                    <span className="text-emerald-400 flex items-center gap-1">
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                      Port 47992
+                    <span>VISUAL ENGINE MODEL</span>
+                    <span className="text-zinc-300 truncate max-w-[160px]" title={activeStudioModelId}>
+                      {activeStudioModelLabel}
                     </span>
                   </div>
                   <select
-                    value={selectedModelToLoad || daemonHealth?.active_diffusion_model || (localModels.find(m => m.id.toLowerCase().includes('sd') || m.id.toLowerCase().includes('turbo') || m.id.toLowerCase().includes('diffusion'))?.id || localModels[0]?.id || '')}
+                    value={activeStudioModelId}
                     onChange={(e) => {
                       const newModel = e.target.value;
                       setSelectedModelToLoad(newModel);
@@ -4218,10 +4060,10 @@ export default function SettingsApp() {
                     className="w-full accent-emerald-500 cursor-pointer h-1 bg-zinc-800 rounded-lg"
                   />
                   <div className="flex items-center justify-between text-[9px] text-zinc-500 font-mono">
-                    <button type="button" onClick={() => setImageStudioSteps(4)} className="hover:text-emerald-400 cursor-pointer">Turbo (4)</button>
-                    <button type="button" onClick={() => setImageStudioSteps(15)} className="hover:text-emerald-400 cursor-pointer">Fast (15)</button>
-                    <button type="button" onClick={() => setImageStudioSteps(20)} className="hover:text-emerald-400 cursor-pointer">Default (20)</button>
-                    <button type="button" onClick={() => setImageStudioSteps(35)} className="hover:text-emerald-400 cursor-pointer">High (35)</button>
+                    <button type="button" onClick={() => setImageStudioSteps(4)} className="hover:text-zinc-200 cursor-pointer">4</button>
+                    <button type="button" onClick={() => setImageStudioSteps(15)} className="hover:text-zinc-200 cursor-pointer">15</button>
+                    <button type="button" onClick={() => setImageStudioSteps(20)} className="hover:text-zinc-200 cursor-pointer">20</button>
+                    <button type="button" onClick={() => setImageStudioSteps(35)} className="hover:text-zinc-200 cursor-pointer">35</button>
                   </div>
                 </div>
 
@@ -4272,8 +4114,7 @@ export default function SettingsApp() {
                   >
                     {isGeneratingImage ? (
                       <>
-                        <span className="animate-spin w-4 h-4 border-2 border-t-white border-emerald-400/30 rounded-full" />
-                        <span>Synthesizing on Port 47992...</span>
+                        <span>Synthesizing...</span>
                       </>
                     ) : (
                       <>
@@ -4311,18 +4152,15 @@ export default function SettingsApp() {
 
                 {isGeneratingImage ? (
                   <div className="w-full max-w-md flex flex-col items-start gap-3 animate-in fade-in duration-200 z-10">
-                    <div className="flex items-center gap-2 text-zinc-200 text-xs font-medium tracking-wide">
-                      <span className="text-emerald-400 animate-pulse text-sm">✦</span>
-                      <span>Creating your image</span>
+                    <div className="w-full flex items-center justify-between gap-3 text-zinc-200 text-xs font-medium tracking-wide">
+                      <span className="truncate font-semibold text-white">{activeStudioModelLabel}</span>
+                      <span className="text-[11px] font-mono text-zinc-400 shrink-0">
+                        {imageStudioSteps} steps • {imageStudioSize} • CFG {imageStudioCfg.toFixed(1)}
+                      </span>
                     </div>
-                    <div className="w-full aspect-square rounded-3xl bg-[#18181b] border border-white/10 relative overflow-hidden flex flex-col items-center justify-center shadow-2xl">
-                      {/* Subtle elegant shimmer pulse */}
-                      <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/[0.04] to-transparent -translate-x-full animate-[shimmer_2s_infinite]" />
-                      <div className="text-center p-6 space-y-2 z-10">
-                        <div className="w-8 h-8 rounded-full border-2 border-emerald-500/20 border-t-emerald-400 animate-spin mx-auto mb-3" />
-                        <div className="text-xs font-mono text-zinc-300 font-semibold">Diffusion Engine (Port 47992)</div>
-                        <div className="text-[11px] font-mono text-zinc-500">{imageStudioSteps} steps • {imageStudioSize} • CFG {imageStudioCfg.toFixed(1)}</div>
-                      </div>
+                    <div className="w-full aspect-square rounded-3xl bg-gradient-to-br from-[#1f1f24] via-[#17171b] to-[#121215] border border-white/10 relative overflow-hidden shadow-2xl">
+                      {/* Pure metallic shimmer sweep */}
+                      <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/[0.08] to-transparent -translate-x-full animate-[shimmer_2s_infinite]" />
                     </div>
                   </div>
                 ) : generatedImageB64 ? (
@@ -4403,7 +4241,7 @@ export default function SettingsApp() {
                     <div className="max-w-xs">
                       <h4 className="text-sm font-semibold text-zinc-300">Visual Canvas Idle</h4>
                       <p className="text-xs text-zinc-500 mt-1 leading-relaxed">
-                        Enter a prompt on the left and click Generate to synthesize photorealistic images, 3D assets, and concept art locally on Port 47992.
+                        Enter a prompt on the left and click Generate to synthesize images locally.
                       </p>
                     </div>
                   </div>
@@ -4412,7 +4250,8 @@ export default function SettingsApp() {
             </div>
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {/* Download Deletion Confirmation Warning Modal */}
       {downloadConfirmDelete && (

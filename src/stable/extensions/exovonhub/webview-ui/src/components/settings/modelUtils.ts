@@ -1,9 +1,15 @@
+export type ModelModality = 'llm' | 'image' | 'video' | 'music' | 'component';
+export type ComponentRole = 'vae' | 'encoders' | 'mmproj' | 'loras';
+
 export interface ModelMetadata {
   rawId: string;
   cleanId: string;
   displayName: string;
   basename: string;
   filePath: string;
+  relativePath: string;
+  modality: ModelModality;
+  componentRole: ComponentRole | null;
   format: 'GGUF' | 'SafeTensors' | 'PyTorch' | 'ONNX' | 'Binary';
   architecture: string;
   params: string;
@@ -15,11 +21,15 @@ export interface ModelMetadata {
   isVision: boolean;
   isMmproj: boolean;
   isDiffusion: boolean;
+  isVideo: boolean;
+  isMusic: boolean;
+  isComponent: boolean;
   isToolUse: boolean;
   isReasoning: boolean;
   isEmbedding: boolean;
   maxContextLength?: number;
   totalLayers?: number;
+  modelFamily: 'text_llm' | 'diffusion_flow' | 'autoregressive_image' | 'pipeline_component';
 }
 
 export function cleanModelId(rawId?: string): string {
@@ -122,29 +132,129 @@ export function extractModelMetadata(rawId?: string, modelObj?: any): ModelMetad
     else architecture = 'Transformer';
   }
 
-  // Capabilities
-  const isMmproj = basename.toLowerCase().startsWith('mmproj-') ||
-    basename.toLowerCase().includes('-mmproj-') ||
-    basename.toLowerCase().includes('clip_l') ||
-    basename.toLowerCase().includes('t5xxl');
+  // Capabilities, Modality & Component Detection
+  const lowerBase = basename.toLowerCase();
+  const lowerArch = (architecture || modelObj?.architecture || '').toLowerCase();
+  const lowerClean = clean.toLowerCase();
+  const relativePath = typeof modelObj?.relative_path === 'string' ? modelObj.relative_path.replace(/\\/g, '/') : '';
+  const lowerRel = relativePath.toLowerCase();
 
-  const isDiffusion = !isMmproj && (
-    /(sd[-_]?turbo|sd[-_]?1\.?5|sd[-_]?2|sd[-_]?xl|sd[-_]?3|stable[-_]?diffusion|flux|qwen[-_]?image|wan|hunyuan|cogvideo|pixart|auraflow|diffusion|diffusers)/i.test(basename) ||
+  const rawBackendModality = typeof modelObj?.modality === 'string' ? modelObj.modality.toLowerCase() : '';
+  const validModalities: ModelModality[] = ['llm', 'image', 'video', 'music', 'component'];
+  const backendModality = validModalities.includes(rawBackendModality as ModelModality)
+    ? (rawBackendModality as ModelModality)
+    : undefined;
+
+  const rawBackendRole = typeof modelObj?.component_role === 'string' ? modelObj.component_role.toLowerCase() : '';
+  const validRoles: ComponentRole[] = ['vae', 'encoders', 'mmproj', 'loras'];
+  let componentRole: ComponentRole | null = validRoles.includes(rawBackendRole as ComponentRole)
+    ? (rawBackendRole as ComponentRole)
+    : null;
+
+  if (!componentRole) {
+    if (lowerRel.includes('/mmproj/') || lowerRel.startsWith('components/mmproj/') || lowerBase.startsWith('mmproj-') || lowerBase.includes('-mmproj-') || lowerBase.includes('mmproj')) {
+      componentRole = 'mmproj';
+    } else if (lowerRel.includes('/vae/') || lowerRel.startsWith('components/vae/') || lowerBase.includes('vae') || lowerBase.endsWith('.ae.safetensors') || lowerBase === 'ae.safetensors' || lowerBase.startsWith('ae.') || lowerArch === 'ae') {
+      componentRole = 'vae';
+    } else if (lowerRel.includes('/loras/') || lowerRel.startsWith('components/loras/') || /(^|[-_.])lora([-_.]|$)/i.test(lowerBase)) {
+      componentRole = 'loras';
+    } else if (lowerRel.includes('/encoders/') || lowerRel.startsWith('components/encoders/') || /(clip[-_]?l|clip[-_]?g|t5xxl|umt5|text[-_]?encoder|encoder)/i.test(lowerBase) || lowerArch.includes('clip') || lowerArch.includes('t5')) {
+      componentRole = 'encoders';
+    }
+  }
+
+  const isMmprojHeuristic =
+    lowerBase.startsWith('mmproj-') ||
+    lowerBase.includes('-mmproj-') ||
+    componentRole === 'mmproj';
+
+  const isPipelineComponentHeuristic =
+    isMmprojHeuristic ||
+    componentRole !== null ||
+    lowerBase.includes('clip') ||
+    lowerBase.includes('vae') ||
+    lowerBase.includes('t5') ||
+    lowerBase.includes('mmproj') ||
+    lowerBase.endsWith('.ae.safetensors') ||
+    lowerBase.startsWith('ae.') ||
+    lowerArch === 'ae' ||
+    lowerArch.includes('clip') ||
+    lowerArch.includes('vae') ||
+    lowerArch.includes('mmproj');
+
+  const isVideoHeuristic =
+    !isPipelineComponentHeuristic && (
+      /(wan[-_.]?2(\.\d)?|wan2[12]|hunyuan[-_]?video|cogvideo|ltx[-_]?video|mochi|svd|animate[-_]?diff|text[-_]?to[-_]?video|image[-_]?to[-_]?video)/i.test(lowerBase) ||
+      /(wan[-_.]?2(\.\d)?|hunyuan[-_]?video|cogvideo|ltx[-_]?video|mochi|text[-_]?to[-_]?video|image[-_]?to[-_]?video)/i.test(lowerClean) ||
+      /(wan|hunyuan_video|cogvideo|ltx|mochi|video)/i.test(lowerArch)
+    );
+
+  const isMusicHeuristic =
+    !isPipelineComponentHeuristic && (
+      /(ace[-_]?step|musicgen|audioldm|riffusion|stable[-_]?audio|bark[-_])/i.test(lowerBase) ||
+      /(ace[-_]?step|musicgen|audioldm|riffusion|stable[-_]?audio)/i.test(lowerClean) ||
+      /(musicgen|audioldm|acestep|stable_audio|audio)/i.test(lowerArch)
+    );
+
+  const isDiffusionImageHeuristic = !isPipelineComponentHeuristic && !isVideoHeuristic && !isMusicHeuristic && (
+    /(sd[-_]?turbo|sd[-_]?1\.?5|sd[-_]?2|sd[-_]?xl|sd[-_]?3|stable[-_]?diffusion|flux|qwen[-_]?image|pixart|auraflow|diffusion|diffusers|dit)/i.test(basename) ||
+    (lowerBase.includes('qwen') && lowerBase.includes('image')) ||
+    (lowerArch.includes('qwen') && lowerArch.includes('image')) ||
     /(diffusion|diffusers|image[-_]?gen|text[-_]?to[-_]?image|stable[-_]?diffusion)/i.test(clean) ||
-    (Boolean(modelObj?.architecture) && /(sd|sdxl|sd3|flux|diffusion|diffusers)/i.test(modelObj?.architecture || '')) ||
-    (basename.toLowerCase().endsWith('.safetensors') && !basename.toLowerCase().includes('mmproj'))
+    (Boolean(modelObj?.architecture) && /(sd|sdxl|sd3|flux|diffusion|diffusers|dit)/i.test(lowerArch)) ||
+    (lowerBase.endsWith('.safetensors') && !isPipelineComponentHeuristic)
   );
 
-  const isVision = !isMmproj && !isDiffusion && (
+  // Subfolder-based modality fallback before filename heuristics
+  const relModality: ModelModality | undefined =
+    lowerRel.startsWith('components/') || lowerRel.includes('/components/') ? 'component' :
+    lowerRel.startsWith('video/') || lowerRel.includes('/video/') ? 'video' :
+    lowerRel.startsWith('music/') || lowerRel.includes('/music/') ? 'music' :
+    lowerRel.startsWith('image/') || lowerRel.includes('/image/') ? 'image' :
+    lowerRel.startsWith('llm/') || lowerRel.includes('/llm/') ? 'llm' :
+    undefined;
+
+  const mfRaw = modelObj?.model_family || modelObj?.family;
+
+  const modality: ModelModality =
+    backendModality ??
+    relModality ??
+    (mfRaw === 'pipeline_component' || isPipelineComponentHeuristic ? 'component'
+      : isVideoHeuristic ? 'video'
+      : isMusicHeuristic ? 'music'
+      : mfRaw === 'diffusion_flow' || mfRaw === 'autoregressive_image' || isDiffusionImageHeuristic ? 'image'
+      : 'llm');
+
+  const isComponent = modality === 'component' || mfRaw === 'pipeline_component';
+  const isMmproj = componentRole === 'mmproj' || lowerBase.startsWith('mmproj-') || lowerBase.includes('-mmproj-');
+  const isVideo = modality === 'video';
+  const isMusic = modality === 'music';
+
+  const isArImage =
+    !isComponent && (
+      mfRaw === 'autoregressive_image' ||
+      /(janus|chameleon|var|emu|show-o|llamagen)/i.test(lowerBase) ||
+      /(janus|chameleon|var|emu|show-o|llamagen)/i.test(lowerArch) ||
+      /(janus|chameleon|var|emu|show-o|llamagen)/i.test(lowerClean)
+    );
+
+  const isDiffusion =
+    !isComponent && !isMusic && !isArImage && (
+      modality === 'image' ||
+      modality === 'video' ||
+      mfRaw === 'diffusion_flow'
+    );
+
+  const isVision = !isComponent && !isDiffusion && !isMusic && !isArImage && (
     /(vl|vision|llava|clip)/i.test(basename) || /(vl|vision)/i.test(clean)
   );
 
-  const isToolUse = !isMmproj && !isDiffusion && (
+  const isToolUse = !isComponent && !isDiffusion && !isMusic && (
     /(it|instruct|chat|tool|heretic|neo|freedom|uncensored|agent)/i.test(basename) || /(it|instruct)/i.test(clean)
   );
 
-  const isReasoning = !isMmproj && !isDiffusion && /(think|reason|freedom|r1|deepseek)/i.test(basename);
-  const isEmbedding = /(embed|bge|nomic)/i.test(basename);
+  const isReasoning = !isComponent && !isDiffusion && !isMusic && /(think|reason|freedom|r1|deepseek)/i.test(basename);
+  const isEmbedding = !isComponent && /(embed|bge|nomic)/i.test(basename);
 
   // Modified Time
   let modified = modelObj?.modified || modelObj?.mtime_display || '';
@@ -163,22 +273,27 @@ export function extractModelMetadata(rawId?: string, modelObj?: any): ModelMetad
     modelObj?.size ||
     (modelObj?.size_bytes ? formatBytes(modelObj.size_bytes) : '-');
 
-  // Context & Layer Metadata
-  let maxContextLength = modelObj?.max_context_length || modelObj?.context_length;
-  if (!maxContextLength || maxContextLength <= 0) {
-    const lower = clean.toLowerCase();
-    if (lower.includes('qwen') || lower.includes('llama-3') || lower.includes('llama3') || lower.includes('deepseek') || lower.includes('lfm') || lower.includes('liquid')) {
-      maxContextLength = 131072;
-    } else if (lower.includes('mistral') || lower.includes('mixtral') || lower.includes('gemma')) {
-      maxContextLength = 32768;
-    } else {
-      maxContextLength = 131072;
-    }
-  }
+  // Context & Layer Metadata — strictly use daemon-parsed values when available; never invent defaults
+  const rawMaxCtx = modelObj?.max_context_length ?? modelObj?.context_length;
+  const maxContextLength = typeof rawMaxCtx === 'number' && rawMaxCtx > 0 ? rawMaxCtx : undefined;
 
-  const totalLayers = modelObj?.total_layers || 33;
+  const rawLayers = modelObj?.total_layers;
+  const totalLayers = typeof rawLayers === 'number' && rawLayers > 0 ? rawLayers : undefined;
 
   const filePath = modelObj?.path || clean;
+
+  // Determine Model Family
+  let modelFamily: 'text_llm' | 'diffusion_flow' | 'autoregressive_image' | 'pipeline_component' = 'text_llm';
+
+  if (isComponent || mfRaw === 'pipeline_component') {
+    modelFamily = 'pipeline_component';
+  } else if (isArImage) {
+    modelFamily = 'autoregressive_image';
+  } else if (isDiffusion || mfRaw === 'diffusion_flow') {
+    modelFamily = 'diffusion_flow';
+  } else {
+    modelFamily = 'text_llm';
+  }
 
   return {
     rawId: rawId || modelObj?.id || '',
@@ -186,6 +301,9 @@ export function extractModelMetadata(rawId?: string, modelObj?: any): ModelMetad
     displayName,
     basename,
     filePath,
+    relativePath,
+    modality,
+    componentRole,
     format,
     architecture,
     params,
@@ -197,10 +315,14 @@ export function extractModelMetadata(rawId?: string, modelObj?: any): ModelMetad
     isVision,
     isMmproj,
     isDiffusion,
+    isVideo,
+    isMusic,
+    isComponent,
     isToolUse,
     isReasoning,
     isEmbedding,
     maxContextLength,
-    totalLayers
+    totalLayers,
+    modelFamily
   };
 }

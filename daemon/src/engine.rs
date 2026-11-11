@@ -25,6 +25,7 @@ pub struct InferenceEngine {
     pub n_batch: u32,
     pub n_ubatch: u32,
     pub flash_attn: bool,
+    pub no_kv_offload: bool,
     backend: Arc<LlamaBackend>,
     model: Arc<LlamaModel>,
 }
@@ -71,6 +72,7 @@ pub struct EngineConfig {
     pub repeat_penalty: f32,
     pub use_mmap: bool,
     pub flash_attn: bool,
+    pub no_kv_offload: bool,
 }
 
 impl Default for EngineConfig {
@@ -88,6 +90,7 @@ impl Default for EngineConfig {
             repeat_penalty: 1.1,
             use_mmap: true,
             flash_attn: true,
+            no_kv_offload: false,
         }
     }
 }
@@ -151,6 +154,7 @@ impl InferenceEngine {
             n_batch: config.n_batch,
             n_ubatch: config.n_ubatch,
             flash_attn: config.flash_attn,
+            no_kv_offload: config.no_kv_offload,
             backend: Arc::new(backend),
             model: Arc::new(model),
         })

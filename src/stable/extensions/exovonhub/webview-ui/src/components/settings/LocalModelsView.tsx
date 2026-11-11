@@ -4,11 +4,38 @@ import { ModelInspector } from './ModelInspector';
 import { ModelOrgAvatar } from './ModelOrgAvatar';
 import { ModelCapabilityBadges } from './ModelCapabilityIcons';
 
+type FilterPillType = 'all' | 'llm' | 'vision' | 'image' | 'video' | 'music' | 'ghost' | 'components';
+
+interface OrganizeMoveItem {
+  id?: string;
+  from: string;
+  to: string;
+  modality?: string;
+  componentRole?: string | null;
+}
+
+const getBasename = (idOrPath?: string | null): string => {
+  if (!idOrPath) return '';
+  const parts = String(idOrPath).split(/[\\/]/);
+  return parts[parts.length - 1] || String(idOrPath);
+};
+
+const matchesModelIdentifier = (model: any, targetId?: string | null): boolean => {
+  if (!model || !targetId) return false;
+  if (model.id === targetId || model.path === targetId) return true;
+  const targetBase = getBasename(targetId).toLowerCase();
+  if (!targetBase) return false;
+  return (
+    getBasename(model.id).toLowerCase() === targetBase ||
+    getBasename(model.path).toLowerCase() === targetBase
+  );
+};
+
 export interface LocalModelsViewProps {
   localModels: any[];
   vscodeApi: any;
   daemonHealth: any;
-  daemonRunning: boolean;
+  daemonRunning?: boolean;
   activeLocalModel: string | null;
   activeGhostModel: string | null;
   localModelsDir: string;
@@ -19,23 +46,27 @@ export const LocalModelsView: React.FC<LocalModelsViewProps> = ({
   localModels,
   vscodeApi,
   daemonHealth,
-  daemonRunning,
+  daemonRunning: _daemonRunning,
   activeLocalModel,
   activeGhostModel,
   localModelsDir,
   isGhostEnabled = true
 }) => {
-  // Selected model ID for master-detail view
+  // Selected model ID for master-detail view (prefer active or first runnable model)
   const [selectedModelId, setSelectedModelId] = useState<string | null>(() => {
     if (activeLocalModel && localModels.some(m => m.id === activeLocalModel)) {
       return activeLocalModel;
     }
-    return localModels[0]?.id || null;
+    const firstRunnable = localModels.find((m) => {
+      const meta = extractModelMetadata(m.id, m);
+      return !meta.isComponent && meta.modelFamily !== 'pipeline_component';
+    });
+    return firstRunnable?.id || localModels[0]?.id || null;
   });
 
   // Filter & Search states
   const [searchQuery, setSearchQuery] = useState('');
-  const [filterPill, setFilterPill] = useState<'all' | 'llm' | 'vision' | 'image' | 'ghost'>('all');
+  const [filterPill, setFilterPill] = useState<FilterPillType>('all');
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   // Ghost text autocompletion toggle
@@ -45,21 +76,29 @@ export const LocalModelsView: React.FC<LocalModelsViewProps> = ({
   const [loadingModelId, setLoadingModelId] = useState<string | null>(null);
   const [modelLoadProgress, setModelLoadProgress] = useState<{ percent: number; message: string } | undefined>(undefined);
 
+  // Organize Folder preview modal state
+  const [organizeOpen, setOrganizeOpen] = useState(false);
+  const [organizeLoading, setOrganizeLoading] = useState(false);
+  const [organizeApplying, setOrganizeApplying] = useState(false);
+  const [organizeMoves, setOrganizeMoves] = useState<OrganizeMoveItem[]>([]);
+  const [organizeError, setOrganizeError] = useState<string | null>(null);
+  const [organizeNotice, setOrganizeNotice] = useState<string | null>(null);
+
   // Sync ghost status
   useEffect(() => {
     setGhostEnabled(isGhostEnabled);
   }, [isGhostEnabled]);
 
-  // Listen to window messages for model load progress
+  // Listen to window messages for model load progress and folder organization results
   useEffect(() => {
     const handleWindowMessage = (event: MessageEvent) => {
       const data = event.data;
       if (!data) return;
 
       if (data.type === 'modelLoadProgress') {
-        setLoadingModelId(data.modelId);
+        setLoadingModelId(data.modelId || data.model_id || null);
         setModelLoadProgress({
-          percent: data.percent ?? 0,
+          percent: typeof data.percent === 'number' ? data.percent : 0,
           message: data.message || 'Loading neural tensors...'
         });
       } else if (data.type === 'modelLoaded') {
@@ -68,24 +107,88 @@ export const LocalModelsView: React.FC<LocalModelsViewProps> = ({
       } else if (data.type === 'modelLoadError') {
         setLoadingModelId(null);
         setModelLoadProgress(undefined);
+      } else if (
+        data.type === 'organizeLocalModelsResult' ||
+        data.type === 'organizeResult' ||
+        data.type === 'localModelsOrganized'
+      ) {
+        const isDryRun = Boolean(data.dryRun ?? data.dry_run ?? (organizeLoading && !organizeApplying));
+        setOrganizeLoading(false);
+        setOrganizeApplying(false);
+        if (data.error) {
+          setOrganizeError(String(data.error));
+          return;
+        }
+        const rawMoves = data.moves || data.plan || data.items || data.changes || data.preview || data.moved || [];
+        const normalizedMoves: OrganizeMoveItem[] = Array.isArray(rawMoves)
+          ? rawMoves.map((item: any) => ({
+              id: item.id || item.model_id,
+              from: item.from || item.source || item.current_path || item.relative_path || item.name || item.id || '',
+              to: item.to || item.destination || item.target_path || item.target_relative_path || item.target || '',
+              modality: item.modality || item.target_modality,
+              componentRole: item.component_role ?? item.componentRole ?? null
+            }))
+          : [];
+
+        if (isDryRun) {
+          setOrganizeMoves(normalizedMoves);
+          setOrganizeError(null);
+          setOrganizeNotice(null);
+        } else {
+          setOrganizeMoves([]);
+          setOrganizeError(null);
+          setOrganizeNotice(
+            normalizedMoves.length > 0
+              ? `Organized ${normalizedMoves.length} file${normalizedMoves.length === 1 ? '' : 's'} into modality folders.`
+              : 'Library folder organization applied.'
+          );
+          vscodeApi?.postMessage({ command: 'getLocalModels' });
+        }
+      } else if (data.type === 'organizeLocalModelsError') {
+        setOrganizeLoading(false);
+        setOrganizeApplying(false);
+        setOrganizeError(String(data.error || 'Failed to organize models directory.'));
+      } else if (data.type === 'moveLocalModelResult' || data.type === 'localModelMoved') {
+        if (!data.error) {
+          vscodeApi?.postMessage({ command: 'getLocalModels' });
+        }
       }
     };
 
     window.addEventListener('message', handleWindowMessage);
     return () => window.removeEventListener('message', handleWindowMessage);
-  }, []);
+  }, [organizeLoading, organizeApplying, vscodeApi]);
+
+  const effectiveLoadingModelId =
+    loadingModelId || daemonHealth?.loading_model?.model_id || daemonHealth?.loading_model?.modelId || null;
+  const effectiveLoadProgress = modelLoadProgress || (
+    daemonHealth?.loading_model
+      ? {
+          percent: Number(daemonHealth.loading_model.percent ?? 0),
+          message: String(daemonHealth.loading_model.stage || daemonHealth.loading_model.message || 'Loading...')
+        }
+      : undefined
+  );
 
   // Filtered models computation
   const filteredModels = useMemo(() => {
     return localModels.filter((m) => {
       const meta = extractModelMetadata(m.id, m);
+      const isComp = meta.isComponent || meta.modality === 'component' || meta.modelFamily === 'pipeline_component';
 
-      // 1. Modality pill filtering
-      if (filterPill === 'llm' && (meta.isDiffusion || meta.isMmproj)) return false;
-      if (filterPill === 'vision' && (!meta.isVision && !meta.isMmproj)) return false;
-      if (filterPill === 'image' && !meta.isDiffusion) return false;
-      if (filterPill === 'ghost' && activeGhostModel !== m.id && !m.id.toLowerCase().includes('ghost') && !m.id.toLowerCase().includes('fim')) {
-        return false;
+      // 1. Modality pill filtering — keep pipeline components out of runnable tabs
+      if (filterPill === 'components') {
+        if (!isComp) return false;
+      } else {
+        if (isComp) return false;
+        if (filterPill === 'llm' && (meta.modality !== 'llm' || meta.isDiffusion || meta.isVideo || meta.isMusic)) return false;
+        if (filterPill === 'vision' && !meta.isVision) return false;
+        if (filterPill === 'image' && meta.modality !== 'image' && (meta.isVideo || meta.isMusic || (!meta.isDiffusion && meta.modelFamily !== 'autoregressive_image'))) return false;
+        if (filterPill === 'video' && !meta.isVideo && meta.modality !== 'video') return false;
+        if (filterPill === 'music' && !meta.isMusic && meta.modality !== 'music') return false;
+        if (filterPill === 'ghost' && activeGhostModel !== m.id && daemonHealth?.active_ghost_model !== m.id && !m.id.toLowerCase().includes('ghost') && !m.id.toLowerCase().includes('fim')) {
+          return false;
+        }
       }
 
       // 2. Search query filtering
@@ -107,7 +210,7 @@ export const LocalModelsView: React.FC<LocalModelsViewProps> = ({
         pub.includes(q)
       );
     });
-  }, [localModels, filterPill, searchQuery, activeGhostModel]);
+  }, [localModels, filterPill, searchQuery, activeGhostModel, daemonHealth?.active_ghost_model]);
 
   // Currently selected model object
   const selectedModel = useMemo(() => {
@@ -130,12 +233,28 @@ export const LocalModelsView: React.FC<LocalModelsViewProps> = ({
     vscodeApi?.postMessage({ command: 'getDaemonHealth' });
   };
 
+  const handlePreviewOrganize = () => {
+    setOrganizeOpen(true);
+    setOrganizeLoading(true);
+    setOrganizeApplying(false);
+    setOrganizeMoves([]);
+    setOrganizeError(null);
+    setOrganizeNotice(null);
+    vscodeApi?.postMessage({ command: 'organizeLocalModels', dryRun: true });
+  };
+
+  const handleConfirmOrganize = () => {
+    setOrganizeApplying(true);
+    setOrganizeError(null);
+    vscodeApi?.postMessage({ command: 'organizeLocalModels', dryRun: false });
+  };
+
   return (
-    <div className="flex flex-col lg:flex-row gap-5 h-full w-full min-h-[640px]">
+    <div className="flex flex-col lg:flex-row gap-4 h-full w-full min-h-[640px] relative">
       {/* ================= LEFT PANE: MODEL LIBRARY (~40% width / min-w-[340px]) ================= */}
-      <div className="w-full lg:w-[42%] lg:min-w-[360px] flex flex-col bg-[#141416] border border-white/10 rounded-2xl shadow-xl overflow-hidden shrink-0">
+      <div className="w-full lg:w-[40%] lg:min-w-[340px] flex flex-col bg-[#141416] border border-white/10 rounded-2xl shadow-xl overflow-hidden shrink-0">
         {/* Header Bar */}
-        <div className="p-4 border-b border-white/5 bg-[#18181b]/60 flex flex-col gap-3">
+        <div className="p-3.5 border-b border-white/5 bg-[#18181b]/60 flex flex-col gap-2.5">
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-2">
               <h3 className="text-sm font-bold text-zinc-100 tracking-wide">
@@ -143,17 +262,6 @@ export const LocalModelsView: React.FC<LocalModelsViewProps> = ({
               </h3>
               <span className="text-xs text-zinc-300 font-mono px-2 py-0.5 bg-zinc-800/80 rounded-full border border-white/10">
                 {filteredModels.length}
-              </span>
-              <span
-                className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-mono border ${
-                  daemonRunning
-                    ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
-                    : 'bg-zinc-800 text-zinc-400 border-white/5'
-                }`}
-                title={daemonRunning ? 'Local Engine daemon online on port 47990' : 'Local Engine daemon offline'}
-              >
-                <span className={`w-1.5 h-1.5 rounded-full ${daemonRunning ? 'bg-emerald-400' : 'bg-zinc-500'}`} />
-                <span>{daemonRunning ? 'Daemon Online' : 'Daemon Offline'}</span>
               </span>
             </div>
 
@@ -197,14 +305,24 @@ export const LocalModelsView: React.FC<LocalModelsViewProps> = ({
                 {localModelsDir || 'No directory selected'}
               </span>
             </div>
-            <button
-              type="button"
-              onClick={handleBrowseDir}
-              className="px-2 py-0.5 rounded text-[11px] font-semibold text-zinc-200 hover:text-white bg-zinc-800 hover:bg-zinc-700 border border-white/10 transition-colors shrink-0 cursor-pointer"
-              title="Change models folder location"
-            >
-              Change
-            </button>
+            <div className="flex items-center gap-1.5 shrink-0">
+              <button
+                type="button"
+                onClick={handlePreviewOrganize}
+                className="px-2 py-0.5 rounded text-[11px] font-semibold text-zinc-200 hover:text-white bg-zinc-800 hover:bg-zinc-700 border border-white/10 transition-colors shrink-0 cursor-pointer"
+                title="Preview moving loose files into llm/, image/, video/, music/, and components/ folders"
+              >
+                Organize Folder
+              </button>
+              <button
+                type="button"
+                onClick={handleBrowseDir}
+                className="px-2 py-0.5 rounded text-[11px] font-semibold text-zinc-200 hover:text-white bg-zinc-800 hover:bg-zinc-700 border border-white/10 transition-colors shrink-0 cursor-pointer"
+                title="Change models folder location"
+              >
+                Change
+              </button>
+            </div>
           </div>
         </div>
 
@@ -234,18 +352,21 @@ export const LocalModelsView: React.FC<LocalModelsViewProps> = ({
           </div>
 
           {/* Filter Pills */}
-          <div className="flex items-center gap-1 mt-2.5 overflow-x-auto pb-0.5">
+          <div className="flex items-center gap-1 mt-2.5 overflow-x-auto pb-0.5 custom-scrollbar">
             {[
               { id: 'all', label: 'All' },
               { id: 'llm', label: 'Chat / LLM' },
               { id: 'vision', label: 'Vision' },
               { id: 'image', label: 'Image Gen' },
-              { id: 'ghost', label: 'Ghost' }
+              { id: 'video', label: 'Video' },
+              { id: 'music', label: 'Music' },
+              { id: 'ghost', label: 'Ghost' },
+              { id: 'components', label: 'Components' }
             ].map((pill) => (
               <button
                 key={pill.id}
                 type="button"
-                onClick={() => setFilterPill(pill.id as any)}
+                onClick={() => setFilterPill(pill.id as FilterPillType)}
                 className={`px-2.5 py-1 rounded-md text-[11px] font-medium whitespace-nowrap transition-colors cursor-pointer ${
                   filterPill === pill.id
                     ? 'bg-white text-zinc-950 font-bold shadow-sm'
@@ -282,12 +403,12 @@ export const LocalModelsView: React.FC<LocalModelsViewProps> = ({
               const meta = extractModelMetadata(m.id, m);
               const isSelected = selectedModelId === m.id;
 
-              const isPrimary = daemonHealth?.active_model === m.id || activeLocalModel === m.id;
-              const isGhost = daemonHealth?.active_ghost_model === m.id || activeGhostModel === m.id;
-              const isDiffusion = daemonHealth?.active_diffusion_model === m.id;
-              const isLoaded = isPrimary || isGhost || isDiffusion || Boolean(m.loaded);
+              const isPrimary = matchesModelIdentifier(m, daemonHealth?.active_model) || matchesModelIdentifier(m, activeLocalModel);
+              const isGhost = matchesModelIdentifier(m, daemonHealth?.active_ghost_model) || matchesModelIdentifier(m, activeGhostModel);
+              const isVideoActive = matchesModelIdentifier(m, daemonHealth?.active_video_model);
+              const isDiffusionActive = matchesModelIdentifier(m, daemonHealth?.active_diffusion_model) || isVideoActive;
 
-              const isLoadingThis = loadingModelId === m.id;
+              const isLoadingThis = matchesModelIdentifier(m, effectiveLoadingModelId);
 
               return (
                 <div
@@ -316,7 +437,10 @@ export const LocalModelsView: React.FC<LocalModelsViewProps> = ({
                           isVision: meta.isVision,
                           isToolUse: meta.isToolUse,
                           isReasoning: meta.isReasoning,
-                          isImageGen: meta.isDiffusion,
+                          isImageGen: meta.isDiffusion && !meta.isVideo,
+                          isVideo: meta.isVideo,
+                          isMusic: meta.isMusic,
+                          isComponent: meta.isComponent,
                           isAudio: false
                         }}
                         showLlmFallback={false}
@@ -333,10 +457,10 @@ export const LocalModelsView: React.FC<LocalModelsViewProps> = ({
                           Ghost
                         </span>
                       )}
-                      {isDiffusion && (
+                      {isDiffusionActive && (
                         <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-purple-500/10 text-purple-400 border border-purple-500/20 shrink-0">
                           <span className="w-1.5 h-1.5 rounded-full bg-purple-400" />
-                          Diffusion
+                          {meta.isVideo || isVideoActive ? 'Video' : 'Diffusion'}
                         </span>
                       )}
                     </div>
@@ -359,46 +483,14 @@ export const LocalModelsView: React.FC<LocalModelsViewProps> = ({
                     </div>
                   </div>
 
-                  {/* Right: Quick Action Button */}
-                  <div className="shrink-0 flex items-center">
-                    {isLoadingThis ? (
-                      <span className="text-[10px] font-mono text-sky-400 animate-pulse px-2 py-1 bg-sky-500/10 rounded border border-sky-500/20">
-                        {modelLoadProgress?.percent || 0}%
+                  {/* Right: Compact Load Progress Indicator Only (Tuning/Load/Unload happens in Inspector) */}
+                  {isLoadingThis && (
+                    <div className="shrink-0 flex items-center">
+                      <span className="text-[10px] font-mono text-sky-400 animate-pulse px-2 py-1 bg-sky-500/10 rounded border border-sky-500/20 tabular-nums">
+                        {Math.round(effectiveLoadProgress?.percent ?? 0)}%
                       </span>
-                    ) : isLoaded ? (
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          vscodeApi?.postMessage({ command: 'unloadLocalModel' });
-                        }}
-                        className="px-2.5 py-1 text-xs font-semibold text-rose-300 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/25 rounded-lg transition-colors cursor-pointer"
-                        title="Unload from memory"
-                      >
-                        Unload
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          vscodeApi?.postMessage({
-                            command: 'loadLocalModel',
-                            modelId: m.id,
-                            ctxSize: 8192,
-                            nGPULayers: 99,
-                            nThreads: 4,
-                            temperature: 0.7,
-                            flashAttn: true
-                          });
-                        }}
-                        className="px-2.5 py-1 text-xs font-semibold text-zinc-200 hover:text-white bg-zinc-800 hover:bg-zinc-700 border border-white/10 rounded-lg transition-colors cursor-pointer"
-                        title="Load into memory"
-                      >
-                        Load
-                      </button>
-                    )}
-                  </div>
+                    </div>
+                  )}
                 </div>
               );
             })
@@ -407,16 +499,22 @@ export const LocalModelsView: React.FC<LocalModelsViewProps> = ({
       </div>
 
       {/* ================= RIGHT PANE: MODEL INSPECTOR (~60% width) ================= */}
-      <div className="w-full lg:w-[58%] flex-1 h-full min-h-[500px]">
+      <div className="w-full lg:w-[60%] flex-1 h-full min-h-[500px]">
         {selectedModel ? (
           <ModelInspector
+            key={selectedModel.id}
             model={selectedModel}
+            availableLocalModels={localModels}
             vscodeApi={vscodeApi}
             daemonHealth={daemonHealth}
             activeLocalModel={activeLocalModel}
             activeGhostModel={activeGhostModel}
-            isModelLoading={loadingModelId === selectedModel.id}
-            modelLoadProgress={loadingModelId === selectedModel.id ? modelLoadProgress : undefined}
+            isModelLoading={matchesModelIdentifier(selectedModel, effectiveLoadingModelId)}
+            modelLoadProgress={matchesModelIdentifier(selectedModel, effectiveLoadingModelId) ? effectiveLoadProgress : undefined}
+            onStartLoading={(modelId) => {
+              setLoadingModelId(modelId);
+              setModelLoadProgress({ percent: 0, message: 'Initializing engine...' });
+            }}
             onClose={() => setSelectedModelId(null)}
           />
         ) : (
@@ -445,6 +543,87 @@ export const LocalModelsView: React.FC<LocalModelsViewProps> = ({
           </div>
         )}
       </div>
+
+      {/* ================= ORGANIZE FOLDER DRY-RUN PREVIEW MODAL ================= */}
+      {organizeOpen && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-lg bg-[#18181b] border border-white/10 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[80vh]">
+            <div className="px-5 py-4 border-b border-white/10 flex items-center justify-between">
+              <div>
+                <h4 className="text-sm font-bold text-zinc-100">Organize Models Folder</h4>
+                <p className="text-xs text-zinc-400 mt-0.5">
+                  Preview file moves into llm/, image/, video/, music/, and components/ folders.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setOrganizeOpen(false)}
+                className="p-1.5 text-zinc-400 hover:text-white rounded-lg hover:bg-white/5 cursor-pointer"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="p-5 overflow-y-auto flex-1 space-y-3 custom-scrollbar">
+              {organizeLoading ? (
+                <div className="py-8 text-center text-xs text-zinc-400">
+                  Scanning models directory...
+                </div>
+              ) : organizeError ? (
+                <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-xs text-rose-300">
+                  {organizeError}
+                </div>
+              ) : organizeNotice ? (
+                <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-300">
+                  {organizeNotice}
+                </div>
+              ) : organizeMoves.length === 0 ? (
+                <div className="py-6 text-center text-xs text-zinc-300">
+                  All local models are already organized into modality folders.
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <div className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
+                    Planned Moves ({organizeMoves.length})
+                  </div>
+                  <div className="divide-y divide-white/5 border border-white/10 rounded-xl bg-zinc-950/60 overflow-hidden">
+                    {organizeMoves.map((mv, idx) => (
+                      <div key={mv.id || idx} className="px-3 py-2 text-xs font-mono space-y-0.5">
+                        <div className="text-zinc-400 truncate" title={mv.from}>
+                          {mv.from}
+                        </div>
+                        <div className="text-emerald-300 truncate" title={mv.to}>
+                          → {mv.to}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="px-5 py-3.5 border-t border-white/10 bg-[#141416] flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setOrganizeOpen(false)}
+                className="px-3 py-1.5 rounded-lg text-xs font-semibold text-zinc-300 hover:text-white bg-zinc-800 hover:bg-zinc-700 border border-white/10 transition-colors cursor-pointer"
+              >
+                {organizeNotice || (!organizeLoading && organizeMoves.length === 0) ? 'Close' : 'Cancel'}
+              </button>
+              {!organizeLoading && !organizeNotice && organizeMoves.length > 0 && (
+                <button
+                  type="button"
+                  disabled={organizeApplying}
+                  onClick={handleConfirmOrganize}
+                  className="px-3.5 py-1.5 rounded-lg text-xs font-bold text-zinc-950 bg-white hover:bg-zinc-200 disabled:opacity-60 transition-colors cursor-pointer"
+                >
+                  {organizeApplying ? 'Moving Files...' : `Apply ${organizeMoves.length} Move${organizeMoves.length === 1 ? '' : 's'}`}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -195,6 +195,15 @@ html, body, #root {
   100% { stroke-dashoffset: 0; }
 }
 
+@keyframes shimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
 /* Astrolabe Native Glass Code Block Styling */
 pre code.hljs,
 code.hljs {

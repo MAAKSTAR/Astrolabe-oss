@@ -213,23 +213,7 @@ export class SettingsProvider {
             break;
           }
           case 'getLocalModels': {
-            try {
-              const fetch = (await import('node-fetch')).default;
-              const controller = new AbortController();
-              const timeout = setTimeout(() => { controller.abort(); }, 8000);
-              const res = await fetch('http://127.0.0.1:47990/v1/models', { signal: controller.signal as any });
-              clearTimeout(timeout);
-              
-              if (res.ok) {
-                const body = await res.json() as any;
-                this._panel.webview.postMessage({ type: 'localModels', models: body.data || [] });
-                this._panel.webview.postMessage({ type: 'daemonStatus', isRunning: true });
-              } else {
-                this._panel.webview.postMessage({ type: 'localModels', models: [] });
-              }
-            } catch (e) {
-              this._panel.webview.postMessage({ type: 'localModels', models: [] });
-            }
+            await this._refreshLocalModels();
             break;
           }
           case 'getActiveDownloads': {
@@ -344,6 +328,10 @@ export class SettingsProvider {
               if (data.backendPreference !== undefined) payload.backend_preference = data.backendPreference;
               if (data.useMmap !== undefined) payload.use_mmap = data.useMmap;
               if (data.flashAttn !== undefined) payload.flash_attn = data.flashAttn;
+              if (data.offloadContextToCpu !== undefined) {
+                payload.offload_context_to_cpu = data.offloadContextToCpu;
+                payload.no_kv_offload = data.offloadContextToCpu;
+              }
               if (data.kvQuant !== undefined) payload.kv_quant = data.kvQuant;
               if (data.cacheTypeK !== undefined) payload.cache_type_k = data.cacheTypeK;
               if (data.cacheTypeV !== undefined) payload.cache_type_v = data.cacheTypeV;
@@ -354,53 +342,142 @@ export class SettingsProvider {
                   await vscode.workspace.getConfiguration('exovonhub').update('modelTemperature', data.temperature, vscode.ConfigurationTarget.Global);
                 } catch {}
               }
+              if (data.modality !== undefined) payload.modality = data.modality;
+              if (data.modelFamily !== undefined) payload.model_family = data.modelFamily;
+              if (data.steps !== undefined) payload.steps = data.steps;
+              if (data.cfgScale !== undefined) payload.cfg_scale = data.cfgScale;
+              if (data.resolution !== undefined) payload.resolution = data.resolution;
+              if (data.vaeTiling !== undefined) payload.vae_tiling = data.vaeTiling;
+              if (data.sampler !== undefined) payload.sampler = data.sampler;
+              if (data.clipPath !== undefined) payload.clip_path = data.clipPath;
+              if (data.vaePath !== undefined) payload.vae_path = data.vaePath;
+              if (data.t5Path !== undefined) payload.t5_path = data.t5Path;
+              if (data.loraPath !== undefined) payload.lora_path = data.loraPath;
+              if (data.loraScale !== undefined) payload.lora_scale = data.loraScale;
+              if (data.videoFrames !== undefined || data.video_frames !== undefined) payload.video_frames = data.videoFrames ?? data.video_frames;
+              if (data.fps !== undefined) payload.fps = data.fps;
+              if (data.flowShift !== undefined || data.flow_shift !== undefined) payload.flow_shift = data.flowShift ?? data.flow_shift;
+              if (data.temporalTiling !== undefined || data.temporal_tiling !== undefined) payload.temporal_tiling = data.temporalTiling ?? data.temporal_tiling;
+              if (data.offloadToCpu !== undefined || data.offload_to_cpu !== undefined) payload.offload_to_cpu = data.offloadToCpu ?? data.offload_to_cpu;
+              if (data.diffusionFlashAttn !== undefined || data.diffusion_flash_attn !== undefined) {
+                payload.diffusion_flash_attn = data.diffusionFlashAttn ?? data.diffusion_flash_attn;
+              }
 
               await vscode.window.withProgress({
                 location: vscode.ProgressLocation.Notification,
                 title: `Loading Model: ${path.basename(data.modelId)}`,
                 cancellable: false
               }, async (progress) => {
-                progress.report({ increment: 10, message: 'Initializing Vulkan compute buffers...' });
-                this._panel.webview.postMessage({ 
-                  type: 'modelLoadProgress', 
-                  modelId: data.modelId, 
-                  percent: 10, 
-                  message: 'Initializing Vulkan compute buffers...' 
-                });
+                let lastPercent = 0;
+                let lastStage = '';
+                let isPolling = false;
+                let finished = false;
 
-                let currentPercent = 10;
-                const ticker = setInterval(() => {
-                  if (currentPercent < 90) {
-                    currentPercent += Math.min(15, Math.floor(Math.random() * 8) + 6);
-                    const msg = currentPercent > 55 ? 'Offloading neural layers to GPU VRAM...' : 'Reading GGUF tensors into memory...';
-                    progress.report({ increment: 8, message: `${msg} (${currentPercent}%)` });
-                    this._panel.webview.postMessage({ 
-                      type: 'modelLoadProgress', 
-                      modelId: data.modelId, 
-                      percent: currentPercent, 
-                      message: msg 
+                const emitProgress = (percent: number, stage: string) => {
+                  const clamped = Math.max(0, Math.min(99, Math.round(percent)));
+                  const increment = Math.max(0, clamped - lastPercent);
+                  lastPercent = Math.max(lastPercent, clamped);
+                  lastStage = stage || lastStage;
+                  if (lastStage) {
+                    progress.report({ increment, message: `${lastStage} (${lastPercent}%)` });
+                    this._panel.webview.postMessage({
+                      type: 'modelLoadProgress',
+                      modelId: data.modelId,
+                      percent: lastPercent,
+                      message: lastStage
                     });
                   }
-                }, 600);
+                };
+
+                const pollStatus = async () => {
+                  if (isPolling || finished) return;
+                  isPolling = true;
+                  try {
+                    let status: any = null;
+                    try {
+                      const statusRes = await fetch('http://127.0.0.1:47990/v1/models/load/status');
+                      if (statusRes.ok) {
+                        status = await statusRes.json();
+                      }
+                    } catch {}
+                    if (!status) {
+                      try {
+                        const healthRes = await fetch('http://127.0.0.1:47990/v1/health');
+                        if (healthRes.ok) {
+                          const health = await healthRes.json() as any;
+                          status = health?.loading_model || null;
+                        }
+                      } catch {}
+                    }
+                    if (finished || !status || status.active === false) return;
+                    const pct = typeof status.percent === 'number'
+                      ? status.percent
+                      : (typeof status.progress === 'number' ? status.progress : undefined);
+                    const stage = String(status.stage || status.message || '');
+                    if (pct !== undefined && (pct > lastPercent || (stage && stage !== lastStage))) {
+                      emitProgress(pct, stage || lastStage);
+                    } else if (stage && stage !== lastStage) {
+                      emitProgress(lastPercent, stage);
+                    }
+                  } finally {
+                    isPolling = false;
+                  }
+                };
+
+                const poller = setInterval(() => { void pollStatus(); }, 250);
 
                 try {
+                  void pollStatus();
                   const res = await fetch('http://127.0.0.1:47990/v1/models/load', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload)
                   });
-                  clearInterval(ticker);
+                  finished = true;
+                  clearInterval(poller);
 
                   if (res.ok) {
-                    progress.report({ increment: 100, message: 'Model successfully loaded!' });
-                    this._panel.webview.postMessage({ 
-                      type: 'modelLoadProgress', 
-                      modelId: data.modelId, 
-                      percent: 100, 
-                      message: 'Ready' 
+                    let loadResult: any = {};
+                    try { loadResult = await res.json(); } catch {}
+
+                    progress.report({ increment: Math.max(0, 100 - lastPercent), message: 'Model successfully loaded!' });
+                    this._panel.webview.postMessage({
+                      type: 'modelLoadProgress',
+                      modelId: data.modelId,
+                      percent: 100,
+                      message: 'Ready'
                     });
-                    this._panel.webview.postMessage({ type: 'modelLoaded', modelId: data.modelId, ctx_size: data.ctxSize });
+
                     const baseModelName = path.basename(data.modelId);
+                    const normalizedPath = String(data.modelId || '').replace(/\\/g, '/').toLowerCase();
+                    const baseLower = baseModelName.toLowerCase();
+                    const explicitModality = String(loadResult?.modality || data.modality || '').toLowerCase();
+                    const isVideo = explicitModality === 'video'
+                      || normalizedPath.includes('/video/')
+                      || normalizedPath.startsWith('video/')
+                      || baseLower.includes('wan')
+                      || baseLower.includes('ltx')
+                      || baseLower.includes('hunyuanvideo')
+                      || baseLower.includes('cogvideo')
+                      || baseLower.includes('mochi');
+                    const isImage = explicitModality === 'image'
+                      || normalizedPath.includes('/image/')
+                      || normalizedPath.startsWith('image/');
+                    const isDiffusion = isVideo
+                      || isImage
+                      || data.target === 'diffusion'
+                      || data.modelFamily === 'diffusion_flow'
+                      || baseLower.includes('flux')
+                      || baseLower.includes('sd-')
+                      || baseLower.includes('sd_')
+                      || baseLower.includes('sdxl')
+                      || baseLower.includes('diffusion')
+                      || (baseLower.includes('qwen') && baseLower.includes('image'))
+                      || baseLower.includes('dit');
+                    const resolvedModality = isVideo ? 'video' : (isDiffusion ? 'image' : 'llm');
+
+                    this._panel.webview.postMessage({ type: 'modelLoaded', modelId: data.modelId, ctx_size: data.ctxSize, modality: resolvedModality });
+
                     if (data.maxTokens !== undefined) {
                       try {
                         await vscode.workspace.getConfiguration('exovonhub').update('localMaxTokens', data.maxTokens, vscode.ConfigurationTarget.Global);
@@ -408,7 +485,18 @@ export class SettingsProvider {
                     }
                     try {
                       const { ExovonSidebarProvider } = await import('./ExovonSidebarProvider');
-                      ExovonSidebarProvider.getInstance()?.updateActiveModel(baseModelName, data.ctxSize);
+                      if (isDiffusion) {
+                        ExovonSidebarProvider.getInstance()?.updateDiffusionModel(baseModelName, data.resolution, resolvedModality);
+                        this._panel.webview.postMessage({
+                          type: 'settingsState',
+                          activeDiffusionModel: baseModelName,
+                          activeDiffusionResolution: data.resolution,
+                          activeDiffusionModality: resolvedModality,
+                          model: `diffusion:${baseModelName}`
+                        });
+                      } else {
+                        ExovonSidebarProvider.getInstance()?.updateActiveModel(baseModelName, data.ctxSize);
+                      }
                     } catch {}
                     vscode.window.showInformationMessage(`${path.basename(data.modelId)} successfully loaded into memory.`);
                   } else {
@@ -432,7 +520,8 @@ export class SettingsProvider {
                     });
                   }
                 } catch (err: any) {
-                  clearInterval(ticker);
+                  finished = true;
+                  clearInterval(poller);
                   this._panel.webview.postMessage({ type: 'modelLoadError', error: err.message, modelId: data.modelId });
                   vscode.window.showErrorMessage(
                     `Failed to connect to Exovon Local Engine: ${err.message}`,
@@ -446,6 +535,9 @@ export class SettingsProvider {
                       vscode.commands.executeCommand('vscode.open', vscode.Uri.file(logPath));
                     }
                   });
+                } finally {
+                  finished = true;
+                  clearInterval(poller);
                 }
               });
             } catch (e: any) {
@@ -459,10 +551,15 @@ export class SettingsProvider {
               const res = await fetch('http://127.0.0.1:47990/v1/models/unload', { method: 'POST' });
               if (res.ok) {
                 vscode.window.showInformationMessage(`Model unloaded from memory.`);
-                this._panel.webview.postMessage({ type: 'modelUnloaded' });
+                this._panel.webview.postMessage({ type: 'modelUnloaded', target: data.target });
                 try {
                   const { ExovonSidebarProvider } = await import('./ExovonSidebarProvider');
-                  ExovonSidebarProvider.getInstance()?.updateActiveModel(null);
+                  if (data.target === 'diffusion') {
+                    ExovonSidebarProvider.getInstance()?.updateDiffusionModel(null);
+                  } else {
+                    ExovonSidebarProvider.getInstance()?.updateActiveModel(null);
+                    ExovonSidebarProvider.getInstance()?.updateDiffusionModel(null);
+                  }
                 } catch {}
               }
             } catch (e) {
@@ -558,15 +655,22 @@ export class SettingsProvider {
               }
 
               vscode.window.showInformationMessage(`Starting download for ${data.filename}... Priority 16-channel streaming active.`);
+              const downloadPayload: any = {
+                url: data.url,
+                filename: data.filename,
+                hf_token: hfToken,
+                use_mirror: useMirror
+              };
+              if ((data.repo_id ?? data.repoId) !== undefined) downloadPayload.repo_id = data.repo_id ?? data.repoId;
+              if ((data.pipeline_tag ?? data.pipelineTag) !== undefined) downloadPayload.pipeline_tag = data.pipeline_tag ?? data.pipelineTag;
+              if (data.tags !== undefined) downloadPayload.tags = data.tags;
+              if ((data.modality_hint ?? data.modalityHint) !== undefined) downloadPayload.modality_hint = data.modality_hint ?? data.modalityHint;
+              if ((data.component_role ?? data.componentRole) !== undefined) downloadPayload.component_role = data.component_role ?? data.componentRole;
+
               const res = await fetch('http://127.0.0.1:47990/v1/models/download', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  url: data.url,
-                  filename: data.filename,
-                  hf_token: hfToken,
-                  use_mirror: useMirror
-                })
+                body: JSON.stringify(downloadPayload)
               });
               
               if (!res.ok) {
@@ -704,6 +808,88 @@ export class SettingsProvider {
               vscode.window.showInformationMessage('KV Cache cleared.');
             } catch (err) {
               console.error('Failed to clear KV cache:', err);
+            }
+            break;
+          }
+          case 'organizeLocalModels': {
+            try {
+              const fetch = (await import('node-fetch')).default;
+              const dryRun = Boolean(data.dry_run ?? data.dryRun);
+              const res = await fetch('http://127.0.0.1:47990/v1/models/organize', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ dry_run: dryRun })
+              });
+              const rawBody = res.ok
+                ? await res.json().catch(() => ({}))
+                : { error: await res.text().catch(() => `HTTP ${res.status}`) };
+              const bodyObj = rawBody && typeof rawBody === 'object' && !Array.isArray(rawBody) ? rawBody as any : {};
+              const moves = Array.isArray(rawBody)
+                ? rawBody
+                : (bodyObj.moves || bodyObj.plan || bodyObj.items || bodyObj.changes || bodyObj.preview || bodyObj.moved);
+              this._panel.webview.postMessage({
+                ...bodyObj,
+                type: 'organizeLocalModelsResult',
+                ok: res.ok,
+                dry_run: dryRun,
+                dryRun,
+                ...(moves !== undefined ? { moves } : {}),
+                ...(res.ok ? {} : { error: bodyObj.error || `HTTP ${res.status}` }),
+                result: rawBody
+              });
+              if (res.ok && !dryRun) {
+                await this._refreshLocalModels();
+              }
+            } catch (err: any) {
+              this._panel.webview.postMessage({
+                type: 'organizeLocalModelsResult',
+                ok: false,
+                error: err?.message || 'Failed to organize local models'
+              });
+            }
+            break;
+          }
+          case 'moveLocalModel': {
+            try {
+              const fetch = (await import('node-fetch')).default;
+              const movePayload: any = {
+                model_path: data.model_path ?? data.modelPath ?? data.modelId ?? data.path,
+                target_modality: data.target_modality ?? data.targetModality ?? data.modality ?? data.target
+              };
+              if ((data.component_role ?? data.componentRole) !== undefined) {
+                movePayload.component_role = data.component_role ?? data.componentRole;
+              }
+              if (data.relative_path !== undefined || data.relativePath !== undefined) {
+                movePayload.relative_path = data.relative_path ?? data.relativePath;
+              }
+              const res = await fetch('http://127.0.0.1:47990/v1/models/move', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(movePayload)
+              });
+              const rawBody = res.ok
+                ? await res.json().catch(() => ({}))
+                : { error: await res.text().catch(() => `HTTP ${res.status}`) };
+              const bodyObj = rawBody && typeof rawBody === 'object' && !Array.isArray(rawBody) ? rawBody as any : {};
+              this._panel.webview.postMessage({
+                ...bodyObj,
+                type: 'moveLocalModelResult',
+                ok: res.ok,
+                ...(res.ok ? {} : { error: bodyObj.error || `HTTP ${res.status}` }),
+                result: rawBody
+              });
+              if (res.ok) {
+                await this._refreshLocalModels();
+              } else {
+                vscode.window.showErrorMessage(`Failed to move model: ${bodyObj.error || `HTTP ${res.status}`}`);
+              }
+            } catch (err: any) {
+              this._panel.webview.postMessage({
+                type: 'moveLocalModelResult',
+                ok: false,
+                error: err?.message || 'Failed to move model'
+              });
+              vscode.window.showErrorMessage(`Failed to move model: ${err?.message || err}`);
             }
             break;
           }
@@ -857,6 +1043,30 @@ export class SettingsProvider {
 
   public postMessage(message: any) {
     this._panel.webview.postMessage(message);
+  }
+
+  private async _refreshLocalModels(): Promise<any[]> {
+    try {
+      const fetch = (await import('node-fetch')).default;
+      const controller = new AbortController();
+      const timeout = setTimeout(() => { controller.abort(); }, 8000);
+      const res = await fetch('http://127.0.0.1:47990/v1/models', { signal: controller.signal as any });
+      clearTimeout(timeout);
+
+      if (res.ok) {
+        const body = await res.json() as any;
+        const models = body.data || [];
+        this._panel.webview.postMessage({ type: 'localModels', models });
+        this._panel.webview.postMessage({ type: 'daemonStatus', isRunning: true });
+        try {
+          const { ExovonSidebarProvider } = await import('./ExovonSidebarProvider.js');
+          ExovonSidebarProvider.getInstance()?.postMessage({ type: 'localModels', models });
+        } catch {}
+        return models;
+      }
+    } catch (e) {}
+    this._panel.webview.postMessage({ type: 'localModels', models: [] });
+    return [];
   }
 
   private _update() {

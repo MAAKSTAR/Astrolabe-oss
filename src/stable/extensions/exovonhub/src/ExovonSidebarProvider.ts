@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as os from 'os';
 import { AgentOrchestrator } from './agent/AgentOrchestrator';
 import { DiagnosticsWatchdog } from './agent/DiagnosticsWatchdog';
 import { FileSystemTools } from './agent/tools/FileSystemTools';
@@ -40,6 +41,41 @@ export class ExovonSidebarProvider implements vscode.WebviewViewProvider {
   private _statusBarItem: vscode.StatusBarItem;
   private _cachedLocalModelName: string = '';
   private _cachedDiffusionModelName: string = '';
+  private _cachedDiffusionResolution: string = '';
+  private _cachedDiffusionModality: string = '';
+  private _cachedLocalModels: any[] = [];
+
+  private _inferDiffusionModality(modelIdOrName: string, explicitModality?: string, activeDiffusion?: any): 'video' | 'image' {
+    const exp = String(explicitModality || activeDiffusion?.modality || '').toLowerCase();
+    if (exp === 'video') return 'video';
+    if (exp === 'image') return 'image';
+
+    const raw = String(modelIdOrName || '').replace(/^(?:diffusion|video|local):/i, '');
+    const base = path.basename(raw);
+    const matched = this._cachedLocalModels.find((m: any) =>
+      m.id === raw || m.path === raw || path.basename(String(m.id || '')) === base || m.name === base
+    );
+    const matchedMod = String(matched?.modality || '').toLowerCase();
+    if (matchedMod === 'video') return 'video';
+    if (matchedMod === 'image') return 'image';
+
+    const matchedRel = String(matched?.relative_path || '').replace(/\\/g, '/').toLowerCase();
+    if (matchedRel.startsWith('video/')) return 'video';
+
+    const norm = raw.replace(/\\/g, '/').toLowerCase();
+    if (
+      norm.includes('/video/')
+      || norm.startsWith('video/')
+      || norm.includes('wan')
+      || norm.includes('ltx')
+      || norm.includes('hunyuanvideo')
+      || norm.includes('cogvideo')
+      || norm.includes('mochi')
+    ) {
+      return 'video';
+    }
+    return 'image';
+  }
 
   public updateActiveModel(modelName: string | null, ctxSize?: number) {
     const config = vscode.workspace.getConfiguration('exovonhub');
@@ -66,19 +102,27 @@ export class ExovonSidebarProvider implements vscode.WebviewViewProvider {
     }
   }
 
-  public updateDiffusionModel(modelName: string | null) {
+  public updateDiffusionModel(modelName: string | null, resolution?: string, modality?: string) {
     if (modelName) {
       this._cachedDiffusionModelName = modelName;
+      if (resolution) this._cachedDiffusionResolution = resolution;
+      this._cachedDiffusionModality = this._inferDiffusionModality(modelName, modality);
       this.postMessage({
         type: 'settingsState',
         activeDiffusionModel: modelName,
+        activeDiffusionResolution: this._cachedDiffusionResolution || resolution,
+        activeDiffusionModality: this._cachedDiffusionModality,
         model: `diffusion:${modelName}`
       });
     } else {
       this._cachedDiffusionModelName = '';
+      this._cachedDiffusionResolution = '';
+      this._cachedDiffusionModality = '';
       this.postMessage({
         type: 'settingsState',
         activeDiffusionModel: '',
+        activeDiffusionResolution: '',
+        activeDiffusionModality: '',
         model: ''
       });
     }
@@ -305,9 +349,10 @@ export class ExovonSidebarProvider implements vscode.WebviewViewProvider {
     this._view = webviewView;
 
     // Establish webview options
+    const workspaceRoots = (vscode.workspace.workspaceFolders || []).map(f => f.uri);
     webviewView.webview.options = {
       enableScripts: true,
-      localResourceRoots: [this._context.extensionUri]
+      localResourceRoots: [this._context.extensionUri, vscode.Uri.file(os.tmpdir()), ...workspaceRoots]
     };
 
     webviewView.webview.html = this._getHtmlForWebview(webviewView.webview);
@@ -535,34 +580,37 @@ export class ExovonSidebarProvider implements vscode.WebviewViewProvider {
           let liveActiveModel: string | null = null;
           let liveDiffusionModel: string | null = null;
           let availableLocalModels: any[] = [];
+          let activeDiffInfo: any = null;
           try {
             const fetch = (await import('node-fetch')).default;
-            const res = await fetch('http://127.0.0.1:47990/v1/health');
-            if (res.ok) {
-              const data = await res.json() as any;
+            const healthRes = await fetch('http://127.0.0.1:47990/v1/health');
+            if (healthRes.ok) {
+              const data = await healthRes.json() as any;
               if (data.ctx_size) activeCtxSize = data.ctx_size;
-              if (data.active_model) {
+              if (data?.active_diffusion?.model_path) {
+                liveDiffusionModel = data.active_diffusion.model_path;
+                activeDiffInfo = data.active_diffusion;
+                this._cachedDiffusionModelName = path.basename(data.active_diffusion.model_path);
+                if (data.active_diffusion.resolution) {
+                  this._cachedDiffusionResolution = data.active_diffusion.resolution;
+                }
+              } else {
+                liveDiffusionModel = null;
+                this._cachedDiffusionModelName = '';
+                this._cachedDiffusionResolution = '';
+                this._cachedDiffusionModality = '';
+              }
+
+              const activeBase = data.active_model ? path.basename(data.active_model) : '';
+              const diffBase = liveDiffusionModel ? path.basename(liveDiffusionModel) : '';
+              if (data.active_model && (!diffBase || activeBase !== diffBase)) {
                 liveActiveModel = data.active_model;
-                this._cachedLocalModelName = path.basename(data.active_model);
+                this._cachedLocalModelName = activeBase;
               } else {
                 liveActiveModel = null;
                 this._cachedLocalModelName = '';
               }
             }
-            // Check Diffusion Engine on Port 47992
-            try {
-              const diffRes = await fetch('http://127.0.0.1:47992/v1/health');
-              if (diffRes.ok) {
-                const diffData = await diffRes.json() as any;
-                if (diffData?.active_config?.model_path) {
-                  liveDiffusionModel = diffData.active_config.model_path;
-                  this._cachedDiffusionModelName = path.basename(diffData.active_config.model_path);
-                } else {
-                  liveDiffusionModel = null;
-                  this._cachedDiffusionModelName = '';
-                }
-              }
-            } catch {}
 
             // Fetch available models from daemon
             const modelsRes = await fetch('http://127.0.0.1:47990/v1/models');
@@ -570,6 +618,7 @@ export class ExovonSidebarProvider implements vscode.WebviewViewProvider {
               const modelsData = await modelsRes.json() as any;
               if (modelsData?.data && Array.isArray(modelsData.data)) {
                 availableLocalModels = modelsData.data;
+                this._cachedLocalModels = availableLocalModels;
               }
             }
           } catch {
@@ -581,16 +630,25 @@ export class ExovonSidebarProvider implements vscode.WebviewViewProvider {
             if (this._cachedDiffusionModelName) {
               liveDiffusionModel = this._cachedDiffusionModelName;
             }
+            if (availableLocalModels.length === 0 && this._cachedLocalModels.length > 0) {
+              availableLocalModels = this._cachedLocalModels;
+            }
           }
 
           const resolvedLocalName = liveActiveModel ? path.basename(liveActiveModel) : (this._cachedLocalModelName || '');
           const resolvedDiffusionName = liveDiffusionModel ? path.basename(liveDiffusionModel) : (this._cachedDiffusionModelName || '');
+          const resolvedDiffusionModality = resolvedDiffusionName
+            ? this._inferDiffusionModality(liveDiffusionModel || resolvedDiffusionName, activeDiffInfo?.modality, activeDiffInfo)
+            : '';
+          this._cachedDiffusionModality = resolvedDiffusionModality;
 
           webviewView.webview.postMessage({ 
             type: 'settingsState', 
             model: resolvedLocalName ? `local:${resolvedLocalName}` : (resolvedDiffusionName ? `diffusion:${resolvedDiffusionName}` : (config.get<string>('preferredModel') || '')),
             localLlmModelName: resolvedLocalName,
             activeDiffusionModel: resolvedDiffusionName,
+            activeDiffusionResolution: this._cachedDiffusionResolution || undefined,
+            activeDiffusionModality: resolvedDiffusionModality || undefined,
             availableLocalModels,
             localModelsDirectory: config.get<string>('localModelsDirectory') || '~/.exovon/models',
             contextKeepLastNTurns: config.get<number>('contextKeepLastNTurns') || 3,
@@ -602,30 +660,93 @@ export class ExovonSidebarProvider implements vscode.WebviewViewProvider {
         case 'loadLocalModel': {
           try {
             const fetch = (await import('node-fetch')).default;
-            const targetPort = data.target === 'diffusion' ? 47992 : 47990;
+            const targetPort = 47990; // Unified Rust daemon handles both LLM and Diffusion models on Port 47990
+            const payload: any = { ...data, model_path: data.modelId };
+            if (data.modality !== undefined) payload.modality = data.modality;
+            if (data.ctxSize !== undefined) payload.ctx_size = data.ctxSize;
+            if (data.nGPULayers !== undefined) payload.n_gpu_layers = data.nGPULayers;
+            if (data.cfgScale !== undefined) payload.cfg_scale = data.cfgScale;
+            if (data.vaeTiling !== undefined) payload.vae_tiling = data.vaeTiling;
+            if (data.modelFamily !== undefined) payload.model_family = data.modelFamily;
+            if (data.videoFrames !== undefined || data.video_frames !== undefined) payload.video_frames = data.videoFrames ?? data.video_frames;
+            if (data.fps !== undefined) payload.fps = data.fps;
+            if (data.flowShift !== undefined || data.flow_shift !== undefined) payload.flow_shift = data.flowShift ?? data.flow_shift;
+            if (data.temporalTiling !== undefined || data.temporal_tiling !== undefined) payload.temporal_tiling = data.temporalTiling ?? data.temporal_tiling;
+            if (data.offloadToCpu !== undefined || data.offload_to_cpu !== undefined) payload.offload_to_cpu = data.offloadToCpu ?? data.offload_to_cpu;
+
             const res = await fetch(`http://127.0.0.1:${targetPort}/v1/models/load`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ model_path: data.modelId, ...data })
+              body: JSON.stringify(payload)
             });
             if (res.ok) {
+              let loadBody: any = {};
+              try { loadBody = await res.json(); } catch {}
               const baseName = path.basename(data.modelId);
-              if (data.target === 'diffusion') {
+              const baseLower = baseName.toLowerCase();
+              const normPath = String(data.modelId || '').replace(/\\/g, '/').toLowerCase();
+              const explicitMod = String(loadBody?.modality || data.modality || '').toLowerCase();
+              const matched = this._cachedLocalModels.find((m: any) =>
+                m.id === data.modelId || m.path === data.modelId || path.basename(String(m.id || '')) === baseName
+              );
+              const matchedMod = String(matched?.modality || '').toLowerCase();
+              const isDiff = data.target === 'diffusion'
+                || data.modelFamily === 'diffusion_flow'
+                || explicitMod === 'video'
+                || explicitMod === 'image'
+                || matchedMod === 'video'
+                || matchedMod === 'image'
+                || normPath.includes('/video/')
+                || normPath.startsWith('video/')
+                || normPath.includes('/image/')
+                || normPath.startsWith('image/')
+                || baseLower.includes('wan')
+                || baseLower.includes('ltx')
+                || baseLower.includes('hunyuanvideo')
+                || baseLower.includes('cogvideo')
+                || baseLower.includes('mochi')
+                || baseLower.includes('flux')
+                || baseLower.includes('sd-')
+                || baseLower.includes('sd_')
+                || baseLower.includes('sdxl')
+                || baseLower.includes('diffusion')
+                || (baseLower.includes('qwen') && baseLower.includes('image'))
+                || baseLower.includes('dit');
+
+              if (isDiff) {
+                const resolvedModality = this._inferDiffusionModality(data.modelId, loadBody?.modality || data.modality);
+                this._cachedLocalModelName = '';
                 this._cachedDiffusionModelName = baseName;
-                this.updateDiffusionModel(baseName);
-                vscode.window.showInformationMessage(`Diffusion Model ${baseName} active on Port 47992`);
+                if (data.resolution) this._cachedDiffusionResolution = data.resolution;
+                this._cachedDiffusionModality = resolvedModality;
+                this.updateDiffusionModel(baseName, data.resolution, resolvedModality);
+                vscode.window.showInformationMessage(`${resolvedModality === 'video' ? 'Video' : 'Diffusion'} Model ${baseName} active${data.resolution ? ` (${data.resolution})` : ''}`);
+                this._view?.webview.postMessage({
+                  type: 'settingsState',
+                  model: `diffusion:${baseName}`,
+                  localLlmModelName: '',
+                  activeDiffusionModel: baseName,
+                  activeDiffusionResolution: this._cachedDiffusionResolution || data.resolution,
+                  activeDiffusionModality: resolvedModality
+                });
               } else {
+                this._cachedDiffusionModelName = '';
+                this._cachedDiffusionResolution = '';
+                this._cachedDiffusionModality = '';
                 this._cachedLocalModelName = baseName;
                 this.updateActiveModel(baseName, data.ctxSize || 8192);
                 vscode.window.showInformationMessage(`Loaded ${baseName} into memory.`);
+                this._view?.webview.postMessage({
+                  type: 'settingsState',
+                  model: `local:${baseName}`,
+                  localLlmModelName: baseName,
+                  activeDiffusionModel: '',
+                  activeDiffusionModality: ''
+                });
               }
-              // Refresh state
-              this._view?.webview.postMessage({
-                type: 'settingsState',
-                model: data.target === 'diffusion' ? `diffusion:${baseName}` : `local:${baseName}`,
-                localLlmModelName: data.target === 'diffusion' ? undefined : baseName,
-                activeDiffusionModel: data.target === 'diffusion' ? baseName : undefined
-              });
+            } else {
+              const errText = await res.text().catch(() => `HTTP ${res.status}`);
+              vscode.window.showErrorMessage(`Failed to load model: ${errText}`);
             }
           } catch (e: any) {
             vscode.window.showErrorMessage(`Failed to load model: ${e.message}`);
@@ -636,7 +757,7 @@ export class ExovonSidebarProvider implements vscode.WebviewViewProvider {
         case 'unloadLocalModel': {
           try {
             const fetch = (await import('node-fetch')).default;
-            const targetPort = data.target === 'diffusion' ? 47992 : 47990;
+            const targetPort = 47990; // Unified Rust daemon handles both LLM and Diffusion models on Port 47990
             const res = await fetch(`http://127.0.0.1:${targetPort}/v1/models/unload`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -645,12 +766,18 @@ export class ExovonSidebarProvider implements vscode.WebviewViewProvider {
             if (res.ok) {
               if (data.target === 'diffusion') {
                 this._cachedDiffusionModelName = '';
+                this._cachedDiffusionResolution = '';
+                this._cachedDiffusionModality = '';
                 this.updateDiffusionModel(null);
                 vscode.window.showInformationMessage('Diffusion Model unloaded from memory.');
               } else {
                 this._cachedLocalModelName = '';
+                this._cachedDiffusionModelName = '';
+                this._cachedDiffusionResolution = '';
+                this._cachedDiffusionModality = '';
                 this.updateActiveModel(null);
-                vscode.window.showInformationMessage('LLM unloaded from memory. VRAM/RAM freed.');
+                this.updateDiffusionModel(null);
+                vscode.window.showInformationMessage('Model unloaded from memory. VRAM/RAM freed.');
               }
             }
           } catch (e: any) {
@@ -710,53 +837,179 @@ export class ExovonSidebarProvider implements vscode.WebviewViewProvider {
         case 'initiateAgent': {
           const { mode, prompt, contextFiles, threadId, messageId } = data;
 
-          if (data.model?.startsWith('diffusion') || data.isDiffusion || data.model?.toLowerCase().includes('sd-turbo')) {
+          const modelLower = (data.model || '').toLowerCase();
+          const cleanModel = (data.model || '').replace(/^(?:diffusion|video|local):/i, '');
+          const cleanLower = cleanModel.toLowerCase();
+          const matchedLocal = this._cachedLocalModels.find((m: any) =>
+            m.id === cleanModel || m.path === cleanModel || path.basename(String(m.id || '')) === path.basename(cleanModel) || m.name === cleanModel
+          );
+          const matchedMod = String(matchedLocal?.modality || '').toLowerCase();
+          const matchedRel = String(matchedLocal?.relative_path || '').replace(/\\/g, '/').toLowerCase();
+          const isVideoHint = data.modality === 'video'
+            || data.model?.startsWith('video:')
+            || matchedMod === 'video'
+            || matchedRel.startsWith('video/')
+            || (this._cachedDiffusionModality === 'video' && (!cleanModel || cleanModel === this._cachedDiffusionModelName || Boolean(data.isDiffusion)))
+            || cleanLower.includes('wan')
+            || cleanLower.includes('ltx')
+            || cleanLower.includes('hunyuanvideo')
+            || cleanLower.includes('cogvideo')
+            || cleanLower.includes('mochi');
+          const isDiffusion = data.model?.startsWith('diffusion') ||
+            data.model?.startsWith('video:') ||
+            data.isDiffusion ||
+            isVideoHint ||
+            data.modality === 'image' ||
+            matchedMod === 'image' ||
+            matchedRel.startsWith('image/') ||
+            modelLower.includes('flux') ||
+            modelLower.includes('sd-') ||
+            modelLower.includes('sd_') ||
+            modelLower.includes('sdxl') ||
+            modelLower.includes('diffusion') ||
+            (modelLower.includes('qwen') && modelLower.includes('image')) ||
+            modelLower.includes('dit');
+
+          if (isDiffusion) {
+            const fetch = (await import('node-fetch')).default;
+            let storedDiffusion: any = null;
+            try {
+              const healthRes = await fetch('http://127.0.0.1:47990/v1/health');
+              if (healthRes.ok) {
+                const healthData = await healthRes.json() as any;
+                storedDiffusion = healthData?.active_diffusion || null;
+                if (storedDiffusion?.model_path) {
+                  this._cachedDiffusionModelName = path.basename(storedDiffusion.model_path);
+                  if (storedDiffusion.resolution) this._cachedDiffusionResolution = storedDiffusion.resolution;
+                  if (storedDiffusion.modality) this._cachedDiffusionModality = storedDiffusion.modality;
+                }
+              }
+            } catch {}
+
+            const isVideo = isVideoHint
+              || storedDiffusion?.modality === 'video'
+              || this._inferDiffusionModality(cleanModel || storedDiffusion?.model_path || this._cachedDiffusionModelName, data.modality, storedDiffusion) === 'video';
+            const mediaType = isVideo ? 'video' : 'image';
+            const displayModelName = cleanModel
+              || (storedDiffusion?.model_path ? path.basename(storedDiffusion.model_path) : '')
+              || this._cachedDiffusionModelName;
+
             webviewView.webview.postMessage({
               type: 'imageGeneratingStart',
               messageId: data.messageId,
-              prompt: data.prompt
+              prompt: data.prompt,
+              modelName: displayModelName,
+              mediaType
             });
             try {
-              const fetch = (await import('node-fetch')).default;
-              const genRes = await fetch('http://127.0.0.1:47992/v1/images/generations', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  prompt: data.prompt,
-                  model: data.model ? data.model.replace('diffusion:', '') : 'sd-turbo-f16.gguf',
-                  size: '512x512',
-                  steps: 4,
-                  cfg_scale: 1.8
-                })
-              });
+              const isFlux = cleanLower.includes('flux');
+              const isQwen = cleanLower.includes('qwen');
+              const isTurbo = cleanLower.includes('turbo') || cleanLower.includes('schnell');
+              const fallbackCfg = isFlux ? 1.0 : (isQwen ? 1.0 : (isTurbo ? 1.8 : 7.0));
+              const fallbackSteps = isTurbo ? 4 : 20;
+
+              const hasAttachedImage = Array.isArray(data.images) && data.images.length > 0;
+              const initImage = hasAttachedImage ? data.images[0] : undefined;
+              const endpoint = isVideo
+                ? '/v1/videos/generations'
+                : (hasAttachedImage ? '/v1/images/edits' : '/v1/images/generations');
+              const requestBody: any = {
+                prompt: data.prompt,
+                model: cleanModel || undefined,
+                size: data.size || data.resolution || storedDiffusion?.resolution || undefined,
+                steps: data.steps ?? storedDiffusion?.steps ?? fallbackSteps,
+                cfg_scale: data.cfg_scale ?? storedDiffusion?.cfg_scale ?? fallbackCfg
+              };
+              const samplerVal = data.sampler ?? storedDiffusion?.sampler;
+              if (samplerVal !== undefined) requestBody.sampler = samplerVal;
+              const vaeTilingVal = data.vae_tiling ?? storedDiffusion?.vae_tiling;
+              if (vaeTilingVal !== undefined) requestBody.vae_tiling = vaeTilingVal;
+              const diffusionFlashAttn =
+                data.diffusion_flash_attn ?? data.diffusionFlashAttn ?? storedDiffusion?.diffusion_flash_attn;
+              if (diffusionFlashAttn !== undefined) requestBody.diffusion_flash_attn = diffusionFlashAttn;
+              if (isVideo) {
+                const videoFrames = data.video_frames ?? data.videoFrames ?? storedDiffusion?.video_frames;
+                const fpsVal = data.fps ?? storedDiffusion?.fps;
+                const flowShift = data.flow_shift ?? data.flowShift ?? storedDiffusion?.flow_shift;
+                const temporalTiling = data.temporal_tiling ?? data.temporalTiling ?? storedDiffusion?.temporal_tiling;
+                const offloadToCpu = data.offload_to_cpu ?? data.offloadToCpu ?? storedDiffusion?.offload_to_cpu;
+                if (videoFrames !== undefined) requestBody.video_frames = videoFrames;
+                if (fpsVal !== undefined) requestBody.fps = fpsVal;
+                if (flowShift !== undefined) requestBody.flow_shift = flowShift;
+                if (temporalTiling !== undefined) requestBody.temporal_tiling = temporalTiling;
+                if (offloadToCpu !== undefined) requestBody.offload_to_cpu = offloadToCpu;
+              }
+              if (initImage) {
+                requestBody.image = initImage;
+                requestBody.strength = data.strength || 0.65;
+              }
+
+              let genRes: any;
+              try {
+                genRes = await fetch(`http://127.0.0.1:47990${endpoint}`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify(requestBody)
+                });
+              } catch {
+                genRes = await fetch(`http://127.0.0.1:47992${endpoint}`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify(requestBody)
+                });
+              }
               if (genRes.ok) {
                 const genData = await genRes.json() as any;
-                const b64 = genData.data?.[0]?.b64_json;
-                if (b64) {
-                  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '/tmp';
+                const firstItem = genData.data?.[0] || genData;
+                const b64 = firstItem?.b64_json;
+                const returnedPath = firstItem?.path || firstItem?.file_path || genData.path || genData.file_path;
+                const rawExt = String(firstItem?.ext || genData.ext || (returnedPath ? path.extname(String(returnedPath)) : '') || (isVideo ? 'mp4' : 'png'))
+                  .replace(/^\./, '')
+                  .toLowerCase();
+                const ext = rawExt || (isVideo ? 'mp4' : 'png');
+                const mimeType = String(firstItem?.mime_type || genData.mime_type || (
+                  isVideo
+                    ? (ext === 'webm' ? 'video/webm' : ext === 'mov' ? 'video/quicktime' : ext === 'avi' ? 'video/x-msvideo' : 'video/mp4')
+                    : (ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : ext === 'webp' ? 'image/webp' : 'image/png')
+                ));
+
+                if (b64 || (returnedPath && fs.existsSync(String(returnedPath)))) {
+                  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || os.tmpdir();
                   const outDir = path.join(workspaceRoot, 'assets');
                   if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
-                  const fileName = `generated_${Date.now()}.png`;
+                  const fileName = `generated_${Date.now()}.${ext}`;
                   const outPath = path.join(outDir, fileName);
-                  fs.writeFileSync(outPath, Buffer.from(b64, 'base64'));
+                  if (b64) {
+                    fs.writeFileSync(outPath, Buffer.from(b64, 'base64'));
+                  } else if (returnedPath && fs.existsSync(String(returnedPath))) {
+                    fs.copyFileSync(String(returnedPath), outPath);
+                  }
 
+                  this._ensureResourceRoot(webviewView.webview, outDir);
+                  const mediaUrl = webviewView.webview.asWebviewUri(vscode.Uri.file(outPath)).toString();
                   webviewView.webview.postMessage({
                     type: 'imageGeneratingComplete',
                     messageId: data.messageId,
-                    b64_json: b64,
+                    mediaType,
+                    mimeType,
+                    ext,
+                    mediaUrl,
+                    videoUrl: isVideo ? mediaUrl : undefined,
+                    b64_json: isVideo ? undefined : b64,
                     savedPath: outPath,
+                    modelName: displayModelName,
                     prompt: data.prompt
                   });
                   return;
                 }
               }
               const errText = await genRes.text();
-              throw new Error(errText || 'Diffusion worker returned an error');
+              throw new Error(errText || `${isVideo ? 'Video' : 'Diffusion'} worker returned an error`);
             } catch (err: any) {
               webviewView.webview.postMessage({
                 type: 'imageGeneratingFailed',
                 messageId: data.messageId,
-                error: err.message || 'Diffusion Engine generation failed on Port 47992'
+                error: err.message || `${isVideo ? 'Video' : 'Diffusion'} Engine generation failed on Port 47990`
               });
               return;
             }
@@ -891,7 +1144,7 @@ Developer Action Request: "${finalPrompt}"
                 // Add 120s timeout (BUG-3)
                 const timeout = setTimeout(() => {
                   this._pendingApprovals.delete(approvalId);
-                  webviewView.webview.postMessage({ type: 'agentLog', text: `⏳ Approval timed out after 120 seconds.`, logType: 'warning' });
+                  webviewView.webview.postMessage({ type: 'agentLog', text: `Approval timed out after 120 seconds.`, logType: 'warning' });
                   resolve(false);
                 }, 120000);
 
@@ -915,7 +1168,7 @@ Developer Action Request: "${finalPrompt}"
                 // Add 120s timeout (BUG-3)
                 const timeout = setTimeout(() => {
                   this._pendingApprovals.delete(approvalId);
-                  webviewView.webview.postMessage({ type: 'agentLog', text: `⏳ File approval timed out after 120 seconds.`, logType: 'warning' });
+                  webviewView.webview.postMessage({ type: 'agentLog', text: `File approval timed out after 120 seconds.`, logType: 'warning' });
                   resolve(false);
                 }, 120000);
 
@@ -1029,7 +1282,7 @@ Developer Action Request: "${finalPrompt}"
           if (!selectedModel) {
             webviewView.webview.postMessage({
               type: 'agentLog',
-              text: '⚠️ No model is currently loaded in memory. Please select or load a model from the Model Selector.',
+              text: 'No model is currently loaded in memory. Please select or load a model from the Model Selector.',
               logType: 'error',
               messageId
             });
@@ -1124,7 +1377,7 @@ Developer Action Request: "${finalPrompt}"
             const res = await this._activeOrchestrator.rollbackToCheckpoint(initChkId);
             webviewView.webview.postMessage({
               type: 'agentLog',
-              text: res.success ? `🔄 ACID Rollback: Reverted workspace to pre-run checkpoint.` : `⚠️ Rollback failed: ${res.error}`,
+              text: res.success ? `ACID Rollback: Reverted workspace to pre-run checkpoint.` : `Rollback failed: ${res.error}`,
               logType: res.success ? 'info' : 'warning'
             });
             if (res.success && res.restoredCheckpoint) {
@@ -1137,12 +1390,12 @@ Developer Action Request: "${finalPrompt}"
             }
           } else if (this._activeOrchestrator) {
             const res = await this._activeOrchestrator.getFsTools().clearShadowWorkspace();
-            webviewView.webview.postMessage({ type: 'agentLog', text: `🔄 ${res}`, logType: 'info' });
+            webviewView.webview.postMessage({ type: 'agentLog', text: `${res}`, logType: 'info' });
           } else {
             // Even if no active orchestrator, we can instantiate a fresh tool just to clean
             const fsTools = new FileSystemTools();
             const res = await fsTools.clearShadowWorkspace();
-            webviewView.webview.postMessage({ type: 'agentLog', text: `🔄 ${res}`, logType: 'info' });
+            webviewView.webview.postMessage({ type: 'agentLog', text: `${res}`, logType: 'info' });
           }
           break;
         }
@@ -1151,7 +1404,7 @@ Developer Action Request: "${finalPrompt}"
           const { value } = data;
           const config = vscode.workspace.getConfiguration('exovonhub');
           await config.update('autonomousMode', value, vscode.ConfigurationTarget.Global);
-          vscode.window.showInformationMessage(`⚡ Exovon Autopilot Mode set to: ${value ? 'Fully Autonomous' : 'Review/Approval Required'}`);
+          vscode.window.showInformationMessage(`Exovon Autopilot Mode set to: ${value ? 'Fully Autonomous' : 'Review/Approval Required'}`);
           break;
         }
 
@@ -1304,10 +1557,17 @@ Developer Action Request: "${finalPrompt}"
               vscode.window.showInformationMessage(`Starting download for ${data.filename}... Check the terminal for progress if attached.`);
               const fetch = (await import('node-fetch')).default;
               
+              const downloadPayload: any = { url: data.url, filename: data.filename };
+              if ((data.repo_id ?? data.repoId) !== undefined) downloadPayload.repo_id = data.repo_id ?? data.repoId;
+              if ((data.pipeline_tag ?? data.pipelineTag) !== undefined) downloadPayload.pipeline_tag = data.pipeline_tag ?? data.pipelineTag;
+              if (data.tags !== undefined) downloadPayload.tags = data.tags;
+              if ((data.modality_hint ?? data.modalityHint) !== undefined) downloadPayload.modality_hint = data.modality_hint ?? data.modalityHint;
+              if ((data.component_role ?? data.componentRole) !== undefined) downloadPayload.component_role = data.component_role ?? data.componentRole;
+
               fetch('http://127.0.0.1:47990/v1/models/download', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ url: data.url, filename: data.filename })
+                body: JSON.stringify(downloadPayload)
               })
               .then(async (res) => {
                 if (res.ok) {
@@ -1420,7 +1680,7 @@ Developer Action Request: "${finalPrompt}"
               break;
             }
 
-            if (/\.(png|jpe?g|gif|webp|svg|ico|bmp|pdf)$/i.test(lowerPath)) {
+            if (/\.(png|jpe?g|gif|webp|svg|ico|bmp|pdf|mp4|webm|avi|mov|mkv)$/i.test(lowerPath)) {
               vscode.commands.executeCommand('vscode.open', fileUri, { preview: false }).then(undefined, (err) => {
                 console.warn('[Astrolabe] vscode.open media failed:', err);
                 vscode.window.showErrorMessage(`Failed to open media: ${rawTarget}`);
@@ -1553,7 +1813,7 @@ Developer Action Request: "${finalPrompt}"
             const title = thread?.title || 'Chat';
             let markdown = `# ${title}\n\n*Exported on ${new Date().toLocaleString()}*\n\n---\n\n`;
             for (const msg of messages) {
-              const sender = msg.sender === 'user' ? '👤 User' : '🤖 Astrolabe Agent';
+              const sender = msg.sender === 'user' ? 'User' : 'Astrolabe Agent';
               markdown += `### ${sender} (${msg.timestamp || ''})\n\n${msg.text || ''}\n\n`;
               if (msg.toolCalls && msg.toolCalls.length > 0) {
                 markdown += `> **Tools Used**: ${msg.toolCalls.map((tc: any) => tc.name).join(', ')}\n\n`;
@@ -1568,7 +1828,30 @@ Developer Action Request: "${finalPrompt}"
 
         case 'loadChatThread': {
           if (this._brainCoordinator && data.threadId) {
-            const messages = this._brainCoordinator.loadChatThread(data.threadId);
+            const rawMessages = this._brainCoordinator.loadChatThread(data.threadId);
+            const messages = Array.isArray(rawMessages)
+              ? rawMessages.map((msg: any) => {
+                  let savedPath = msg?.savedPath;
+                  if ((!savedPath || typeof savedPath !== 'string') && typeof msg?.text === 'string') {
+                    const savedMatch = msg.text.match(/\*?Saved to:?\s*`?(\/[^\n`*]+\.(?:png|jpe?g|webp|gif|mp4|webm|mov|mkv|avi))`?\*?/i);
+                    if (savedMatch?.[1]) {
+                      savedPath = savedMatch[1].trim();
+                    }
+                  }
+                  if (savedPath && typeof savedPath === 'string' && fs.existsSync(savedPath)) {
+                    this._ensureResourceRoot(webviewView.webview, path.dirname(savedPath));
+                    const isVid = msg.generatedMediaType === 'video' || /\.(mp4|webm|mov|mkv|avi)$/i.test(savedPath);
+                    const refreshedUrl = webviewView.webview.asWebviewUri(vscode.Uri.file(savedPath)).toString();
+                    return {
+                      ...msg,
+                      savedPath,
+                      generatedMediaType: isVid ? 'video' : (msg.generatedMediaType || 'image'),
+                      generatedMediaUrl: refreshedUrl
+                    };
+                  }
+                  return msg;
+                })
+              : rawMessages;
             webviewView.webview.postMessage({
               type: 'chatHistoryLoaded',
               messages,
@@ -1646,7 +1929,7 @@ Developer Action Request: "${finalPrompt}"
   public async commitShadowFile(filePath: string) {
     if (this._activeOrchestrator) {
       const res = await this._activeOrchestrator.getFsTools().commitShadowFile(filePath);
-      this._view?.webview.postMessage({ type: 'agentLog', text: `✔️ Committed sandboxed changes: ${res}`, logType: 'success' });
+      this._view?.webview.postMessage({ type: 'agentLog', text: `Committed sandboxed changes: ${res}`, logType: 'success' });
       // Notify webview to remove it from the list
       this._view?.webview.postMessage({ type: 'speculativeDiffResolved', filePath });
     }
@@ -1655,9 +1938,27 @@ Developer Action Request: "${finalPrompt}"
   public async revertShadowFile(filePath: string) {
     if (this._activeOrchestrator) {
       const res = await this._activeOrchestrator.getFsTools().revertShadowFile(filePath);
-      this._view?.webview.postMessage({ type: 'agentLog', text: `❌ Reverted sandbox changes: ${res}`, logType: 'warning' });
+      this._view?.webview.postMessage({ type: 'agentLog', text: `Reverted sandbox changes: ${res}`, logType: 'warning' });
       // Notify webview to remove it from the list
       this._view?.webview.postMessage({ type: 'speculativeDiffResolved', filePath });
+    }
+  }
+
+  private _ensureResourceRoot(webview: vscode.Webview, dirPath: string) {
+    try {
+      const existing = webview.options.localResourceRoots || [];
+      const targetUri = vscode.Uri.file(dirPath);
+      const alreadyAllowed = existing.some(
+        (uri) => targetUri.fsPath === uri.fsPath || targetUri.fsPath.startsWith(uri.fsPath + path.sep)
+      );
+      if (!alreadyAllowed) {
+        webview.options = {
+          ...webview.options,
+          localResourceRoots: [...existing, targetUri]
+        };
+      }
+    } catch {
+      // Ignore invalid URI updates
     }
   }
 
@@ -1710,7 +2011,7 @@ Developer Action Request: "${finalPrompt}"
     webviewHtml = webviewHtml.replace(/\scrossorigin(="")?/g, '');
 
     // Inject compatible CSP meta tag
-    const cspMeta = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src ${webview.cspSource} 'unsafe-inline'; img-src ${webview.cspSource} https: data:; connect-src ${webview.cspSource} https:;">`;
+    const cspMeta = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src ${webview.cspSource} 'unsafe-inline'; img-src ${webview.cspSource} https: data: blob:; media-src ${webview.cspSource} https: data: blob:; connect-src ${webview.cspSource} https:;">`;
     webviewHtml = webviewHtml.replace('<head>', `<head>\n    ${cspMeta}`);
 
     return webviewHtml;
