@@ -16,6 +16,11 @@ mod llama_server;
 mod llama_updater;
 mod llama_updater_fs;
 mod llama_updater_match;
+mod diffusion_common;
+mod diffusion_companions;
+mod diffusion_runner;
+mod diffusion_images;
+mod diffusion_videos;
 
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -71,6 +76,8 @@ pub struct AppState {
     pub hf_token: RwLock<Option<String>>,
     pub use_mirror: RwLock<bool>,
     pub active_diffusion: RwLock<ActiveDiffusionConfig>,
+    pub diffusion_progress: Arc<RwLock<Option<diffusion_runner::DiffusionProgressDto>>>,
+    pub diffusion_cancel: Arc<RwLock<Option<tokio::sync::watch::Sender<bool>>>>,
 }
 
 #[derive(Parser, Debug)]
@@ -207,6 +214,8 @@ async fn main() {
         hf_token: RwLock::new(initial_hf_token),
         use_mirror: RwLock::new(initial_use_mirror),
         active_diffusion: RwLock::new(ActiveDiffusionConfig::default()),
+        diffusion_progress: Arc::new(RwLock::new(None)),
+        diffusion_cancel: Arc::new(RwLock::new(None)),
     });
 
     let app = api::build_router(state.clone());
@@ -242,6 +251,12 @@ async fn shutdown_signal(state: Arc<AppState>) {
     }
 
     tracing::info!("Shutdown signal received; cleaning up active inference engine...");
+    {
+        let cancel_guard = state.diffusion_cancel.read().await;
+        if let Some(tx) = cancel_guard.as_ref() {
+            let _ = tx.send(true);
+        }
+    }
     let engine = {
         let mut guard = state.engine.write().await;
         guard.take()
