@@ -251,3 +251,18 @@ export function StepStatusBadge({ status }: { status: 'running' | 'success' | 'f
 
   return <span className="w-2 h-2 rounded-full bg-zinc-500" />;
 }
+
+export {
+  ChatHistoryIcon,
+  FetchPageIcon,
+  FolderListIcon,
+  DocCreateIcon,
+  DeleteFileIcon,
+  MemoryGraphIcon,
+  ImageGenIcon,
+  SubAgentIcon,
+  CloudDeployIcon,
+  ToolboxIcon,
+  CompactIcon,
+} from './ExtendedToolIcons';
+export { ToolStepIcon } from './ToolStepIcon';

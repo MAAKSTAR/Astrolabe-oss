@@ -3,6 +3,7 @@ import { extractModelMetadata } from './modelUtils';
 import { ModelInspector } from './ModelInspector';
 import { ModelOrgAvatar } from './ModelOrgAvatar';
 import { ModelCapabilityBadges } from './ModelCapabilityIcons';
+import { type ModelPreferencesMap, resolveSavedModelPreference } from './modelPreferencesClient';
 
 type FilterPillType = 'all' | 'llm' | 'vision' | 'image' | 'video' | 'music' | 'ghost' | 'components';
 
@@ -40,6 +41,7 @@ export interface LocalModelsViewProps {
   activeGhostModel: string | null;
   localModelsDir: string;
   isGhostEnabled?: boolean;
+  savedModelPreferences?: ModelPreferencesMap;
 }
 
 export const LocalModelsView: React.FC<LocalModelsViewProps> = ({
@@ -50,7 +52,8 @@ export const LocalModelsView: React.FC<LocalModelsViewProps> = ({
   activeLocalModel,
   activeGhostModel,
   localModelsDir,
-  isGhostEnabled = true
+  isGhostEnabled = true,
+  savedModelPreferences
 }) => {
   // Selected model ID for master-detail view (prefer active or first runnable model)
   const [selectedModelId, setSelectedModelId] = useState<string | null>(() => {
@@ -509,6 +512,12 @@ export const LocalModelsView: React.FC<LocalModelsViewProps> = ({
             daemonHealth={daemonHealth}
             activeLocalModel={activeLocalModel}
             activeGhostModel={activeGhostModel}
+            savedPreference={resolveSavedModelPreference(
+              savedModelPreferences,
+              selectedModel.path,
+              selectedModel.id,
+              selectedModel.name
+            )}
             isModelLoading={matchesModelIdentifier(selectedModel, effectiveLoadingModelId)}
             modelLoadProgress={matchesModelIdentifier(selectedModel, effectiveLoadingModelId) ? effectiveLoadProgress : undefined}
             onStartLoading={(modelId) => {

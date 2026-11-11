@@ -1,3 +1,5 @@
+import type { ToolIconKind } from './utils/toolStepMetadata';
+
 export interface PlanStep {
   id: string;
   text: string;
@@ -18,6 +20,7 @@ export interface TimelineEvent {
   title?: string;
   content?: string;
   toolName?: string;
+  iconKind?: ToolIconKind;
   output?: string;
   checkpointId?: string;
   actionVerb?: string;
@@ -69,9 +72,22 @@ export interface Message {
   isGeneratingImage?: boolean;
   generatedImagePrompt?: string;
   generatedImageB64?: string;
+  diffusionStage?: string;
+  diffusionStep?: number;
+  diffusionTotalSteps?: number;
+  diffusionPercent?: number;
   promptTokens?: number;
   promptProcessed?: number;
   metrics?: InferenceMetrics;
+  contextFiles?: string[];
+  contextMarkerType?: 'compacted' | 'cleared';
+  beforeTokens?: number;
+  afterTokens?: number;
+  autoCompaction?: {
+    beforeTokens: number;
+    afterTokens: number;
+    savedTokens: number;
+  };
 }
 
 export interface Deployment {

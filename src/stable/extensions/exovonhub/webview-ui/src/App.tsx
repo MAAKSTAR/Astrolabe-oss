@@ -6,6 +6,9 @@ import { ChatHistoryDrawer } from './components/ChatHistoryDrawer'
 import { CortexCanvas } from './components/CortexCanvas'
 import { HubScreen } from './components/HubScreen'
 import { getVsCodeApi } from './vscodeApi'
+import { buildEffectiveHistory, type ContextFileItem } from './utils/dragDropContext'
+import { computeThreadTokenStats } from './utils/threadTokenStats'
+import { resolveToolStepMeta } from './utils/toolStepMetadata'
 
 import { MotionStudioPanel } from './components/MotionStudioPanel'
 
@@ -58,7 +61,6 @@ export default function App() {
   // Workspace Info
 
   const [speculativeDiffs, setSpeculativeDiffs] = useState<Array<{ path: string; diffLines: Array<{ type: 'added' | 'removed' | 'unchanged'; text: string }> }>>([]);
-  const [activeEditorFile, setActiveEditorFile] = useState<string | undefined>(undefined);
   const [isGovernorModalOpen, setIsGovernorModalOpen] = useState<boolean>(false);
   const [governorStatus, setGovernorStatus] = useState<GovernorStatus | null>(null);
   const [selectedModel, setSelectedModel] = useState<string>('');
@@ -108,9 +110,10 @@ export default function App() {
   const [isAgentThinking, setIsAgentThinking] = useState<boolean>(false);
   const [isPreempting, setIsPreempting] = useState<boolean>(false);
   const [stopClicks, setStopClicks] = useState<number>(0);
-  const [selectedContextFiles, setSelectedContextFiles] = useState<Array<{ name: string; type: string }>>([]);
+  const [selectedContextFiles, setSelectedContextFiles] = useState<ContextFileItem[]>([]);
   const [attachedImages, setAttachedImages] = useState<string[]>([]);
   const [workspaceRoot, setWorkspaceRoot] = useState<string>('');
+  const [isCompactingContext, setIsCompactingContext] = useState<boolean>(false);
   
   // Chat Persistence State
   const [chatThreads, setChatThreads] = useState<ChatThread[]>([]);
@@ -392,6 +395,10 @@ export default function App() {
                 generatedImagePrompt: message.prompt,
                 generatingModelName: message.modelName || prevMsg.generatingModelName,
                 generatingMediaType: isVideoStart ? 'video' : 'image',
+                diffusionStage: isVideoStart ? 'Loading video pipeline...' : 'Loading diffusion pipeline...',
+                diffusionStep: 0,
+                diffusionTotalSteps: 0,
+                diffusionPercent: 5,
                 startTime: Date.now()
               } as ExtendedMessage;
             }
@@ -499,7 +506,6 @@ export default function App() {
           break;
           
         case 'activeEditorChanged':
-          setActiveEditorFile(message.fileName);
           break;
           
         case 'agentLog':
@@ -537,10 +543,12 @@ export default function App() {
 
               // Only real errors, warnings, or explicit user milestones belong in the task progress stepper
               if (!isInternalVerboseLog && (message.logType === 'error' || message.logType === 'warning' || message.text.includes('Plan approved') || message.text.includes('Plan submitted'))) {
+                const isPlanLog = message.text.includes('Plan approved') || message.text.includes('Plan submitted');
                 timeline.push({
                   id: 'log-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9),
                   type: 'log',
-                  status: message.logType === 'error' ? 'failed' : 'running',
+                  status: message.logType === 'error' ? 'failed' : 'success',
+                  iconKind: isPlanLog ? 'plan' : 'log',
                   title: logTitle,
                   content: message.text
                 });
@@ -555,6 +563,23 @@ export default function App() {
             return copy;
           });
           break;
+        case 'diffusionProgress':
+          setMessages(prev => {
+            const copy = [...prev];
+            const targetIdx = message.messageId ? copy.findIndex(m => m.id === message.messageId) : copy.length - 1;
+            if (targetIdx !== -1) {
+              copy[targetIdx] = {
+                ...copy[targetIdx],
+                diffusionStage: message.stage || copy[targetIdx].diffusionStage,
+                diffusionStep: message.step ?? copy[targetIdx].diffusionStep,
+                diffusionTotalSteps: message.totalSteps ?? copy[targetIdx].diffusionTotalSteps,
+                diffusionPercent: message.percent ?? copy[targetIdx].diffusionPercent,
+              };
+            }
+            return copy;
+          });
+          break;
+
         case 'agentPromptProgress':
           if (message.promptTokens) {
             setCurrentContextTokens(message.promptTokens);
@@ -601,15 +626,103 @@ export default function App() {
           });
           break;
 
+        case 'contextCompactingStart':
+          setIsCompactingContext(true);
+          break;
+
+        case 'contextCompactionFailed':
+          setIsCompactingContext(false);
+          break;
+
         case 'contextCleared':
+          setIsCompactingContext(false);
           setCurrentContextTokens(0);
+          setMessages(prev => {
+            const hasTail = prev.some(m => m.id !== 'welcome') && prev[prev.length - 1]?.contextMarkerType !== 'cleared';
+            if (!hasTail) {
+              return prev;
+            }
+            const clearMsg: Message = {
+              id: generateMessageId('ctx-clear'),
+              sender: 'agent',
+              text: 'Context cleared — next message starts with clean KV memory.',
+              timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+              contextMarkerType: 'cleared',
+              endTime: Date.now(),
+              isHistory: true,
+            };
+            return [...prev, clearMsg];
+          });
           break;
 
         case 'contextPruned':
+          setIsCompactingContext(false);
           if (message.estimatedTokens !== undefined) {
             setCurrentContextTokens(message.estimatedTokens);
           }
+          if (message.compactedSummary) {
+            setMessages(prev => {
+              const compactMsg: Message = {
+                id: generateMessageId('ctx-compact'),
+                sender: 'agent',
+                text: message.compactedSummary,
+                timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                contextMarkerType: 'compacted',
+                beforeTokens: message.beforeTokens,
+                afterTokens: message.afterTokens,
+                endTime: Date.now(),
+                isHistory: true,
+              };
+              return [...prev, compactMsg];
+            });
+          }
           break;
+
+        case 'agentContextCompacted': {
+          if (typeof message.afterTokens === 'number') {
+            setCurrentContextTokens(message.afterTokens);
+          }
+          const beforeT = typeof message.beforeTokens === 'number' ? message.beforeTokens : 0;
+          const afterT = typeof message.afterTokens === 'number' ? message.afterTokens : 0;
+          const savedT = typeof message.savedTokens === 'number' ? message.savedTokens : Math.max(0, beforeT - afterT);
+          setMessages(prev => {
+            const copy = [...prev];
+            const targetIdx = message.messageId
+              ? copy.findIndex(m => m.id === message.messageId)
+              : copy.map(m => m.sender).lastIndexOf('agent');
+            if (targetIdx !== -1) {
+              const targetMsg = copy[targetIdx];
+              const timeline = [...(targetMsg.timeline || [])];
+              const compactStepId = `auto-compact-${targetMsg.id}`;
+              const existingIdx = timeline.findIndex(e => e.id === compactStepId);
+              const existingSaved = targetMsg.autoCompaction?.savedTokens || 0;
+              const compactStep = {
+                id: compactStepId,
+                type: 'log' as const,
+                status: 'success' as const,
+                iconKind: 'compact' as const,
+                title: `KV Compacted (~${beforeT.toLocaleString()} → ~${afterT.toLocaleString()} tokens · -${savedT.toLocaleString()} freed)`,
+                content: message.text || `Agent auto-compacted older context (~${beforeT.toLocaleString()} → ~${afterT.toLocaleString()} tokens).`,
+              };
+              if (existingIdx !== -1) {
+                timeline[existingIdx] = compactStep;
+              } else {
+                timeline.push(compactStep);
+              }
+              copy[targetIdx] = {
+                ...targetMsg,
+                autoCompaction: {
+                  beforeTokens: Math.max(beforeT, targetMsg.autoCompaction?.beforeTokens || 0),
+                  afterTokens: afterT,
+                  savedTokens: existingSaved + savedT,
+                },
+                timeline,
+              };
+            }
+            return copy;
+          });
+          break;
+        }
 
         case 'agentReasoning':
           if (!message.messageId) break;
@@ -683,10 +796,17 @@ export default function App() {
 
               copy[targetIdx] = {
                 ...lastMsg,
+                isGeneratingImage: false,
                 text: cleanedText,
                 timeline,
-                endTime: Date.now()
-              };
+                endTime: Date.now(),
+                ...(message.generatedMediaUrl ? {
+                  generatedMediaUrl: message.generatedMediaUrl,
+                  generatedMediaType: message.generatedMediaType,
+                  generatedMediaMime: message.generatedMediaMime,
+                  savedPath: message.savedPath,
+                } : {}),
+              } as ExtendedMessage;
             }
             return copy;
           });
@@ -750,7 +870,13 @@ export default function App() {
             const copy = [...prev];
             for (let i = copy.length - 1; i >= 0; i--) {
               if (copy[i].sender === 'agent') {
-                const msgCopy = { ...copy[i], isCancelled: true, endTime: Date.now() };
+                const msgCopy = {
+                  ...copy[i],
+                  isCancelled: true,
+                  isGeneratingImage: false,
+                  text: copy[i].text || (copy[i].isGeneratingImage ? 'Generation stopped by user.' : ''),
+                  endTime: Date.now()
+                };
                 if (msgCopy.toolCalls) {
                   msgCopy.toolCalls = msgCopy.toolCalls.map(t => {
                     if (t.status === 'running') return { ...t, status: 'stopped' };
@@ -897,75 +1023,23 @@ export default function App() {
                 timeline[timeline.length - 1] = { ...lastEvent, status: 'success' };
               }
               
-              let parsedArgs: Record<string, any> = {};
-              try { parsedArgs = JSON.parse(message.toolArgs); } catch { /* ignore */ }
-
-              const filePath = parsedArgs.relativePath || parsedArgs.TargetFile || parsedArgs.AbsolutePath || parsedArgs.DirectoryPath || parsedArgs.SearchPath || parsedArgs.path || '';
-              const baseFileName = filePath ? filePath.split('/').pop() : '';
-
-              // Extract line numbers from input arguments
-              let lineInfo = '';
-              const startLine = parsedArgs.startLine ?? parsedArgs.StartLine;
-              const endLine = parsedArgs.endLine ?? parsedArgs.EndLine;
-              if (startLine !== undefined && endLine !== undefined) {
-                lineInfo = `${startLine}-${endLine}`;
-              } else if (startLine !== undefined) {
-                lineInfo = `line ${startLine}`;
-              }
-
-              let actionVerb = 'Run';
-              let targetDisplay = '';
-
-              if (message.toolName === 'viewFile' || message.toolName === 'readFile') {
-                actionVerb = 'Read';
-                targetDisplay = baseFileName || filePath || 'file';
-              } else if (message.toolName === 'listDir') {
-                actionVerb = 'List';
-                targetDisplay = parsedArgs.relativePath || '.';
-              } else if (message.toolName === 'multiReplaceFileContent' || message.toolName === 'replaceFileContent' || message.toolName === 'applyPatch' || message.toolName === 'write_to_file') {
-                actionVerb = 'Edit';
-                targetDisplay = baseFileName || filePath || 'file';
-              } else if (message.toolName === 'createFile') {
-                actionVerb = 'Create';
-                targetDisplay = baseFileName || filePath || 'file';
-              } else if (message.toolName === 'deleteFile') {
-                actionVerb = 'Delete';
-                targetDisplay = baseFileName || filePath || 'file';
-              } else if (message.toolName === 'runCommand' || message.toolName === 'run_command') {
-                actionVerb = 'Run';
-                const cmd = parsedArgs.CommandLine || parsedArgs.command || '';
-                targetDisplay = cmd.length > 35 ? cmd.substring(0, 32) + '...' : cmd;
-              } else if (message.toolName === 'grepSearch' || message.toolName === 'grep_search') {
-                actionVerb = 'Search';
-                const q = parsedArgs.query || parsedArgs.Query || '';
-                targetDisplay = q ? `"${q}"` : '';
-              } else if (message.toolName === 'semanticSearch') {
-                actionVerb = 'Search';
-                const q = parsedArgs.query || '';
-                targetDisplay = q ? `"${q}"` : '';
-              } else if (message.toolName === 'searchWeb' || message.toolName === 'search_web') {
-                actionVerb = 'Web';
-                const q = parsedArgs.query || parsedArgs.Query || '';
-                targetDisplay = q ? `"${q}"` : '';
-              } else if (message.toolName === 'generateImage') {
-                actionVerb = 'Generate Image';
-                targetDisplay = parsedArgs.prompt ? `"${parsedArgs.prompt.substring(0, 25)}..."` : '';
-              } else {
-                actionVerb = message.toolName.replace(/([A-Z])/g, ' $1').trim();
-                targetDisplay = baseFileName || '';
-              }
-
-              const toolTitle = `${actionVerb} ${targetDisplay}`.trim();
+              const stepMeta = resolveToolStepMeta({
+                type: 'tool',
+                toolName: message.toolName,
+                content: message.toolArgs
+              });
+              const toolTitle = `${stepMeta.actionVerb} ${stepMeta.targetDisplay}`.trim();
 
               timeline.push({
                 id: message.toolId,
                 type: 'tool',
                 status: 'running',
                 title: toolTitle,
-                actionVerb,
-                targetDisplay,
-                lineInfo,
-                filePath,
+                iconKind: stepMeta.iconKind,
+                actionVerb: stepMeta.actionVerb,
+                targetDisplay: stepMeta.targetDisplay,
+                lineInfo: stepMeta.lineInfo,
+                filePath: stepMeta.filePath,
                 content: message.toolArgs,
                 toolName: message.toolName
               });
@@ -1096,6 +1170,7 @@ export default function App() {
           break;
         case 'newThreadCreated':
           setIsLoadingThread(false);
+          setCurrentContextTokens(0);
           if (message.threadId) {
             setActiveThreadId(message.threadId);
             activeThreadIdRef.current = message.threadId;
@@ -1117,13 +1192,16 @@ export default function App() {
           }
           lastSavedStateRef.current = {};
           if (message.messages && message.messages.length > 0) {
+            const restoredMessages = message.messages.map((m: unknown) => ({ ...(m as object), isHistory: true })) as Message[];
             message.messages.forEach((m: any) => {
               if (m && m.id) {
                 lastSavedStateRef.current[m.id] = JSON.stringify(m);
               }
             });
-            setMessages(message.messages.map((m: unknown) => ({ ...(m as object), isHistory: true })));
+            setMessages(restoredMessages);
+            setCurrentContextTokens(computeThreadTokenStats(restoredMessages).activeContextTokens);
           } else {
+             setCurrentContextTokens(0);
              setMessages([{
               id: 'welcome',
               sender: 'agent',
@@ -1253,10 +1331,49 @@ export default function App() {
     }
   };
 
+  // Action: Ask active LLM to compact conversation context into essential working memory
+  const handleCompactContext = () => {
+    if (!vscodeApi || isAgentThinking || isCompactingContext) return;
+    const { hasCompactableContent } = buildEffectiveHistory(messagesRef.current);
+    if (!hasCompactableContent) return;
+
+    const effectiveModel = selectedModel || (activeDiffusionModel && !activeLocalModel ? `diffusion:${activeDiffusionModel}` : (activeLocalModel ? `local:${activeLocalModel}` : ''));
+    setIsCompactingContext(true);
+    vscodeApi.postMessage({
+      command: 'compactContext',
+      threadId: activeThreadIdRef.current,
+      model: effectiveModel || undefined,
+      maxContextTokens,
+      currentContextTokens,
+      messages: messagesRef.current
+        .filter((m) => m.id !== 'welcome')
+        .map((m) => ({
+          id: m.id,
+          sender: m.sender,
+          text: m.text,
+          contextFiles: m.contextFiles,
+          contextMarkerType: m.contextMarkerType,
+          timeline: m.timeline?.slice(-8),
+        })),
+    });
+  };
+
+  // Action: Clear active LLM context boundary while keeping chat readable on screen
+  const handleClearContext = () => {
+    if (!vscodeApi) return;
+    const lastMsg = messagesRef.current[messagesRef.current.length - 1];
+    vscodeApi.postMessage({
+      command: 'clearKvCache',
+      threadId: activeThreadIdRef.current,
+      anchorMessageId: lastMsg?.id,
+    });
+  };
+
   // Action: User submits prompt in Chat
   const handleSendMessage = (textToSend?: string) => {
-    const promptText = textToSend || inputValue;
-    if (!promptText.trim() && attachedImages.length === 0 || isAgentThinking) return;
+    const rawPrompt = textToSend || inputValue;
+    if ((!rawPrompt.trim() && attachedImages.length === 0 && selectedContextFiles.length === 0) || isAgentThinking) return;
+    const promptText = rawPrompt.trim() || (selectedContextFiles.length > 0 ? 'Inspect and analyze the attached context file(s).' : '');
 
     // Ensure active thread ID exists synchronously so no messages are dropped
     let currentThreadId = activeThreadId;
@@ -1269,14 +1386,17 @@ export default function App() {
     const userMsgId = generateMessageId('user');
     const agentId = generateMessageId('agent');
 
-    // Capture images synchronously for the message payload
+    // Capture attachments and effective compacted/un-cleared history before updating DOM
     const imagesToSubmit = [...attachedImages];
+    const filesToSubmit = [...selectedContextFiles];
+    const { previousMessages: effectiveHistory } = buildEffectiveHistory(messagesRef.current);
 
     const userMsg: Message = {
       id: userMsgId,
       sender: 'user',
       text: promptText,
       images: imagesToSubmit,
+      contextFiles: filesToSubmit.length > 0 ? filesToSubmit.map(f => f.name) : undefined,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     };
 
@@ -1286,6 +1406,7 @@ export default function App() {
     flushSync(() => {
       setInputValue('');
       setAttachedImages([]);
+      setSelectedContextFiles([]);
       setIsAgentThinking(true);
 
       // Append initial agent response structure WITHOUT hardcoded plans
@@ -1323,11 +1444,11 @@ export default function App() {
         modality: isDiff ? visualMeta.modality : undefined,
         resolution: isDiff ? (activeDiffusionResolution || undefined) : undefined,
         prompt: promptText,
-        contextFiles: selectedContextFiles.map(f => f.name),
+        contextFiles: filesToSubmit.map(f => f.path || f.name),
         images: imagesToSubmit,
         messageId: agentId,
         threadId: currentThreadId,
-        messages: messages.map(m => ({ id: m.id, sender: m.sender, text: m.text, timestamp: m.timestamp }))
+        messages: effectiveHistory
       });
     }
   };
@@ -1355,17 +1476,17 @@ export default function App() {
   }, []);
 
   return (
-    <div className="h-screen overflow-hidden bg-transparent flex flex-col px-3 py-2.5 relative font-sans">
+    <div className="h-screen overflow-hidden bg-transparent flex flex-col px-1.5 min-[360px]:px-3 py-2 min-[360px]:py-2.5 relative font-sans">
 
       {/* NATIVE NAVIGATION TABS */}
-      <nav role="tablist" aria-label="Main Navigation" className="flex items-center justify-between bg-[#141416] p-1 rounded-xl mb-2.5 text-xs select-none border border-white/10 shadow-sm">
-        <div className="flex-1 flex items-center gap-0.5 min-w-0">
+      <nav role="tablist" aria-label="Main Navigation" className="flex items-center justify-between bg-[#141416] p-0.5 min-[360px]:p-1 rounded-xl mb-2 min-[360px]:mb-2.5 text-[11px] min-[360px]:text-xs select-none border border-white/10 shadow-sm min-w-0">
+        <div className="flex-1 flex items-center gap-0.5 min-w-0 overflow-x-auto no-scrollbar">
           <button
             role="tab"
             aria-selected={activeTab === 'agent'}
             aria-controls="tabpanel-agent"
             onClick={() => setActiveTab('agent')}
-            className={`flex-1 py-1.5 font-semibold transition-all duration-150 rounded-lg text-center truncate px-1 ${
+            className={`flex-1 min-w-fit py-1 min-[360px]:py-1.5 px-1 min-[360px]:px-2 font-semibold transition-all duration-150 rounded-lg text-center whitespace-nowrap ${
               activeTab === 'agent'
                 ? 'bg-[#26262a] text-white font-bold shadow-sm border border-white/10'
                 : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/5'
@@ -1379,7 +1500,7 @@ export default function App() {
             aria-selected={activeTab === 'cortex'}
             aria-controls="tabpanel-cortex"
             onClick={() => setActiveTab('cortex')}
-            className={`flex-1 py-1.5 font-semibold transition-all duration-150 rounded-lg text-center truncate px-1 ${
+            className={`flex-1 min-w-fit py-1 min-[360px]:py-1.5 px-1 min-[360px]:px-2 font-semibold transition-all duration-150 rounded-lg text-center whitespace-nowrap ${
               activeTab === 'cortex'
                 ? 'bg-[#26262a] text-white font-bold shadow-sm border border-white/10'
                 : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/5'
@@ -1393,7 +1514,7 @@ export default function App() {
             aria-selected={activeTab === 'motion'}
             aria-controls="tabpanel-motion"
             onClick={() => setActiveTab('motion')}
-            className={`flex-1 py-1.5 font-semibold transition-all duration-150 rounded-lg text-center truncate px-1 ${
+            className={`flex-1 min-w-fit py-1 min-[360px]:py-1.5 px-1 min-[360px]:px-2 font-semibold transition-all duration-150 rounded-lg text-center whitespace-nowrap ${
               activeTab === 'motion'
                 ? 'bg-[#26262a] text-white font-bold shadow-sm border border-white/10'
                 : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/5'
@@ -1407,7 +1528,7 @@ export default function App() {
             aria-selected={activeTab === 'hub'}
             aria-controls="tabpanel-hub"
             onClick={() => setActiveTab('hub')}
-            className={`flex-1 py-1.5 font-semibold transition-all duration-150 rounded-lg text-center truncate px-1 ${
+            className={`flex-1 min-w-fit py-1 min-[360px]:py-1.5 px-1 min-[360px]:px-2 font-semibold transition-all duration-150 rounded-lg text-center whitespace-nowrap ${
               activeTab === 'hub'
                 ? 'bg-[#26262a] text-white font-bold shadow-sm border border-white/10'
                 : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/5'
@@ -1418,16 +1539,16 @@ export default function App() {
         </div>
 
         {/* QUICK ACTION BUTTONS (NEW CHAT & PAST CHATS) */}
-        <div className="flex items-center gap-1 ml-1.5 border-l border-white/10 pl-1.5 shrink-0">
+        <div className="flex items-center gap-1 ml-1 pl-1 min-[360px]:ml-1.5 min-[360px]:pl-1.5 border-l border-white/10 shrink-0">
           <button
             onClick={() => handleClearChat()}
-            className="flex items-center gap-1 px-2 py-1 bg-white/5 hover:bg-white/10 text-zinc-300 hover:text-white border border-white/10 rounded-lg text-[10px] font-mono font-medium transition-all shadow-sm shrink-0"
+            className="flex items-center gap-1 p-1.5 min-[400px]:px-2 min-[400px]:py-1 bg-white/5 hover:bg-white/10 text-zinc-300 hover:text-white border border-white/10 rounded-lg text-[10px] font-mono font-medium transition-all shadow-sm shrink-0"
             title="Start New Chat"
           >
             <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4"/>
             </svg>
-            <span className="hidden xs:inline">New</span>
+            <span className="hidden min-[400px]:inline">New</span>
           </button>
 
           <button
@@ -1471,8 +1592,10 @@ export default function App() {
             vscodeApi={vscodeApi}
             chatEndRef={chatEndRef}
             workspaceRoot={workspaceRoot}
-            activeEditorFile={activeEditorFile}
             isPreempting={isPreempting}
+            isCompactingContext={isCompactingContext}
+            onCompactContext={handleCompactContext}
+            onClearContext={handleClearContext}
             selectedModel={selectedModel}
             inspectorActive={inspectorActive}
             attachedImages={attachedImages}

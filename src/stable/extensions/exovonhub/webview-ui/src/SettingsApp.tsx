@@ -4,6 +4,7 @@ import { TrustedBadge, isTrustedPublisher } from './components/settings/TrustedB
 import { ModelCapabilityBadges } from './components/settings/ModelCapabilityIcons';
 import { SystemEngineView } from './components/settings/SystemEngineView';
 import { LocalModelsView } from './components/settings/LocalModelsView';
+import { type ModelPreferencesMap } from './components/settings/modelPreferencesClient';
 import { DiscoverModelDetailsPane } from './components/settings/DiscoverModelDetailsPane';
 import {
   type HfLiveModel,
@@ -559,6 +560,13 @@ export default function SettingsApp() {
         setEmail(message.email || null);
       } else if (message.type === 'settingsState') {
         // model state is now handled in App.tsx chat footer
+        if (message.modelPreferences) {
+          setModelPreferences(message.modelPreferences);
+        }
+      } else if (message.type === 'modelPreferencesUpdated') {
+        if (message.modelPreferences) {
+          setModelPreferences(message.modelPreferences);
+        }
       }
     };
     window.addEventListener('message', handleMessage);
@@ -606,6 +614,7 @@ export default function SettingsApp() {
   const [inlineGhostModel, setInlineGhostModel] = useState<string>('');
   const [enableGhostText, setEnableGhostText] = useState<boolean>(true);
   const [localModelsDir, setLocalModelsDir] = useState<string>('~/.exovon/models');
+  const [modelPreferences, setModelPreferences] = useState<ModelPreferencesMap>({});
 
   // Load Model Modal State
   const [loadModelModalOpen, setLoadModelModalOpen] = useState(false);
@@ -2701,6 +2710,7 @@ export default function SettingsApp() {
             activeGhostModel={inlineGhostModel}
             localModelsDir={localModelsDir}
             isGhostEnabled={enableGhostText}
+            savedModelPreferences={modelPreferences}
           />
         )}
             </div>

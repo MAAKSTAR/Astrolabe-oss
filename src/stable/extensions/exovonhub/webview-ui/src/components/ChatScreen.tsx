@@ -7,17 +7,24 @@ import remarkGfm from 'remark-gfm';
 import 'highlight.js/styles/atom-one-dark.css';
 import TextareaAutosize from 'react-textarea-autosize';
 import { safeMarkdownUrlTransform, extractLegacyMediaText } from './chatMediaHelpers';
+import { ContextMemoryPopover } from './ContextMemoryPopover';
+import { ModelSelectorPopover } from './ModelSelectorPopover';
+import { computeThreadTokenStats } from '../utils/threadTokenStats';
 import {
-  ThinkIcon,
-  ReadFileIcon,
+  buildEffectiveHistory,
+  extractDroppedPathsFromDataTransfer,
+  normalizeDroppedPath,
+  parseExternalDropMessage,
+  type ContextFileItem,
+} from '../utils/dragDropContext';
+import {
   TerminalCommandIcon,
   CodeEditIcon,
-  CodeSearchIcon,
-  GlobeWebIcon,
   PlanIcon,
-  LogIcon,
-  StepStatusBadge
+  StepStatusBadge,
+  ToolStepIcon
 } from './icons/AnimatedToolIcons';
+import { resolveToolStepMeta } from '../utils/toolStepMetadata';
 
 function TypewriterMarkdown({ content, chatEndRef, disableAnimation, vscodeApi }: { content: string; chatEndRef?: React.RefObject<HTMLDivElement | null>, disableAnimation?: boolean; vscodeApi?: VsCodeApi }) {
   const [displayed, setDisplayed] = React.useState(disableAnimation ? content : '');
@@ -74,18 +81,18 @@ function TypewriterMarkdown({ content, chatEndRef, disableAnimation, vscodeApi }
               />
             );
           },
-          h1: ({ children }) => <h1 className="text-[22px] font-bold text-white mt-6 mb-3 pb-2 border-b border-white/10">{children}</h1>,
-          h2: ({ children }) => <h2 className="text-[19px] font-bold text-white mt-5 mb-2.5 pb-1 border-b border-white/5">{children}</h2>,
-          h3: ({ children }) => <h3 className="text-[17.5px] font-semibold text-zinc-100 mt-4 mb-2">{children}</h3>,
-          h4: ({ children }) => <h4 className="text-[16.6px] font-semibold text-zinc-200 mt-3 mb-1.5">{children}</h4>,
-          p: ({ children }) => <p className="text-[16.6px] leading-[1.62] mb-3.5 last:mb-0 text-zinc-200 font-sans">{children}</p>,
-          ul: ({ children }) => <ul className="list-disc list-inside space-y-2 my-3 text-[16.6px] text-zinc-200 pl-1 leading-relaxed">{children}</ul>,
-          ol: ({ children }) => <ol className="list-decimal list-inside space-y-2 my-3 text-[16.6px] text-zinc-200 pl-1 leading-relaxed">{children}</ol>,
-          li: ({ children }) => <li className="text-[16.6px] leading-[1.62] text-zinc-200">{children}</li>,
-          blockquote: ({ children }) => <blockquote className="my-3.5 border-l-2 border-cyan-500/70 bg-zinc-900/60 py-2.5 px-4 rounded-r-lg text-zinc-300 text-[15.8px] leading-relaxed italic">{children}</blockquote>,
+          h1: ({ children }) => <h1 className="text-[20px] font-bold text-white mt-5 mb-2.5 pb-2 border-b border-white/10">{children}</h1>,
+          h2: ({ children }) => <h2 className="text-[17.5px] font-bold text-white mt-4 mb-2 pb-1 border-b border-white/5">{children}</h2>,
+          h3: ({ children }) => <h3 className="text-[16px] font-semibold text-zinc-100 mt-3.5 mb-1.5">{children}</h3>,
+          h4: ({ children }) => <h4 className="text-[15px] font-semibold text-zinc-200 mt-3 mb-1">{children}</h4>,
+          p: ({ children }) => <p className="text-[15px] leading-[1.6] mb-3 last:mb-0 text-zinc-200 font-sans">{children}</p>,
+          ul: ({ children }) => <ul className="list-disc list-inside space-y-1.5 my-2.5 text-[15px] text-zinc-200 pl-1 leading-[1.6]">{children}</ul>,
+          ol: ({ children }) => <ol className="list-decimal list-inside space-y-1.5 my-2.5 text-[15px] text-zinc-200 pl-1 leading-[1.6]">{children}</ol>,
+          li: ({ children }) => <li className="text-[15px] leading-[1.6] text-zinc-200">{children}</li>,
+          blockquote: ({ children }) => <blockquote className="my-3 border-l-2 border-cyan-500/70 bg-zinc-900/60 py-2 px-3.5 rounded-r-lg text-zinc-300 text-[14.5px] leading-relaxed italic">{children}</blockquote>,
           table: ({ children }) => (
-            <div className="my-3.5 overflow-x-auto rounded-xl border border-white/10 bg-zinc-950/60">
-              <table className="w-full text-left text-[15px] border-collapse font-sans">{children}</table>
+            <div className="my-3 overflow-x-auto rounded-xl border border-white/10 bg-zinc-950/60">
+              <table className="w-full text-left text-[13.5px] border-collapse font-sans">{children}</table>
             </div>
           ),
           thead: ({ children }) => <thead className="bg-zinc-900 border-b border-white/10 text-zinc-200 font-semibold uppercase text-xs tracking-wider">{children}</thead>,
@@ -131,7 +138,7 @@ function TypewriterMarkdown({ content, chatEndRef, disableAnimation, vscodeApi }
                       Copy
                     </button>
                   </div>
-                  <div className="p-3.5 overflow-x-auto scrollbar-thin text-[14px] font-mono leading-relaxed text-zinc-200">
+                  <div className="p-3.5 overflow-x-auto scrollbar-thin text-[13px] font-mono leading-relaxed text-zinc-200">
                     <code className={className} {...props}>
                       {children}
                     </code>
@@ -155,7 +162,7 @@ function TypewriterMarkdown({ content, chatEndRef, disableAnimation, vscodeApi }
                     vscodeApi?.postMessage({ command: 'openFile', path: rawText });
                   }}
                   title={`Click to open ${rawText}`}
-                  className="bg-sky-500/10 hover:bg-sky-500/20 text-sky-300 hover:text-sky-200 px-2 py-0.5 rounded border border-sky-500/30 font-mono text-[14px] font-medium cursor-pointer transition-all inline-flex items-center gap-1 group shadow-sm hover:shadow"
+                  className="bg-sky-500/10 hover:bg-sky-500/20 text-sky-300 hover:text-sky-200 px-1.5 py-0.5 rounded border border-sky-500/30 font-mono text-[13px] font-medium cursor-pointer transition-all inline-flex items-center gap-1 group shadow-sm hover:shadow"
                   {...props}
                 >
                   <span>{children}</span>
@@ -167,7 +174,7 @@ function TypewriterMarkdown({ content, chatEndRef, disableAnimation, vscodeApi }
             }
 
             return (
-              <code className="bg-zinc-850 px-2 py-0.5 rounded border border-white/10 text-sky-300 font-mono text-[14px] font-medium" {...props}>
+              <code className="bg-zinc-850 px-1.5 py-0.5 rounded border border-white/10 text-sky-300 font-mono text-[13px] font-medium" {...props}>
                 {children}
               </code>
             );
@@ -192,17 +199,19 @@ interface ChatScreenProps {
   handleApproveFile: (id: string, approved: boolean) => void;
 
 
-  selectedContextFiles: Array<{ name: string; type: string }>;
-  setSelectedContextFiles: React.Dispatch<React.SetStateAction<Array<{ name: string; type: string }>>>;
+  selectedContextFiles: ContextFileItem[];
+  setSelectedContextFiles: React.Dispatch<React.SetStateAction<ContextFileItem[]>>;
   speculativeDiffs: Array<{ path: string; diffLines: Array<{ type: 'added' | 'removed' | 'unchanged'; text: string }> }>;
   setSpeculativeDiffs: React.Dispatch<React.SetStateAction<Array<{ path: string; diffLines: Array<{ type: 'added' | 'removed' | 'unchanged'; text: string }> }>>>;
   planLevel: 'none' | 'auto' | 'strict';
   setPlanLevel: (val: 'none' | 'auto' | 'strict') => void;
   vscodeApi?: VsCodeApi;
   chatEndRef: React.RefObject<HTMLDivElement | null>;
-  activeEditorFile?: string;
   workspaceRoot?: string;
   isPreempting?: boolean;
+  isCompactingContext?: boolean;
+  onCompactContext?: () => void;
+  onClearContext?: () => void;
   handlePlanApproval?: (approved: boolean) => void;
   selectedModel?: string;
   inspectorActive?: boolean;
@@ -356,81 +365,8 @@ function TaskProgressCard({ msg }: { msg: Message }) {
           <div className="absolute left-[23px] top-4 bottom-4 w-px border-l-2 border-dashed border-white/20 z-0"></div>
           {msg.timeline.map((event: any) => {
             const status = event.status || 'running';
-            const renderEventIcon = () => {
-              if (event.type === 'think') return <ThinkIcon status={status} />;
-              if (event.type === 'log') return <LogIcon status={status} />;
-              const tool = (event.toolName || '').toLowerCase();
-              if (tool.includes('command') || tool.includes('terminal')) return <TerminalCommandIcon status={status} />;
-              if (tool.includes('web') || tool.includes('fetch') || tool.includes('url')) return <GlobeWebIcon status={status} />;
-              if (tool.includes('search') || tool.includes('grep') || tool.includes('find')) return <CodeSearchIcon status={status} />;
-              if (tool.includes('patch') || tool.includes('edit') || tool.includes('replace') || tool.includes('create') || tool.includes('write')) return <CodeEditIcon status={status} />;
-              if (tool.includes('view') || tool.includes('read') || tool.includes('dir') || tool.includes('list')) return <ReadFileIcon status={status} />;
-              return <ReadFileIcon status={status} />;
-            };
-
-            let parsedPayload: any = {};
-            try {
-              parsedPayload = JSON.parse(event.content || '{}');
-            } catch {
-              parsedPayload = { raw: event.content };
-            }
-
-            const rawFilePath = event.filePath || parsedPayload.relativePath || parsedPayload.TargetFile || parsedPayload.AbsolutePath || parsedPayload.SearchPath || parsedPayload.DirectoryPath || parsedPayload.path || '';
-            const baseFileName = rawFilePath ? rawFilePath.split('/').pop() : '';
-
-            const actionVerb = event.actionVerb || (() => {
-              if (event.type === 'think') return 'Think';
-              if (event.type === 'log') return 'Log';
-              const name = event.toolName || '';
-              if (name === 'viewFile' || name === 'readFile') return 'Read';
-              if (name === 'listDir') return 'List';
-              if (name === 'runCommand' || name === 'run_command') return 'Run';
-              if (name === 'fetchWebPage' || name === 'fetchUrl') return 'Fetch';
-              if (name === 'searchWeb' || name === 'search_web') return 'Web';
-              if (name.includes('Search') || name.includes('grep')) return 'Search';
-              if (name.includes('Edit') || name.includes('replace') || name.includes('Patch') || name.includes('write')) return 'Edit';
-              if (name.includes('create')) return 'Create';
-              if (name.includes('delete')) return 'Delete';
-              return name.replace(/([A-Z])/g, ' $1').trim() || 'Tool';
-            })();
-
-            const targetDisplay = event.targetDisplay || (() => {
-              if (event.type === 'think') return '';
-              if (parsedPayload.url || parsedPayload.link) {
-                const u = parsedPayload.url || parsedPayload.link;
-                return u.length > 40 ? u.substring(0, 37) + '...' : u;
-              }
-              if (baseFileName) return baseFileName;
-              if (parsedPayload.CommandLine || parsedPayload.command) {
-                const cmd = parsedPayload.CommandLine || parsedPayload.command;
-                return cmd.length > 35 ? cmd.substring(0, 32) + '...' : cmd;
-              }
-              if (parsedPayload.query) return `"${parsedPayload.query}"`;
-              return '';
-            })();
-
-            let lineInfo = event.lineInfo || '';
-            if (!lineInfo && event.output) {
-              const rangeMatch = event.output.match(/Showing lines (\d+) to (\d+)/i);
-              const lineMatch = event.output.match(/\((\d+)\s*lines total\)/i);
-              if (rangeMatch) {
-                lineInfo = `${rangeMatch[1]}-${rangeMatch[2]}`;
-              } else if (lineMatch) {
-                lineInfo = `1-${lineMatch[1]}`;
-              }
-            }
-            if (!lineInfo) {
-              const startLine = parsedPayload.startLine ?? parsedPayload.StartLine;
-              const endLine = parsedPayload.endLine ?? parsedPayload.EndLine;
-              if (startLine !== undefined && endLine !== undefined) {
-                lineInfo = `${startLine}-${endLine}`;
-              } else if (startLine !== undefined) {
-                lineInfo = `line ${startLine}`;
-              }
-            }
-
-            const isCommand = event.toolName === 'runCommand' || event.toolName === 'run_command' || parsedPayload.CommandLine || parsedPayload.command;
-            const commandText = parsedPayload.CommandLine || parsedPayload.command || (typeof event.content === 'string' ? event.content : '');
+            const stepMeta = resolveToolStepMeta(event);
+            const { actionVerb, targetDisplay, lineInfo, parsedPayload, isCommand, commandText } = stepMeta;
 
             const formatToolOutput = (text: string) => {
               if (!text) return text;
@@ -497,7 +433,7 @@ function TaskProgressCard({ msg }: { msg: Message }) {
               <details key={event.id} className="group relative z-10 animate-in fade-in slide-in-from-left-2 duration-300" open={event.status === 'running'}>
                 <summary className={`flex items-center gap-2.5 py-1.5 cursor-pointer list-none select-none hover:bg-white/5 transition-colors rounded-lg px-2 -ml-2 ${event.status === 'running' ? 'bg-zinc-800/60 border border-white/20 shadow-sm' : ''}`}>
                   <div className="w-5 h-5 shrink-0 flex items-center justify-center rounded bg-zinc-800/90 border border-white/20 shadow-sm relative text-zinc-100">
-                    {renderEventIcon()}
+                    <ToolStepIcon iconKind={stepMeta.iconKind} status={status} />
                   </div>
 
                   {event.type === 'tool' ? (
@@ -506,7 +442,7 @@ function TaskProgressCard({ msg }: { msg: Message }) {
                         {actionVerb}
                       </span>
                       {targetDisplay && (
-                        <span className="text-[12px] font-medium text-zinc-100 font-mono truncate max-w-[200px]" title={rawFilePath || targetDisplay}>
+                        <span className="text-[12px] font-medium text-zinc-100 font-mono truncate max-w-[200px]" title={stepMeta.rawTarget || stepMeta.filePath || targetDisplay}>
                           {targetDisplay}
                         </span>
                       )}
@@ -656,7 +592,20 @@ export function inferModelKind(m: {
   if (explicitModality === 'image' || explicitModality === 'diffusion') return 'image';
   if (explicitModality === 'music' || explicitModality === 'audio') return 'music';
   if (explicitModality === 'component' || m.component_role) return 'component';
-  if (explicitModality === 'llm' || explicitModality === 'text') return 'llm';
+  // Guard against daemon tagging .gguf diffusion/component models (e.g. Qwen-Image) as generic 'llm'.
+  const rawDescriptor = `${m.id || ''} ${m.name || ''} ${m.relative_path || ''} ${m.model_family || ''}`.toLowerCase();
+  const hasVisualOrComponentSignal =
+    rawDescriptor.includes('mmproj') ||
+    rawDescriptor.includes('z-image') ||
+    rawDescriptor.includes('zimage') ||
+    (rawDescriptor.includes('qwen') && rawDescriptor.includes('image')) ||
+    rawDescriptor.includes('flux') ||
+    rawDescriptor.includes('sdxl') ||
+    rawDescriptor.includes('wan') ||
+    rawDescriptor.includes('ltx') ||
+    rawDescriptor.includes('hunyuan') ||
+    rawDescriptor.includes('diffusion');
+  if ((explicitModality === 'llm' || explicitModality === 'text') && !hasVisualOrComponentSignal) return 'llm';
 
   const relPath = (m.relative_path || '').replace(/\\/g, '/').toLowerCase();
   if (relPath.startsWith('video/')) return 'video';
@@ -759,9 +708,11 @@ function TerminalDashProgressBar({
 
   const hasFirstToken = Boolean(msg.text || (msg.timeline && msg.timeline.length > 0));
   const hasProgress = msg.promptTokens !== undefined && msg.promptTokens > 0;
-  const realPercent = hasProgress && msg.promptProcessed !== undefined
-    ? Math.min(100, Math.max(0, Math.round((msg.promptProcessed / msg.promptTokens!) * 100)))
-    : null;
+  const realPercent = msg.diffusionPercent !== undefined
+    ? Math.min(100, Math.max(0, Math.round(msg.diffusionPercent)))
+    : (hasProgress && msg.promptProcessed !== undefined
+      ? Math.min(100, Math.max(0, Math.round((msg.promptProcessed / msg.promptTokens!) * 100)))
+      : null);
 
   // Active smooth progression during prefill or image generation
   React.useEffect(() => {
@@ -820,6 +771,13 @@ function TerminalDashProgressBar({
           ({percent}%)
         </span>
       </div>
+      {(msg.diffusionStage || (msg.diffusionTotalSteps && msg.diffusionTotalSteps > 0)) && (
+        <div className="text-[11px] text-zinc-400 mt-1 truncate">
+          {msg.diffusionTotalSteps && msg.diffusionTotalSteps > 0
+            ? `Step ${msg.diffusionStep ?? 0}/${msg.diffusionTotalSteps} · ${msg.diffusionStage || 'Generating...'}`
+            : msg.diffusionStage}
+        </div>
+      )}
     </div>
   );
 }
@@ -844,9 +802,11 @@ export function ChatScreen({
   setPlanLevel,
   vscodeApi,
   chatEndRef,
-  activeEditorFile,
   workspaceRoot,
   isPreempting,
+  isCompactingContext,
+  onCompactContext,
+  onClearContext,
   handlePlanApproval,
   selectedModel,
   inspectorActive,
@@ -892,12 +852,11 @@ export function ChatScreen({
 
   const [showQuotaPopover, setShowQuotaPopover] = React.useState(false);
   const [modelDropdownOpen, setModelDropdownOpen] = React.useState(false);
-  const [modelFilterTab, setModelFilterTab] = React.useState<'all' | 'llm' | 'diffusion' | 'video' | 'projector'>('all');
   const [planDropdownOpen, setPlanDropdownOpen] = React.useState(false);
 
-  const [showContextInput, setShowContextInput] = React.useState(false);
-  const [contextInputText, setContextInputText] = React.useState('');
-  const [keepLastNTurns, setKeepLastNTurns] = React.useState<number>(3);
+  const [isDraggingInput, setIsDraggingInput] = React.useState(false);
+  const inputDragDepthRef = React.useRef(0);
+  const [expandedCompactions, setExpandedCompactions] = React.useState<Record<string, boolean>>({});
   const [showToolbox, setShowToolbox] = React.useState(false);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
@@ -1023,57 +982,97 @@ export function ChatScreen({
   };
 
   const attachFileContext = (rawPath: string) => {
-    let cleanPath = rawPath.trim();
-    if (cleanPath.startsWith('file://')) {
-      try {
-        cleanPath = decodeURIComponent(cleanPath.replace(/^file:\/\//, ''));
-      } catch {
-        cleanPath = cleanPath.replace(/^file:\/\//, '');
-      }
-    }
+    const { cleanPath, relPath, isImage } = normalizeDroppedPath(rawPath, workspaceRoot);
+    if (!cleanPath) return;
 
-    // Compute relative path
-    let relPath = cleanPath.replace(/\\/g, '/');
-    const normWs = (workspaceRoot || '').replace(/\\/g, '/').replace(/\/+$/, '');
-
-    if (normWs && relPath.startsWith(normWs)) {
-      relPath = relPath.substring(normWs.length).replace(/^\/+/, '');
-    } else if (normWs && relPath.includes('/')) {
-      const wsBasename = normWs.split('/').filter(Boolean).pop();
-      if (wsBasename && relPath.includes(`/${wsBasename}/`)) {
-        relPath = relPath.split(`/${wsBasename}/`).pop() || relPath;
-      } else if (relPath.startsWith('/')) {
-        const parts = relPath.split('/').filter(Boolean);
-        relPath = parts.length > 2 ? parts.slice(-2).join('/') : (parts[parts.length - 1] || relPath);
-      }
-    }
-
-    // Check if image
-    const isImage = /\.(png|jpe?g|webp|gif|svg|bmp)$/i.test(relPath);
     if (isImage) {
       if (vscodeApi) {
         vscodeApi.postMessage({ command: 'readImageAsBase64', path: cleanPath });
       }
-    } else {
-      setSelectedContextFiles(prev => {
-        if (prev.some(f => f.name === relPath)) return prev;
-        return [...prev, { name: relPath, type: 'file' }];
-      });
-      const tag = `@${relPath}`;
-      if (!inputValue.includes(tag)) {
-        setInputValue(inputValue ? `${inputValue.trim()} ${tag} ` : `${tag} `);
+      return;
+    }
+
+    setSelectedContextFiles((prev) => {
+      if (prev.some((f) => (f.path && f.path === cleanPath) || f.name === relPath)) {
+        return prev;
       }
-      if (vscodeApi) {
-        vscodeApi.postMessage({ command: 'log', text: `📎 Attached context: ${relPath}`, logType: 'info' });
+      if (prev.length >= 5) {
+        if (vscodeApi) {
+          vscodeApi.postMessage({ command: 'log', text: 'Maximum of 5 context files can be attached per message.', logType: 'warning' });
+        }
+        return prev;
       }
+      return [...prev, { name: relPath, path: cleanPath, type: 'file' }];
+    });
+  };
+
+  const applyExternalDropRef = React.useRef<(raw: unknown) => void>(() => {});
+  React.useEffect(() => {
+    applyExternalDropRef.current = (raw: unknown) => {
+      const payload = parseExternalDropMessage(raw);
+      if (!payload) return;
+      if (payload.filePaths.length > 0) {
+        payload.filePaths.forEach(attachFileContext);
+        return;
+      }
+      if (payload.snippetText) {
+        setInputValue(inputValue ? `${inputValue.trim()}\n\n${payload.snippetText}\n` : payload.snippetText);
+      }
+    };
+  });
+
+  React.useEffect(() => {
+    const handleBridgeMessage = (event: MessageEvent) => {
+      const msg = event.data;
+      if (!msg || typeof msg !== 'object') return;
+      if (msg.type === 'externalDragState') {
+        const active = Boolean(msg.active);
+        inputDragDepthRef.current = active ? 1 : 0;
+        setIsDraggingInput(active);
+        return;
+      }
+      if (msg.type === 'externalDropFiles') {
+        inputDragDepthRef.current = 0;
+        setIsDraggingInput(false);
+        applyExternalDropRef.current(msg);
+      }
+    };
+    window.addEventListener('message', handleBridgeMessage);
+    return () => window.removeEventListener('message', handleBridgeMessage);
+  }, []);
+
+  const handleInputDragEnter = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    inputDragDepthRef.current += 1;
+    setIsDraggingInput(true);
+  };
+
+  const handleInputDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = 'copy';
+    if (!isDraggingInput) {
+      setIsDraggingInput(true);
+    }
+  };
+
+  const handleInputDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    inputDragDepthRef.current = Math.max(0, inputDragDepthRef.current - 1);
+    if (inputDragDepthRef.current === 0) {
+      setIsDraggingInput(false);
     }
   };
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
+    inputDragDepthRef.current = 0;
+    setIsDraggingInput(false);
 
-    // 1. Process files dropped from OS file manager or browser
+    // 1. OS desktop / file manager file drops
     const files = Array.from(e.dataTransfer.files || []);
     if (files.length > 0) {
       files.forEach((file) => {
@@ -1109,7 +1108,7 @@ export function ChatScreen({
               if (ctx) ctx.drawImage(img, 0, 0, width, height);
               const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
               if (setAttachedImages) {
-                setAttachedImages(prev => (prev.length < 3 ? [...prev, dataUrl] : prev));
+                setAttachedImages((prev) => (prev.length < 3 ? [...prev, dataUrl] : prev));
               }
               if (vscodeApi) vscodeApi.postMessage({ command: 'log', text: `Attached dropped image: ${file.name}`, logType: 'info' });
             };
@@ -1117,7 +1116,6 @@ export function ChatScreen({
           };
           reader.readAsDataURL(file);
         } else {
-          // Source code, markdown, document
           const filePath = (file as any).path || file.name;
           attachFileContext(filePath);
         }
@@ -1125,113 +1123,16 @@ export function ChatScreen({
       return;
     }
 
-    // 2. Extract file paths or code/text from VS Code Right Panel (Editor Tabs, Explorer, Selections)
-    const extractedFilePaths: string[] = [];
-
-    const extractFromObject = (obj: any) => {
-      if (!obj) return;
-      if (typeof obj === 'string') {
-        if (obj.startsWith('file://') || obj.startsWith('/') || /^[a-zA-Z]:[/\\]/.test(obj)) {
-          extractedFilePaths.push(obj);
-        }
-        return;
-      }
-      if (Array.isArray(obj)) {
-        obj.forEach(extractFromObject);
-        return;
-      }
-      if (typeof obj === 'object') {
-        if (obj.editor) {
-          extractFromObject(obj.editor);
-        }
-        const candidate = obj.fsPath || obj.path || (typeof obj.resource === 'string' ? obj.resource : (obj.resource?.fsPath || obj.resource?.path)) || obj.resourceUri?.fsPath || obj.resourceUri?.path || obj.uri?.fsPath || obj.uri?.path;
-        if (candidate && typeof candidate === 'string') {
-          extractedFilePaths.push(candidate);
-        }
-        if (Array.isArray(obj.resourceList)) {
-          obj.resourceList.forEach(extractFromObject);
-        }
-        if (Array.isArray(obj.elements)) {
-          obj.elements.forEach(extractFromObject);
-        }
-      }
-    };
-
-    // A. Parse any candidate data types in dataTransfer (CodeEditors, ResourceURLs, CodeFiles, etc.)
-    const candidateTypes = [
-      'ResourceURLs',
-      'resourceurls',
-      'CodeEditors',
-      'codeeditors',
-      'CodeFiles',
-      'codefiles',
-      'application/vnd.code.editor',
-      'application/vnd.code.resource',
-      'application/vnd.code.tree.transfer',
-      'codeitems',
-      'text/uri-list'
-    ];
-
-    for (const type of candidateTypes) {
-      const data = e.dataTransfer.getData(type);
-      if (data) {
-        try {
-          const parsed = JSON.parse(data);
-          extractFromObject(parsed);
-        } catch {
-          if (data.includes('file://') || data.startsWith('/')) {
-            const lines = data.split(/[\r\n]+/).map(s => s.trim()).filter(Boolean);
-            lines.forEach(l => {
-              if (!l.startsWith('#')) extractedFilePaths.push(l);
-            });
-          }
-        }
-      }
+    // 2. VS Code Explorer / Editor Tabs / Selected Code drops
+    const { filePaths, snippetText } = extractDroppedPathsFromDataTransfer(e.dataTransfer);
+    if (filePaths.length > 0) {
+      filePaths.forEach(attachFileContext);
+      return;
     }
 
-    // B. Also scan any other types present in e.dataTransfer.types
-    if (e.dataTransfer.types) {
-      for (const t of Array.from(e.dataTransfer.types)) {
-        if (t === 'Files' || t === 'text/plain' || candidateTypes.includes(t)) continue;
-        const data = e.dataTransfer.getData(t);
-        if (data && (data.includes('{') || data.includes('['))) {
-          try {
-            extractFromObject(JSON.parse(data));
-          } catch {}
-        }
-      }
+    if (snippetText) {
+      setInputValue(inputValue ? `${inputValue.trim()}\n\n${snippetText}\n` : snippetText);
     }
-
-    // C. Check text/plain (could be a path/URI, or a selected code snippet dragged from editor)
-    const textPlain = e.dataTransfer.getData('text/plain') || '';
-    if (extractedFilePaths.length === 0 && textPlain) {
-      const trimmed = textPlain.trim();
-      const isSingleLine = !trimmed.includes('\n') && !trimmed.includes('\r');
-      const isUriOrPath = trimmed.startsWith('file://') || trimmed.startsWith('/') || /^[a-zA-Z]:[/\\]/.test(trimmed);
-      const isLikelyFilePath = isSingleLine && (isUriOrPath || /^[\w\-. /\\()]+\.[a-zA-Z0-9]+$/.test(trimmed));
-
-      if (isLikelyFilePath) {
-        extractedFilePaths.push(trimmed);
-      } else {
-        // Dragged code or text selection from editor
-        if (!inputValue) {
-          setInputValue(trimmed);
-        } else {
-          setInputValue(`${inputValue.trim()}\n\n${trimmed}\n`);
-        }
-        if (vscodeApi) {
-          vscodeApi.postMessage({
-            command: 'log',
-            text: `📋 Dropped text selection into prompt (${trimmed.length} chars)`,
-            logType: 'info'
-          });
-        }
-        return;
-      }
-    }
-
-    // Attach all identified files/tabs
-    extractedFilePaths.forEach(attachFileContext);
   };
 
   return (
@@ -1242,68 +1143,6 @@ export function ChatScreen({
       onDrop={handleDrop}
       className="flex-1 flex flex-col gap-3 min-h-0 justify-between relative"
     >
-      {/* UPSIDE EMPTY PLACE: CONTEXT PICKER HEADER */}
-      <div className="flex flex-wrap items-center gap-1.5 pb-2 pt-1 px-1 shrink-0 border-b border-white/5">
-        <span className="text-[8px] font-mono text-zinc-500 uppercase tracking-wider pl-1">
-          Context:
-        </span>
-
-        {/* Active Editor Indicator */}
-        {activeEditorFile && (
-          <div className="flex items-center gap-1.5 bg-emerald-500/10 border border-emerald-500/20 py-0.5 px-1.5 rounded-md font-mono text-[9px] text-emerald-300 shadow-[0_0_10px_rgba(16,185,129,0.05)]">
-            <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse"></span>
-            <span>Active: {activeEditorFile}</span>
-          </div>
-        )}
-
-        {selectedContextFiles.map((file, idx) => (
-          <div
-            key={idx}
-            className="flex items-center gap-1 bg-zinc-950 border border-zinc-850 py-0.5 px-1.5 rounded font-mono text-[9px] text-zinc-400"
-          >
-            <span>📄 {file.name}</span>
-            <button
-              aria-label={`Remove ${file.name} from context`}
-              onClick={() => setSelectedContextFiles(prev => prev.filter((_, i) => i !== idx))}
-              className="text-[9px] text-zinc-600 hover:text-zinc-400 font-bold ml-0.5"
-            >
-              ×
-            </button>
-          </div>
-        ))}
-
-        {showContextInput ? (
-          <div className="flex items-center gap-1.5 bg-zinc-950 border border-zinc-800 py-0.5 px-1.5 rounded font-mono text-[9px]">
-            <input
-              autoFocus
-              type="text"
-              value={contextInputText}
-              onChange={(e) => setContextInputText(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && contextInputText.trim()) {
-                  setSelectedContextFiles(prev => [...prev, { name: contextInputText.trim(), type: 'code' }]);
-                  setContextInputText('');
-                  setShowContextInput(false);
-                } else if (e.key === 'Escape') {
-                  setShowContextInput(false);
-                }
-              }}
-              placeholder="filename.ts..."
-              className="bg-transparent text-zinc-300 outline-none w-24"
-            />
-            <button aria-label="Close context input" onClick={() => setShowContextInput(false)} className="text-zinc-500 hover:text-zinc-300">×</button>
-          </div>
-        ) : (
-          <button
-            aria-label="Add Context File"
-            onClick={() => setShowContextInput(true)}
-            className="bg-white/5 hover:bg-white/10 border border-white/10 text-zinc-400 hover:text-zinc-200 py-0.5 px-2 rounded-md font-mono text-[9px] font-semibold transition-colors"
-          >
-            + Add
-          </button>
-        )}
-      </div>
-
       {/* INTERACTIVE CHAT THREAD (FEED) */}
       <div
         role="log"
@@ -1313,6 +1152,54 @@ export function ChatScreen({
       >
         <div className="max-w-4xl mx-auto w-full px-2 space-y-4">
         {messages.map((msg, idx) => {
+          if (msg.contextMarkerType === 'compacted' || msg.contextMarkerType === 'cleared') {
+            const isCompact = msg.contextMarkerType === 'compacted';
+            const isExpanded = Boolean(expandedCompactions[msg.id]);
+            const savedCount =
+              typeof msg.beforeTokens === 'number' && typeof msg.afterTokens === 'number'
+                ? Math.max(0, msg.beforeTokens - msg.afterTokens)
+                : 0;
+            return (
+              <div key={msg.id} className="my-3 flex flex-col items-center">
+                <div className="w-full flex items-center gap-2 text-[10.5px] font-mono text-zinc-400">
+                  <div className="flex-1 h-px bg-white/10" />
+                  <div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-0.5 px-3 py-1 rounded-full bg-white/5 border border-white/10">
+                    <span className={isCompact ? 'text-sky-400' : 'text-amber-400'}>
+                      {isCompact ? '⚡' : '🧹'}
+                    </span>
+                    <span className="text-zinc-300 font-semibold">
+                      {isCompact
+                        ? `Context Compacted${
+                            msg.beforeTokens && msg.afterTokens
+                              ? ` (~${msg.beforeTokens.toLocaleString()} → ~${msg.afterTokens.toLocaleString()} tokens${savedCount > 0 ? ` · -${savedCount.toLocaleString()} freed` : ''})`
+                              : ''
+                          }`
+                        : 'Context Cleared — Fresh KV Memory'}
+                    </span>
+                    {isCompact && msg.text && (
+                      <button
+                        type="button"
+                        onClick={() => setExpandedCompactions((prev) => ({ ...prev, [msg.id]: !prev[msg.id] }))}
+                        className="text-sky-400 hover:text-sky-300 underline underline-offset-2 ml-1 cursor-pointer"
+                      >
+                        {isExpanded ? 'Hide Brief' : 'View Brief'}
+                      </button>
+                    )}
+                  </div>
+                  <div className="flex-1 h-px bg-white/10" />
+                </div>
+                {isCompact && isExpanded && msg.text && (
+                  <div className="mt-2 w-full max-w-2xl rounded-xl bg-[#161618] border border-white/10 p-3 text-xs text-zinc-300 font-sans leading-relaxed">
+                    <div className="whitespace-pre-wrap">{msg.text}</div>
+                    <div className="mt-2 pt-2 border-t border-white/5 text-[10px] font-mono text-zinc-500">
+                      Previous messages and their turn token counts stay visible above; only this brief and newer turns remain in active KV memory.
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          }
+
           const isPrefilling = msg.sender === 'agent' &&
             !msg.text &&
             (!msg.timeline || msg.timeline.length === 0) &&
@@ -1349,6 +1236,17 @@ export function ChatScreen({
                         className="absolute inset-0 bg-gradient-to-r from-transparent via-white/[0.08] to-transparent animate-[shimmer_2s_infinite]"
                         style={{ pointerEvents: 'none' }}
                       />
+                      <div className="absolute inset-x-0 bottom-0 h-1 bg-white/10">
+                        <div
+                          className="h-full bg-emerald-400/80 transition-all duration-300"
+                          style={{ width: `${Math.min(100, Math.max(5, msg.diffusionPercent ?? 5))}%` }}
+                        />
+                      </div>
+                    </div>
+                    <div className="text-[11px] text-zinc-400 font-mono">
+                      {msg.diffusionTotalSteps && msg.diffusionTotalSteps > 0
+                        ? `Step ${msg.diffusionStep ?? 0}/${msg.diffusionTotalSteps} · ${msg.diffusionStage || 'Generating...'} (${msg.diffusionPercent ?? 0}%)`
+                        : (msg.diffusionStage || (isVideoGen ? 'Preparing video pipeline...' : 'Preparing image pipeline...'))}
                     </div>
                   </div>
                 );
@@ -1394,8 +1292,8 @@ export function ChatScreen({
                 return (
               <div className="relative group/message w-full">
                 <div
-                  className={`py-2 px-1 text-[16.6px] leading-[1.62] font-sans transition-all duration-150 markdown-body select-text ${msg.sender === 'user'
-                    ? 'bg-zinc-900/60 border border-zinc-800/60 rounded-2xl px-5 py-3.5 text-zinc-100 shadow-sm'
+                  className={`py-2 px-1 text-[15px] leading-[1.6] font-sans transition-all duration-150 markdown-body select-text ${msg.sender === 'user'
+                    ? 'bg-zinc-900/60 border border-zinc-800/60 rounded-2xl px-4 py-3 text-zinc-100 shadow-sm'
                     : 'text-zinc-200 bg-transparent'
                     }`}
                 >
@@ -1451,18 +1349,31 @@ export function ChatScreen({
                       ))}
                     </div>
                   )}
+                  {msg.contextFiles && msg.contextFiles.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 mb-2">
+                      {msg.contextFiles.map((fileLabel, fileIdx) => (
+                        <span
+                          key={fileIdx}
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white/5 border border-white/10 text-[11px] font-mono text-zinc-300"
+                        >
+                          <span>📄</span>
+                          <span className="truncate max-w-[220px]">{fileLabel}</span>
+                        </span>
+                      ))}
+                    </div>
+                  )}
                   {bodyText && !msg.isCommandApproval && !msg.isFileApproval && !msg.isPlanReview && (msg.sender === 'agent' ? (
                     <TypewriterMarkdown content={bodyText} chatEndRef={chatEndRef} disableAnimation={Boolean(msg.isHistory || msg.endTime || idx < messages.length - 1)} vscodeApi={vscodeApi} />
                   ) : (
-                    <div className="text-zinc-100 text-[16.6px] leading-[1.62]">
+                    <div className="text-zinc-100 text-[15px] leading-[1.6]">
                       <ReactMarkdown
                         remarkPlugins={[remarkGfm]}
                         rehypePlugins={[rehypeRaw]}
                         urlTransform={safeMarkdownUrlTransform}
                         components={{
-                          p: ({ children }) => <p className="mb-2 last:mb-0 text-zinc-100 text-[16.6px] leading-[1.62] font-sans">{children}</p>,
+                          p: ({ children }) => <p className="mb-2 last:mb-0 text-zinc-100 text-[15px] leading-[1.6] font-sans">{children}</p>,
                           code: ({ inline, className, children, ...props }: React.ComponentPropsWithoutRef<'code'> & { inline?: boolean; node?: unknown }) => (
-                            <code className="bg-zinc-800/80 px-2 py-0.5 rounded border border-white/10 text-sky-300 font-mono text-[14px] font-medium" {...props}>
+                            <code className="bg-zinc-800/80 px-1.5 py-0.5 rounded border border-white/10 text-sky-300 font-mono text-[13px] font-medium" {...props}>
                               {children}
                             </code>
                           )
@@ -1489,11 +1400,25 @@ export function ChatScreen({
                               const formatted = tps < 10 ? tps.toFixed(1) : Math.round(tps);
                               return ` · ${formatted} tps`;
                             })()}
+                            {msg.autoCompaction && (
+                              <span className="ml-1.5 text-sky-400">
+                                · compacted ~{msg.autoCompaction.beforeTokens.toLocaleString()}→~{msg.autoCompaction.afterTokens.toLocaleString()}
+                              </span>
+                            )}
                           </span>
                         </span>
                       ) : msg.promptTokens ? (
                         <span>
                           <span className="text-zinc-300 font-medium">{msg.promptTokens.toLocaleString()}</span> prompt tokens
+                          {msg.autoCompaction && (
+                            <span className="ml-1.5 text-sky-400">
+                              · compacted ~{msg.autoCompaction.beforeTokens.toLocaleString()}→~{msg.autoCompaction.afterTokens.toLocaleString()}
+                            </span>
+                          )}
+                        </span>
+                      ) : msg.autoCompaction ? (
+                        <span className="text-sky-400">
+                          KV compacted ~{msg.autoCompaction.beforeTokens.toLocaleString()} → ~{msg.autoCompaction.afterTokens.toLocaleString()}
                         </span>
                       ) : null}
                     </div>
@@ -1902,10 +1827,21 @@ export function ChatScreen({
       {/* INTERACTIVE INPUT CONTROL BOX */}
       <div className="w-full max-w-4xl mx-auto px-2 pb-1 shrink-0">
         <div
-          onDragOver={handleDragOver}
+          onDragEnter={handleInputDragEnter}
+          onDragOver={handleInputDragOver}
+          onDragLeave={handleInputDragLeave}
           onDrop={handleDrop}
-          className="bg-[#1a1a1c] border border-white/10 rounded-2xl p-2.5 flex flex-col shadow-md shrink-0 transition-all focus-within:border-sky-500/40 focus-within:ring-1 focus-within:ring-sky-500/20 relative"
+          className={`bg-[#1a1a1c] border rounded-2xl p-2.5 flex flex-col shadow-md shrink-0 transition-all relative ${
+            isDraggingInput
+              ? 'border-sky-400/70 ring-2 ring-sky-500/25 bg-[#1b222c]'
+              : 'border-white/10 focus-within:border-sky-500/40 focus-within:ring-1 focus-within:ring-sky-500/20'
+          }`}
         >
+        {isDraggingInput && (
+          <div className="pointer-events-none mb-1.5 flex items-center justify-center gap-1.5 py-1 px-2.5 rounded-lg bg-sky-500/10 border border-dashed border-sky-400/40 text-[11px] font-mono text-sky-300">
+            <span>Drop file or editor tab to attach into prompt context</span>
+          </div>
+        )}
 
         {!autoScroll && (
           <div className="absolute bottom-32 right-4 z-10 flex flex-col gap-2">
@@ -1938,6 +1874,12 @@ export function ChatScreen({
           maxRows={8}
           value={inputValue}
           onChange={(e) => setInputValue(e.target.value)}
+          onDragOver={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            e.dataTransfer.dropEffect = 'copy';
+          }}
+          onDrop={handleDrop}
           onKeyDown={(e) => {
             const isCtrl = e.ctrlKey || e.metaKey;
             if (isCtrl && e.key) {
@@ -1990,6 +1932,29 @@ export function ChatScreen({
           style={{ boxShadow: 'none' }}
         />
 
+        {selectedContextFiles.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 px-2 pb-2">
+            {selectedContextFiles.map((file, idx) => (
+              <div
+                key={`${file.path || file.name}-${idx}`}
+                title={file.path || file.name}
+                className="inline-flex items-center gap-1.5 bg-zinc-900/90 border border-white/10 hover:border-sky-500/30 py-0.5 px-2 rounded-lg font-mono text-[11px] text-zinc-200 transition-colors"
+              >
+                <span className="text-sky-400">📄</span>
+                <span className="truncate max-w-[200px]">{file.name}</span>
+                <button
+                  type="button"
+                  aria-label={`Remove ${file.name} from context`}
+                  onClick={() => setSelectedContextFiles((prev) => prev.filter((_, i) => i !== idx))}
+                  className="text-zinc-500 hover:text-zinc-200 font-bold ml-0.5 cursor-pointer"
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
         {attachedImages && attachedImages.length > 0 && (
           <div className="flex flex-wrap gap-2 px-2 pb-2">
             {attachedImages.map((img, idx) => (
@@ -2008,8 +1973,8 @@ export function ChatScreen({
         )}
 
         {/* Tools Toolbar & Submit Button Row */}
-        <div className="flex items-center justify-between pt-1.5 mt-1 border-t border-white/5">
-          <div className="flex items-center gap-2 text-zinc-300">
+        <div className="flex items-end justify-between gap-1.5 pt-1.5 mt-1 border-t border-white/5 min-w-0">
+          <div className="flex flex-wrap items-center gap-1.5 text-zinc-300 min-w-0 flex-1">
 
             {/* Hidden File Input for Image Upload */}
             <input
@@ -2021,7 +1986,7 @@ export function ChatScreen({
             />
 
             {/* Add Context Button (+) with Dropup Toolbox */}
-            <div className="relative">
+            <div className="relative shrink-0">
               <button
                 onClick={() => setShowToolbox(!showToolbox)}
                 className={`w-7 h-7 flex items-center justify-center bg-white/5 hover:bg-white/10 border border-white/10 rounded-full transition-colors focus:outline-none ${showToolbox ? 'bg-white/20 text-white' : 'text-zinc-400 hover:text-white'}`}
@@ -2077,7 +2042,7 @@ export function ChatScreen({
               onClick={() => {
                 if (vscodeApi) vscodeApi.postMessage({ command: 'toggleInspector' });
               }}
-              className={`w-7 h-7 flex items-center justify-center rounded-full transition-colors focus:outline-none ${inspectorActive ? 'bg-sky-500/20 text-sky-300 border border-sky-400/30' : 'bg-white/5 hover:bg-white/10 border border-white/10 text-zinc-400 hover:text-white'}`}
+              className={`w-7 h-7 shrink-0 flex items-center justify-center rounded-full transition-colors focus:outline-none ${inspectorActive ? 'bg-sky-500/20 text-sky-300 border border-sky-400/30' : 'bg-white/5 hover:bg-white/10 border border-white/10 text-zinc-400 hover:text-white'}`}
               title={inspectorActive ? "Deactivate Inspector" : "Inspect UI Element"}
               aria-label="Inspect UI Element"
             >
@@ -2085,9 +2050,10 @@ export function ChatScreen({
             </button>
 
             {/* Modern Model Selector */}
-            <div className="relative group flex items-center">
+            <div className="group flex items-center min-w-[96px] max-w-[135px] min-[440px]:max-w-[180px] flex-1 min-[410px]:flex-initial">
               <div
-                className="flex items-center gap-2 px-3 py-1 bg-white/5 hover:bg-white/10 border border-white/10 rounded-full cursor-pointer transition-all active:scale-95"
+                data-model-selector-trigger="true"
+                className="flex items-center gap-1.5 min-[360px]:gap-2 px-2 min-[360px]:px-2.5 py-1 bg-white/5 hover:bg-white/10 border border-white/10 rounded-full cursor-pointer transition-all active:scale-95 min-w-0 max-w-full"
                 onClick={() => {
                   const nextState = !modelDropdownOpen;
                   setModelDropdownOpen(nextState);
@@ -2097,12 +2063,12 @@ export function ChatScreen({
                   }
                 }}
               >
-                <div className={`w-2 h-2 rounded-full ${
+                <div className={`w-2 h-2 shrink-0 rounded-full ${
                   isDiffusion
                     ? (activeDiffusionModel ? 'bg-cyan-400 animate-pulse shadow-sm shadow-cyan-400/50' : 'bg-zinc-600')
                     : (activeLocalModel ? 'bg-emerald-500' : 'bg-zinc-600')
                 }`}></div>
-                <span className={`text-[11px] font-semibold tracking-wide uppercase truncate max-w-[160px] ${
+                <span className={`text-[11px] font-semibold tracking-wide uppercase truncate min-w-0 ${
                   isDiffusion
                     ? (activeDiffusionModel ? 'text-zinc-100' : 'text-zinc-400')
                     : (activeLocalModel ? 'text-zinc-100' : 'text-zinc-400')
@@ -2117,459 +2083,42 @@ export function ChatScreen({
                 </span>
                 <svg className="w-3 h-3 text-zinc-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
               </div>
-
-              {/* Dropdown Menu */}
-              {modelDropdownOpen && (() => {
-                const categorizedModels = (availableLocalModels || []).map(m => ({
-                  ...m,
-                  category: getModelCategory(m)
-                }));
-                const llmModels = categorizedModels.filter(m => m.category === 'llm');
-                const diffModels = categorizedModels.filter(m => m.category === 'diffusion');
-                const videoModels = categorizedModels.filter(m => m.category === 'video');
-                const projModels = categorizedModels.filter(m => m.category === 'projector');
-                const filteredModels = modelFilterTab === 'llm'
-                  ? llmModels
-                  : modelFilterTab === 'diffusion'
-                    ? diffModels
-                    : modelFilterTab === 'video'
-                      ? videoModels
-                      : modelFilterTab === 'projector'
-                        ? projModels
-                        : categorizedModels;
-
-                return (
-                  <>
-                    <div className="fixed inset-0 z-40" onClick={() => setModelDropdownOpen(false)} />
-                    <div className="absolute bottom-full left-0 mb-2 w-80 sm:w-84 rounded-xl shadow-2xl z-50 overflow-hidden flex flex-col border border-white/10 bg-zinc-950/95 backdrop-blur-xl text-zinc-300 font-sans">
-                      <div className="overflow-y-auto scrollbar-thin max-h-[460px] divide-y divide-white/5">
-                        
-                        {/* Primary LLM Engine */}
-                        <div className="p-3">
-                          <div className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider flex items-center justify-between mb-2 select-none">
-                            <span className="flex items-center gap-1.5">
-                              <span className={`w-2 h-2 rounded-full ${activeLocalModel ? 'bg-emerald-400' : 'bg-zinc-600'}`} />
-                              Primary LLM
-                            </span>
-                            <span className="text-zinc-500 font-mono text-[10px]">
-                              {activeLocalModel ? 'Running' : 'Offline'}
-                            </span>
-                          </div>
-                          {activeLocalModel ? (
-                            <div className="rounded-lg p-2.5 bg-zinc-900/80 border border-white/5 flex items-center justify-between gap-2">
-                              <div className="flex flex-col min-w-0">
-                                <span className="font-semibold text-xs text-zinc-100 truncate" title={activeLocalModel}>
-                                  {formatModelDisplayName(activeLocalModel)}
-                                </span>
-                                <span className="text-[10px] text-zinc-400 font-mono">
-                                  Loaded in VRAM
-                                </span>
-                              </div>
-                              <button
-                                type="button"
-                                title="Unload model"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  vscodeApi?.postMessage({ command: 'unloadLocalModel', target: 'primary' });
-                                }}
-                                className="px-2 py-1 rounded text-[11px] font-medium text-zinc-400 hover:text-red-400 hover:bg-red-500/10 transition-colors cursor-pointer shrink-0"
-                              >
-                                Unload
-                              </button>
-                            </div>
-                          ) : (
-                            <div className="rounded-lg p-2.5 border border-dashed border-white/10 bg-white/[0.02] flex items-center justify-between gap-2">
-                              <span className="text-xs text-zinc-400">No model loaded</span>
-                              <button
-                                type="button"
-                                onClick={() => setModelFilterTab('llm')}
-                                className="px-2 py-1 rounded text-xs font-medium text-zinc-300 bg-white/10 hover:bg-white/15 transition-colors cursor-pointer"
-                              >
-                                Select Model
-                              </button>
-                            </div>
-                          )}
-                        </div>
-
-                        {/* Visual & Diffusion Engine */}
-                        <div className="p-3">
-                          <div className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider flex items-center justify-between mb-2 select-none">
-                            <span className="flex items-center gap-1.5">
-                              <span className={`w-2 h-2 rounded-full ${activeDiffusionModel ? 'bg-cyan-400' : 'bg-zinc-600'}`} />
-                              Visual & Diffusion
-                            </span>
-                            <span className="text-zinc-500 font-mono text-[10px]">
-                              {activeDiffusionModel ? 'Ready' : 'Offline'}
-                            </span>
-                          </div>
-                          {activeDiffusionModel ? (
-                            <div className="rounded-lg p-2.5 bg-zinc-900/80 border border-white/5 flex items-center justify-between gap-2">
-                              <div className="flex flex-col min-w-0">
-                                <span className="font-semibold text-xs text-zinc-100 truncate" title={activeDiffusionModel}>
-                                  {formatModelDisplayName(activeDiffusionModel)}
-                                </span>
-                                <span className="text-[10px] text-zinc-400 font-mono">
-                                  {activeDiffusionModality === 'video' ? 'Active for Video' : 'Active for Images'}
-                                </span>
-                              </div>
-                              <button
-                                type="button"
-                                title="Unload diffusion model"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  vscodeApi?.postMessage({ command: 'unloadLocalModel', target: 'diffusion' });
-                                }}
-                                className="px-2 py-1 rounded text-[11px] font-medium text-zinc-400 hover:text-red-400 hover:bg-red-500/10 transition-colors cursor-pointer shrink-0"
-                              >
-                                Unload
-                              </button>
-                            </div>
-                          ) : (
-                            <div className="rounded-lg p-2.5 border border-dashed border-white/10 bg-white/[0.02] flex items-center justify-between gap-2">
-                              <span className="text-xs text-zinc-400">No image model</span>
-                              <button
-                                type="button"
-                                onClick={() => setModelFilterTab('diffusion')}
-                                className="px-2 py-1 rounded text-xs font-medium text-zinc-300 bg-white/10 hover:bg-white/15 transition-colors cursor-pointer"
-                              >
-                                Select Image Model
-                              </button>
-                            </div>
-                          )}
-                        </div>
-
-                        {/* Available Local Models */}
-                        {availableLocalModels && availableLocalModels.length > 0 && (
-                          <div className="p-3 flex flex-col gap-2">
-                            <div className="flex items-center justify-between select-none">
-                              <span className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider">
-                                Local Models ({availableLocalModels.length})
-                              </span>
-                            </div>
-
-                            {/* Filter Tabs */}
-                            <div className="flex items-center gap-1 p-0.5 bg-zinc-900 rounded-lg border border-white/5 text-[10px]">
-                              <button
-                                type="button"
-                                onClick={() => setModelFilterTab('all')}
-                                className={`flex-1 py-1 text-center rounded transition-all font-medium cursor-pointer ${
-                                  modelFilterTab === 'all'
-                                    ? 'bg-zinc-800 text-white font-semibold'
-                                    : 'text-zinc-400 hover:text-zinc-200'
-                                }`}
-                              >
-                                All ({categorizedModels.length})
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setModelFilterTab('llm')}
-                                className={`flex-1 py-1 text-center rounded transition-all font-medium cursor-pointer ${
-                                  modelFilterTab === 'llm'
-                                    ? 'bg-zinc-800 text-white font-semibold'
-                                    : 'text-zinc-400 hover:text-zinc-200'
-                                }`}
-                              >
-                                LLMs ({llmModels.length})
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setModelFilterTab('diffusion')}
-                                className={`flex-1 py-1 text-center rounded transition-all font-medium cursor-pointer ${
-                                  modelFilterTab === 'diffusion'
-                                    ? 'bg-zinc-800 text-white font-semibold'
-                                    : 'text-zinc-400 hover:text-zinc-200'
-                                }`}
-                              >
-                                Image ({diffModels.length})
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setModelFilterTab('video')}
-                                className={`flex-1 py-1 text-center rounded transition-all font-medium cursor-pointer ${
-                                  modelFilterTab === 'video'
-                                    ? 'bg-zinc-800 text-white font-semibold'
-                                    : 'text-zinc-400 hover:text-zinc-200'
-                                }`}
-                              >
-                                Video ({videoModels.length})
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setModelFilterTab('projector')}
-                                className={`flex-1 py-1 text-center rounded transition-all font-medium cursor-pointer ${
-                                  modelFilterTab === 'projector'
-                                    ? 'bg-zinc-800 text-white font-semibold'
-                                    : 'text-zinc-400 hover:text-zinc-200'
-                                }`}
-                              >
-                                Vision ({projModels.length})
-                              </button>
-                            </div>
-
-                            {/* Model List */}
-                            <div className="space-y-1 max-h-48 overflow-y-auto scrollbar-thin pr-1">
-                              {filteredModels.length === 0 ? (
-                                <div className="py-4 text-center text-xs text-zinc-500 font-mono">
-                                  No models in this category
-                                </div>
-                              ) : (
-                                filteredModels.map(m => {
-                                  const modelBaseName = m.name || m.id.split('/').pop() || '';
-                                  const isCurrentActiveLlm = activeLocalModel && (activeLocalModel === modelBaseName || m.id.endsWith(activeLocalModel));
-                                  const isCurrentActiveDiff = activeDiffusionModel && (activeDiffusionModel === modelBaseName || m.id.endsWith(activeDiffusionModel));
-
-                                  return (
-                                    <div
-                                      key={m.id}
-                                      onClick={() => {
-                                        if (m.category === 'diffusion' || m.category === 'video') {
-                                          const targetModality = m.category === 'video' ? 'video' : 'image';
-                                          handleModelChange?.(`diffusion:${modelBaseName}`);
-                                          vscodeApi?.postMessage({ command: 'loadLocalModel', modelId: m.id, target: 'diffusion', modality: targetModality });
-                                        } else {
-                                          handleModelChange?.(`local:${modelBaseName}`);
-                                          vscodeApi?.postMessage({ command: 'loadLocalModel', modelId: m.id, target: 'primary', modality: 'llm' });
-                                        }
-                                        setModelDropdownOpen(false);
-                                      }}
-                                      className={`p-2 rounded-lg text-xs flex items-center justify-between border transition-all cursor-pointer ${
-                                        isCurrentActiveLlm || isCurrentActiveDiff
-                                          ? 'bg-zinc-800/80 border-white/15'
-                                          : 'bg-zinc-900/40 hover:bg-zinc-900/80 border-white/5'
-                                      }`}
-                                    >
-                                      <div className="flex flex-col min-w-0 pr-2">
-                                        <span className="font-medium text-zinc-200 truncate" title={m.id}>
-                                          {formatModelDisplayName(modelBaseName)}
-                                        </span>
-                                        <div className="flex items-center gap-1.5 text-[10px] font-mono text-zinc-500">
-                                          <span>{m.size_display || 'Local'}</span>
-                                          {m.quantization && (
-                                            <>
-                                              <span>•</span>
-                                              <span>{m.quantization}</span>
-                                            </>
-                                          )}
-                                        </div>
-                                      </div>
-
-                                      <div className="flex items-center gap-1.5 shrink-0">
-                                        {isCurrentActiveLlm || isCurrentActiveDiff ? (
-                                          <span className="text-[10px] font-medium text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20">
-                                            Active
-                                          </span>
-                                        ) : (
-                                          <span className="text-[10px] font-medium text-zinc-400 hover:text-zinc-200">
-                                            Select
-                                          </span>
-                                        )}
-                                      </div>
-                                    </div>
-                                  );
-                                })
-                              )}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Actions */}
-                      <div className="p-2 bg-zinc-950 border-t border-white/5 flex flex-col gap-1">
-                        <button
-                          onClick={() => {
-                            vscodeApi?.postMessage({ command: 'openSettings' });
-                            setModelDropdownOpen(false);
-                          }}
-                          className="w-full flex items-center justify-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium text-zinc-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer"
-                        >
-                          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                          </svg>
-                          <span>Hardware & Engine Settings</span>
-                        </button>
-                      </div>
-                    </div>
-                  </>
-                );
-              })()}
             </div>
 
             {/* Quota / Context Ring Widget */}
-            <div className="relative">
-              <button
-                onClick={() => {
-                  setShowQuotaPopover(!showQuotaPopover);
-                  setModelDropdownOpen(false);
-                }}
-                className="relative flex items-center gap-1.5 px-2.5 py-1 bg-white/5 hover:bg-white/10 border border-white/10 rounded-full transition-colors focus:outline-none"
-                title={selectedModel?.startsWith('local:') ? "Local Context Window Usage" : "Daily Quota Usage"}
-              >
-                {(() => {
-                  const isLocal = selectedModel?.startsWith('local:');
-                  const maxTokens = maxContextTokens || 8192;
-                  const currentTokens = currentContextTokens || 0;
-                  const pct = isLocal 
-                    ? Math.min(100, Math.round((currentTokens / maxTokens) * 100))
-                    : (quotaInfo?.usedPercentage || 0);
-
-                  const radius = 6;
-                  const dasharray = 2 * Math.PI * radius;
-                  const dashoffset = dasharray * ((100 - pct) / 100);
-                  const colorClass = pct > 90 ? 'text-red-400' : pct > 75 ? 'text-amber-400' : 'text-emerald-400';
-
-                  return (
-                    <div className="flex items-center gap-1.5">
-                      <svg className="w-4 h-4 -rotate-90 transform" viewBox="0 0 16 16">
-                        {/* Background Track */}
-                        <circle cx="8" cy="8" r={radius} stroke="currentColor" strokeWidth="2.5" fill="transparent" className="text-white/20" />
-                        {/* Progress */}
-                        <circle cx="8" cy="8" r={radius} stroke="currentColor" strokeWidth="2.5" fill="transparent"
-                          strokeDasharray={dasharray} strokeDashoffset={dashoffset} strokeLinecap="round"
-                          className={`${colorClass} transition-all duration-700 ease-out`} />
-                      </svg>
-                      <span className="text-[10px] font-mono font-bold text-white">{Math.round(pct)}%</span>
-                    </div>
-                  );
-                })()}
-              </button>
-
-              {/* Native Context & Quota Popover */}
-              {showQuotaPopover && (
-                <>
-                  <div className="fixed inset-0 z-40" onClick={() => setShowQuotaPopover(false)} />
-                  <div className="absolute right-0 bottom-full mb-2 w-72 rounded-xl bg-[#1a1a1c] border border-white/10 shadow-2xl overflow-hidden z-50 animate-in fade-in slide-in-from-bottom-2 duration-150 text-zinc-200 select-none">
-                    {selectedModel?.startsWith('local:') ? (
-                      <div>
-                        {/* Header */}
-                        <div className="p-3 border-b border-white/10 bg-[#161618]">
-                          <div className="flex justify-between items-center mb-1">
-                            <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-300">Context Memory</span>
-                            <span className="text-[9px] bg-white/5 text-zinc-300 px-1.5 py-0.5 rounded border border-white/10 uppercase tracking-wider font-mono font-medium">GPU VRAM</span>
-                          </div>
-                          <div className="flex items-baseline gap-1 mt-2">
-                            <span className="text-xl font-semibold text-white">
-                              {Math.min(100, Math.round(((currentContextTokens || 0) / (maxContextTokens || 8192)) * 100))}%
-                            </span>
-                            <span className="text-xs text-zinc-400">capacity used</span>
-                          </div>
-                          <p className="text-[10px] font-mono text-zinc-400 mt-0.5">
-                            {(currentContextTokens || 0).toLocaleString()} / {(maxContextTokens || 8192).toLocaleString()} tokens
-                          </p>
-                        </div>
-
-                        {/* Body */}
-                        <div className="p-3 space-y-3 bg-[#1a1a1c]">
-                          <div className="w-full bg-zinc-800 rounded-full h-1.5 overflow-hidden">
-                            <div 
-                              className="bg-zinc-300 h-1.5 rounded-full transition-all duration-300"
-                              style={{ width: `${Math.min(100, Math.max(3, Math.round(((currentContextTokens || 0) / (maxContextTokens || 8192)) * 100)))}%` }}
-                            ></div>
-                          </div>
-
-                          {/* Context Scope Box (Last N Turns) */}
-                          <div className="bg-[#141416] p-2.5 rounded-lg border border-white/5 space-y-2">
-                            <div className="flex items-center justify-between">
-                              <span className="text-[11px] font-medium text-zinc-300">History Retention</span>
-                              <div className="flex items-center gap-1.5 bg-[#1a1a1c] px-2 py-0.5 rounded-md border border-white/10">
-                                <button
-                                  onClick={() => {
-                                    const next = Math.max(1, keepLastNTurns - 1);
-                                    setKeepLastNTurns(next);
-                                    vscodeApi?.postMessage({ command: 'setContextKeepLastNTurns', turns: next });
-                                  }}
-                                  className="text-xs text-zinc-400 hover:text-white px-1 font-bold cursor-pointer transition-colors"
-                                  title="Decrease retained turns"
-                                >
-                                  -
-                                </button>
-                                <span className="text-xs font-mono font-semibold text-zinc-100 min-w-[2ch] text-center">
-                                  {keepLastNTurns}
-                                </span>
-                                <button
-                                  onClick={() => {
-                                    const next = Math.min(50, keepLastNTurns + 1);
-                                    setKeepLastNTurns(next);
-                                    vscodeApi?.postMessage({ command: 'setContextKeepLastNTurns', turns: next });
-                                  }}
-                                  className="text-xs text-zinc-400 hover:text-white px-1 font-bold cursor-pointer transition-colors"
-                                  title="Increase retained turns"
-                                >
-                                  +
-                                </button>
-                                <span className="text-[10px] text-zinc-400">turns</span>
-                              </div>
-                            </div>
-                            <p className="text-[10px] text-zinc-400 leading-relaxed">
-                              Keeps last {keepLastNTurns} full interaction turns in model memory. Older turns are automatically compacted while remaining fully visible on screen.
-                            </p>
-                          </div>
-
-                          <div className="flex gap-2 pt-1">
-                            <button
-                              onClick={() => {
-                                vscodeApi?.postMessage({ command: 'pruneKvCache' });
-                                setShowQuotaPopover(false);
-                              }}
-                              className="flex-1 py-1.5 px-2.5 rounded-lg text-xs font-medium bg-white/5 hover:bg-white/10 text-zinc-200 border border-white/10 transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-sm"
-                              title="Compact older tool outputs and thoughts from model context"
-                            >
-                              <svg className="w-3.5 h-3.5 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
-                              <span>Compact Context</span>
-                            </button>
-                            <button
-                              onClick={() => {
-                                vscodeApi?.postMessage({ command: 'clearKvCache' });
-                                setShowQuotaPopover(false);
-                              }}
-                              className="py-1.5 px-2.5 rounded-lg text-xs font-medium bg-white/5 hover:bg-red-500/15 text-zinc-400 hover:text-red-300 border border-white/10 transition-colors flex items-center justify-center cursor-pointer shadow-sm"
-                              title="Clear all active conversation context"
-                            >
-                              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    ) : (
-                      <div>
-                        <div className="p-3 border-b border-white/10 bg-[#161618]">
-                          <div className="flex justify-between items-center mb-1">
-                            <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-300">Daily Quota</span>
-                            {quotaInfo?.currentTier?.toLowerCase().includes('pro') || quotaInfo?.currentTier?.toLowerCase().includes('enterprise') ? (
-                              <span className="text-[9px] bg-white/10 text-amber-300 px-1.5 py-0.5 rounded border border-amber-500/30 uppercase tracking-widest font-mono font-bold">PRO</span>
-                            ) : (
-                              <span className="text-[9px] bg-white/5 text-zinc-400 px-1.5 py-0.5 rounded border border-white/10 uppercase tracking-widest font-mono">FREE</span>
-                            )}
-                          </div>
-                          <div className="flex items-baseline gap-1 mt-2">
-                            <span className="text-xl font-semibold text-white">{quotaInfo?.usedPercentage || 0}%</span>
-                            <span className="text-xs text-zinc-400">used</span>
-                          </div>
-                        </div>
-
-                        <div className="p-3 space-y-2.5 bg-[#1a1a1c]">
-                          <div className="flex justify-between items-center text-[10px]">
-                            <span className="text-zinc-400 flex items-center gap-1">
-                              <svg className="w-3 h-3 text-zinc-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-                              Resets In
-                            </span>
-                            <span className="text-zinc-200 font-mono">{quotaInfo?.resetsIn || '24h 00m'}</span>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </>
-              )}
-            </div>
+            {(() => {
+              const eff = buildEffectiveHistory(messages);
+              const tokenStats = computeThreadTokenStats(messages);
+              return (
+                <ContextMemoryPopover
+                  open={showQuotaPopover}
+                  onToggle={() => {
+                    setShowQuotaPopover(!showQuotaPopover);
+                    setModelDropdownOpen(false);
+                  }}
+                  onClose={() => setShowQuotaPopover(false)}
+                  selectedModel={selectedModel}
+                  currentContextTokens={currentContextTokens}
+                  maxContextTokens={maxContextTokens}
+                  tokenStats={tokenStats}
+                  quotaInfo={quotaInfo}
+                  isAgentThinking={isAgentThinking}
+                  isCompactingContext={Boolean(isCompactingContext)}
+                  hasCompactableContent={eff.hasCompactableContent}
+                  isCompacted={eff.isCompacted}
+                  onCompactContext={() => onCompactContext?.()}
+                  onClearContext={() => onClearContext?.()}
+                />
+              );
+            })()}
 
             {/* 3-Level Planning Mode Selector */}
-            <div className="relative">
+            <div className="min-[360px]:relative shrink-0">
               <button
                 type="button"
                 aria-label="Planning Mode Selector"
                 onClick={() => setPlanDropdownOpen(prev => !prev)}
-                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-[11px] font-medium transition-all cursor-pointer border ${
+                className={`flex items-center gap-1 min-[360px]:gap-1.5 px-2 min-[360px]:px-2.5 py-1 rounded-full text-[11px] font-medium transition-all cursor-pointer border ${
                   planLevel === 'strict'
                     ? 'bg-zinc-800/80 text-zinc-200 border-zinc-700 shadow-sm'
                     : planLevel === 'none'
@@ -2592,7 +2141,7 @@ export function ChatScreen({
               {planDropdownOpen && (
                 <>
                   <div className="fixed inset-0 z-40" onClick={() => setPlanDropdownOpen(false)} />
-                  <div className="absolute right-0 bottom-full mb-2 w-56 bg-[#121217]/95 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl p-1 z-50 animate-in zoom-in-95 duration-150 font-sans">
+                  <div className="absolute left-0 right-0 min-[360px]:left-auto min-[360px]:right-0 min-[360px]:w-56 bottom-full mb-2 bg-[#121217]/95 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl p-1 z-50 animate-in zoom-in-95 duration-150 font-sans">
                     <button
                       type="button"
                       onClick={() => {
@@ -2689,12 +2238,24 @@ export function ChatScreen({
               aria-label="Submit message"
               onClick={() => handleSendMessage()}
               className="w-8 h-8 flex items-center justify-center shrink-0 rounded-full transition-all bg-sky-500 hover:bg-sky-400 text-white disabled:opacity-25 disabled:hover:bg-sky-500 shadow-sm"
-              disabled={!inputValue.trim() && (!attachedImages || attachedImages.length === 0)}
+              disabled={!inputValue.trim() && (!attachedImages || attachedImages.length === 0) && selectedContextFiles.length === 0}
             >
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg>
             </button>
           )}
         </div>
+        <ModelSelectorPopover
+          open={modelDropdownOpen}
+          onClose={() => setModelDropdownOpen(false)}
+          availableLocalModels={availableLocalModels}
+          activeLocalModel={activeLocalModel}
+          activeDiffusionModel={activeDiffusionModel}
+          activeDiffusionModality={activeDiffusionModality}
+          isDiffusion={isDiffusion}
+          isVideoMode={isVideoMode}
+          handleModelChange={handleModelChange}
+          vscodeApi={vscodeApi}
+        />
       </div>
       </div>
 

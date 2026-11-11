@@ -1,9 +1,22 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo } from 'react';
 import { extractModelMetadata, type ModelMetadata, type ModelModality, type ComponentRole } from './modelUtils';
 import { ModelOrgAvatar } from './ModelOrgAvatar';
 import { ModelCapabilityBadges } from './ModelCapabilityIcons';
 import { MemoryPoolRings } from './MemoryPoolRings';
 import { DiffusionFlashAttnControl, type DiffusionFlashAttnMode } from './DiffusionFlashAttnControl';
+import { buildModelTuningRequest, type ModelTuningPreference } from './modelPreferencesClient';
+
+const normalizeDiffusionFlashAttn = (
+  val: boolean | DiffusionFlashAttnMode | undefined,
+  fallback: DiffusionFlashAttnMode = 'auto',
+): DiffusionFlashAttnMode => {
+  if (val === 'auto' || val === 'on' || val === 'off') return val;
+  if (typeof val === 'boolean') return val ? 'on' : 'off';
+  return fallback;
+};
+
+const normalizeKvCacheType = (val?: string): 'f16' | 'q8_0' | 'q4_0' =>
+  val === 'q8_0' || val === 'q4_0' ? val : 'f16';
 
 const parseDimensions = (res: string): [number, number] => {
   const parts = String(res || '').toLowerCase().split('x');
@@ -77,6 +90,7 @@ export interface ModelInspectorProps {
   daemonHealth: any; // { active_model, active_ghost_model, active_diffusion_model, active_video_model, ctx_size, hardware }
   activeLocalModel: string | null;
   activeGhostModel: string | null;
+  savedPreference?: ModelTuningPreference;
   isModelLoading: boolean;
   modelLoadProgress?: { percent: number; message: string };
   onStartLoading?: (modelId: string) => void;
@@ -90,6 +104,7 @@ export const ModelInspector: React.FC<ModelInspectorProps> = ({
   daemonHealth,
   activeLocalModel,
   activeGhostModel,
+  savedPreference,
   isModelLoading,
   modelLoadProgress,
   onStartLoading,
@@ -115,41 +130,48 @@ export const ModelInspector: React.FC<ModelInspectorProps> = ({
   const [targetComponentRole, setTargetComponentRole] = useState<ComponentRole>(() => meta.componentRole || 'encoders');
   const [moveSubmitted, setMoveSubmitted] = useState(false);
 
-  // Tuning Parameters State
+  // Tuning Parameters State (hydrated from savedPreference when present)
   const [ctxSize, setCtxSize] = useState<number>(() => {
+    if (savedPreference?.ctxSize !== undefined) return savedPreference.ctxSize;
     if (daemonHealth?.ctx_size && (daemonHealth?.active_model === model?.id || activeLocalModel === model?.id)) {
       return daemonHealth.ctx_size;
     }
     return maxContextSupported ? Math.min(8192, maxContextSupported) : 8192;
   });
-  const [nGPULayers, setNGPULayers] = useState<number>(() => totalModelLayers ?? 999);
-  const [temperature, setTemperature] = useState<number>(0.7);
-  const [nThreads, setNThreads] = useState<number>(() => maxCpuThreads);
-  const [nBatch, setNBatch] = useState<number>(2048);
-  const [nUbatch, setNUbatch] = useState<number>(512);
-  const [flashAttn, setFlashAttn] = useState<boolean>(true);
-  const [useMmap, setUseMmap] = useState<boolean>(true);
-  const [offloadContextToCpu, setOffloadContextToCpu] = useState<boolean>(false);
-  const [cacheTypeK, setCacheTypeK] = useState<'f16' | 'q8_0' | 'q4_0'>('f16');
-  const [cacheTypeV, setCacheTypeV] = useState<'f16' | 'q8_0' | 'q4_0'>('f16');
+  const [nGPULayers, setNGPULayers] = useState<number>(() => savedPreference?.nGPULayers ?? totalModelLayers ?? 999);
+  const [temperature, setTemperature] = useState<number>(() => savedPreference?.temperature ?? 0.7);
+  const [nThreads, setNThreads] = useState<number>(() => savedPreference?.nThreads ?? maxCpuThreads);
+  const [nBatch, setNBatch] = useState<number>(() => savedPreference?.nBatch ?? 2048);
+  const [nUbatch, setNUbatch] = useState<number>(() => savedPreference?.nUbatch ?? 512);
+  const [flashAttn, setFlashAttn] = useState<boolean>(() => savedPreference?.flashAttn ?? true);
+  const [useMmap, setUseMmap] = useState<boolean>(() => savedPreference?.useMmap ?? true);
+  const [offloadContextToCpu, setOffloadContextToCpu] = useState<boolean>(() => savedPreference?.offloadContextToCpu ?? false);
+  const [cacheTypeK, setCacheTypeK] = useState<'f16' | 'q8_0' | 'q4_0'>(() => normalizeKvCacheType(savedPreference?.cacheTypeK));
+  const [cacheTypeV, setCacheTypeV] = useState<'f16' | 'q8_0' | 'q4_0'>(() => normalizeKvCacheType(savedPreference?.cacheTypeV));
 
-  // Diffusion, Video & Flow State (no model-specific hardcoded presets)
-  const [diffSteps, setDiffSteps] = useState<number>(20);
-  const [diffCfg, setDiffCfg] = useState<number>(3.5);
+  // Diffusion, Video & Flow State
+  const [diffSteps, setDiffSteps] = useState<number>(() => savedPreference?.steps ?? 20);
+  const [diffCfg, setDiffCfg] = useState<number>(() => savedPreference?.cfgScale ?? 3.5);
   const storageResKey = `astrolabe_diff_res_${meta.cleanId || meta.displayName}`;
   const [diffResolution, setDiffResolution] = useState<string>(() => {
+    if (savedPreference?.resolution) return savedPreference.resolution;
     try {
       const saved = localStorage.getItem(`astrolabe_diff_res_${meta.cleanId || meta.displayName}`);
       if (saved) return saved;
     } catch {}
     return meta.isVideo ? '480x272' : '768x768';
   });
-  const [diffSampler, setDiffSampler] = useState<string>('FlowMatch Euler');
-  const [diffVaeTiling, setDiffVaeTiling] = useState<boolean>(() => Boolean(meta.isVideo));
-  const [diffOffloadRam, setDiffOffloadRam] = useState<boolean>(false);
-  const [diffGpuLayers, setDiffGpuLayers] = useState<number>(() => totalModelLayers ?? 999);
+  const [diffSampler, setDiffSampler] = useState<string>(() => savedPreference?.sampler ?? 'FlowMatch Euler');
+  const [diffVaeTiling, setDiffVaeTiling] = useState<boolean>(() => savedPreference?.vaeTiling ?? Boolean(meta.isVideo));
+  const [diffOffloadRam, setDiffOffloadRam] = useState<boolean>(
+    () => savedPreference?.offloadToCpu ?? savedPreference?.offloadContextToCpu ?? false
+  );
+  const [diffGpuLayers, setDiffGpuLayers] = useState<number>(() => savedPreference?.nGPULayers ?? totalModelLayers ?? 999);
   const storageFaKey = `astrolabe_diff_fa_${meta.cleanId || meta.displayName}`;
   const [diffFlashAttn, setDiffFlashAttn] = useState<DiffusionFlashAttnMode>(() => {
+    if (savedPreference?.diffusionFlashAttn !== undefined) {
+      return normalizeDiffusionFlashAttn(savedPreference.diffusionFlashAttn, 'auto');
+    }
     try {
       const saved = localStorage.getItem(storageFaKey);
       if (saved === 'auto' || saved === 'on' || saved === 'off') return saved;
@@ -157,22 +179,11 @@ export const ModelInspector: React.FC<ModelInspectorProps> = ({
     return 'auto';
   });
 
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem(storageFaKey);
-      if (saved === 'auto' || saved === 'on' || saved === 'off') {
-        setDiffFlashAttn(saved);
-        return;
-      }
-    } catch {}
-    setDiffFlashAttn('auto');
-  }, [storageFaKey]);
-
   // Video Generation Tuning State
-  const [videoFrames, setVideoFrames] = useState<number>(17);
-  const [videoFps, setVideoFps] = useState<number>(16);
-  const [videoFlowShift, setVideoFlowShift] = useState<number>(5.0);
-  const [videoTemporalTiling, setVideoTemporalTiling] = useState<boolean>(true);
+  const [videoFrames, setVideoFrames] = useState<number>(() => savedPreference?.videoFrames ?? 17);
+  const [videoFps, setVideoFps] = useState<number>(() => savedPreference?.videoFps ?? 16);
+  const [videoFlowShift, setVideoFlowShift] = useState<number>(() => savedPreference?.flowShift ?? 5.0);
+  const [videoTemporalTiling, setVideoTemporalTiling] = useState<boolean>(() => savedPreference?.temporalTiling ?? true);
 
   // Available LoRA Adapters
   const availableLoras = useMemo(() => {
@@ -184,8 +195,8 @@ export const ModelInspector: React.FC<ModelInspectorProps> = ({
     });
   }, [availableLocalModels, model?.id]);
 
-  const [selectedLora, setSelectedLora] = useState<string>('none');
-  const [loraScale, setLoraScale] = useState<number>(1.0);
+  const [selectedLora, setSelectedLora] = useState<string>(() => savedPreference?.loraPath ?? 'none');
+  const [loraScale, setLoraScale] = useState<number>(() => savedPreference?.loraScale ?? 1.0);
 
   // Companion VAEs & Encoders (driven by backend component_role / relative_path with safe filename fallback)
   const availableVaes = useMemo(() => {
@@ -206,9 +217,9 @@ export const ModelInspector: React.FC<ModelInspectorProps> = ({
     });
   }, [availableLocalModels, model?.id]);
 
-  const [selectedVae, setSelectedVae] = useState<string>('auto');
-  const [selectedClip, setSelectedClip] = useState<string>('auto');
-  const [selectedT5, setSelectedT5] = useState<string>('auto');
+  const [selectedVae, setSelectedVae] = useState<string>(() => savedPreference?.vaePath ?? 'auto');
+  const [selectedClip, setSelectedClip] = useState<string>(() => savedPreference?.clipPath ?? 'auto');
+  const [selectedT5, setSelectedT5] = useState<string>(() => savedPreference?.t5Path ?? 'auto');
 
   const autoResolvedVae = useMemo(() => resolveAutoCompanion(meta, availableVaes, 'vae'), [meta, availableVaes]);
   const autoResolvedEnc1 = useMemo(() => resolveAutoCompanion(meta, availableEncoders, 'encoder1'), [meta, availableEncoders]);
@@ -236,11 +247,13 @@ export const ModelInspector: React.FC<ModelInspectorProps> = ({
   ]);
 
   // Autoregressive Visual State
-  const [arGridResolution, setArGridResolution] = useState<string>('384x384');
-  const [arVisualTemp, setArVisualTemp] = useState<number>(0.8);
-  const [arVisualTopP, setArVisualTopP] = useState<number>(0.95);
-  const [arLogitCfg, setArLogitCfg] = useState<number>(5.0);
-  const [arTokenContext, setArTokenContext] = useState<number>(2048);
+  const [arGridResolution, setArGridResolution] = useState<string>(() => savedPreference?.resolution ?? '384x384');
+  const [arVisualTemp, setArVisualTemp] = useState<number>(() => savedPreference?.temperature ?? 0.8);
+  const [arVisualTopP, setArVisualTopP] = useState<number>(() => savedPreference?.topP ?? 0.95);
+  const [arLogitCfg, setArLogitCfg] = useState<number>(() => savedPreference?.cfgScale ?? 5.0);
+  const [arTokenContext, setArTokenContext] = useState<number>(() => savedPreference?.ctxSize ?? 2048);
+
+  const [prefSaved, setPrefSaved] = useState<boolean>(false);
 
   // Real Hardware Pool Capacities (zero hardcoded fallback VRAM/RAM numbers)
   const hw = daemonHealth?.hardware;
@@ -442,87 +455,76 @@ export const ModelInspector: React.FC<ModelInspectorProps> = ({
     });
   };
 
-  const handleLoadWithTuning = () => {
-    onStartLoading?.(model.id);
-    try {
-      localStorage.setItem(storageResKey, diffResolution);
-      localStorage.setItem(storageFaKey, diffFlashAttn);
-    } catch {}
-    if (meta.isMusic || meta.modality === 'music') {
-      vscodeApi?.postMessage({
-        command: 'loadLocalModel',
-        modelId: model.id,
-        target: 'music',
-        modality: 'music',
-        nGPULayers: diffGpuLayers
-      });
-    } else if (meta.modelFamily === 'diffusion_flow') {
-      vscodeApi?.postMessage({
-        command: 'loadLocalModel',
-        modelId: model.id,
-        target: meta.isVideo ? 'video' : 'diffusion',
-        modality: meta.isVideo ? 'video' : 'image',
-        modelFamily: 'diffusion_flow',
-        steps: diffSteps,
-        cfgScale: diffCfg,
-        resolution: diffResolution,
-        sampler: diffSampler,
-        vaeTiling: diffVaeTiling,
-        offloadContextToCpu: diffOffloadRam,
-        offloadToCpu: diffOffloadRam,
-        diffusionFlashAttn: diffFlashAttn,
-        nGPULayers: diffGpuLayers,
-        vaePath: selectedVae !== 'auto' ? selectedVae : undefined,
-        clipPath: selectedClip !== 'auto' ? selectedClip : undefined,
-        t5Path: selectedT5 !== 'auto' ? selectedT5 : undefined,
-        loraPath: selectedLora !== 'none' ? selectedLora : undefined,
-        loraScale: selectedLora !== 'none' ? loraScale : undefined,
-        ...(meta.isVideo
-          ? {
-              videoFrames,
-              videoFps,
-              flowShift: videoFlowShift,
-              temporalTiling: videoTemporalTiling
-            }
-          : {})
-      });
-    } else if (meta.modelFamily === 'autoregressive_image') {
-      vscodeApi?.postMessage({
-        command: 'loadLocalModel',
-        modelId: model.id,
-        modelFamily: 'autoregressive_image',
-        resolution: arGridResolution,
-        temperature: arVisualTemp,
-        cfgScale: arLogitCfg,
-        ctxSize: arTokenContext,
-        nGPULayers,
-        flashAttn,
-        useMmap,
-      });
-    } else if (meta.modelFamily === 'pipeline_component') {
-      vscodeApi?.postMessage({
-        command: 'loadLocalModel',
-        modelId: model.id,
-        modelFamily: 'pipeline_component',
-      });
-    } else {
-      vscodeApi?.postMessage({
-        command: 'loadLocalModel',
-        modelId: model.id,
-        modelFamily: 'text_llm',
+  const collectTuningRequest = (includeTarget: boolean) =>
+    buildModelTuningRequest(
+      meta,
+      {
         ctxSize,
         nGPULayers,
+        temperature,
         nThreads,
         nBatch,
         nUbatch,
         flashAttn,
         useMmap,
         offloadContextToCpu,
-        temperature,
         cacheTypeK,
-        cacheTypeV
-      });
+        cacheTypeV,
+        diffSteps,
+        diffCfg,
+        diffResolution,
+        diffSampler,
+        diffVaeTiling,
+        diffOffloadRam,
+        diffGpuLayers,
+        diffFlashAttn,
+        videoFrames,
+        videoFps,
+        videoFlowShift,
+        videoTemporalTiling,
+        selectedVae,
+        selectedClip,
+        selectedT5,
+        selectedLora,
+        loraScale,
+        arGridResolution,
+        arVisualTemp,
+        arVisualTopP,
+        arLogitCfg,
+        arTokenContext,
+      },
+      { includeTarget },
+    );
+
+  const persistDiffusionDefaults = () => {
+    try {
+      localStorage.setItem(storageResKey, diffResolution);
+      localStorage.setItem(storageFaKey, diffFlashAttn);
+    } catch {
+      return;
     }
+  };
+
+  const handleSavePreference = () => {
+    if (!model?.id) return;
+    persistDiffusionDefaults();
+    vscodeApi?.postMessage({
+      command: 'saveModelPreference',
+      modelId: model.id,
+      preference: collectTuningRequest(false),
+    });
+    setPrefSaved(true);
+    setTimeout(() => setPrefSaved(false), 2200);
+  };
+
+  const handleLoadWithTuning = () => {
+    onStartLoading?.(model.id);
+    persistDiffusionDefaults();
+    vscodeApi?.postMessage({
+      command: 'loadLocalModel',
+      modelId: model.id,
+      ...collectTuningRequest(true),
+    });
   };
 
   const handleAssignPrimary = () => {
@@ -574,32 +576,62 @@ export const ModelInspector: React.FC<ModelInspectorProps> = ({
       );
     }
 
+    const savePreferenceButton = meta.modelFamily !== 'pipeline_component' ? (
+      <button
+        type="button"
+        onClick={handleSavePreference}
+        title="Save these inference tuning preferences so quick Load applies them automatically"
+        className={`shrink-0 py-2.5 px-4 rounded-xl text-xs font-semibold border transition-colors shadow-md cursor-pointer flex items-center justify-center gap-1.5 ${
+          prefSaved
+            ? 'text-emerald-300 bg-emerald-500/15 border-emerald-500/35'
+            : 'text-zinc-200 bg-white/[0.06] hover:bg-white/[0.12] border-white/15'
+        }`}
+      >
+        {prefSaved ? (
+          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+          </svg>
+        ) : (
+          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 3H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V7l-4-4zM17 21v-8H7v8M7 3v4h8" />
+          </svg>
+        )}
+        <span>{prefSaved ? 'Saved' : 'Save Preference'}</span>
+      </button>
+    ) : null;
+
     if (isLoadedInMemory) {
       return (
-        <button
-          type="button"
-          onClick={handleUnload}
-          className="w-full py-2.5 px-4 rounded-xl text-xs font-bold text-rose-300 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/25 transition-colors shadow-md cursor-pointer flex items-center justify-center gap-2"
-        >
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 19h14M12 5l-7 7h14l-7-7z" />
-          </svg>
-          <span>Unload from Memory</span>
-        </button>
+        <div className="flex items-center gap-2.5 w-full">
+          {savePreferenceButton}
+          <button
+            type="button"
+            onClick={handleUnload}
+            className="flex-1 py-2.5 px-4 rounded-xl text-xs font-bold text-rose-300 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/25 transition-colors shadow-md cursor-pointer flex items-center justify-center gap-2"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 19h14M12 5l-7 7h14l-7-7z" />
+            </svg>
+            <span>Unload from Memory</span>
+          </button>
+        </div>
       );
     }
 
     return (
-      <button
-        type="button"
-        onClick={handleLoadWithTuning}
-        className="w-full py-2.5 px-4 rounded-xl text-xs font-bold text-zinc-950 bg-white hover:bg-zinc-200 transition-colors shadow-md cursor-pointer flex items-center justify-center gap-2"
-      >
-        <svg className="w-4 h-4 fill-current" viewBox="0 0 24 24">
-          <path d="M13 10V3L4 14h7v7l9-11h-7z" />
-        </svg>
-        <span>{idleLabel}</span>
-      </button>
+      <div className="flex items-center gap-2.5 w-full">
+        {savePreferenceButton}
+        <button
+          type="button"
+          onClick={handleLoadWithTuning}
+          className="flex-1 py-2.5 px-4 rounded-xl text-xs font-bold text-zinc-950 bg-white hover:bg-zinc-200 transition-colors shadow-md cursor-pointer flex items-center justify-center gap-2"
+        >
+          <svg className="w-4 h-4 fill-current" viewBox="0 0 24 24">
+            <path d="M13 10V3L4 14h7v7l9-11h-7z" />
+          </svg>
+          <span>{idleLabel}</span>
+        </button>
+      </div>
     );
   };
 
