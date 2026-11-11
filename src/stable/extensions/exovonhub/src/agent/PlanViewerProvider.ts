@@ -150,7 +150,7 @@ export class PlanViewerProvider {
     webviewHtml = webviewHtml.replace(/\scrossorigin(="")?/g, '');
     webviewHtml = webviewHtml.replace('<head>', `<head>\n<script>window.__EXOVON_PAGE__ = "plan";</script>`);
 
-    const cspMeta = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; script-src ${webview.cspSource} 'unsafe-inline'; img-src ${webview.cspSource} https: data:; connect-src ${webview.cspSource};">`;
+    const cspMeta = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; font-src ${webview.cspSource} data:; script-src ${webview.cspSource} 'unsafe-inline'; img-src ${webview.cspSource} https: data:; connect-src ${webview.cspSource};">`;
     webviewHtml = webviewHtml.replace('<head>', `<head>\n    ${cspMeta}`);
 
     return webviewHtml;

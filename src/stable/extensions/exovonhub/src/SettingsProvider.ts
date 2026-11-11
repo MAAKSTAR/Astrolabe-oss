@@ -4,6 +4,12 @@ import * as path from 'path';
 import * as os from 'os';
 import * as cp from 'child_process';
 import { LlamaUpdateService } from './agent/LlamaUpdateService';
+import {
+  buildDaemonLoadPayload,
+  getModelPreference,
+  loadAllModelPreferences,
+  saveModelPreference
+} from './agent/ModelPreferencesStore';
 
 export class SettingsProvider {
   public static readonly viewType = 'exovonhubSettings';
@@ -110,7 +116,8 @@ export class SettingsProvider {
               tavilyApiKey: config.get<string>('tavilyApiKey') || '',
               firesearchApiKey: config.get<string>('firesearchApiKey') || '',
               tinyfishApiKey: config.get<string>('tinyfishApiKey') || '',
-              browserEngine: config.get<string>('browserEngine') || 'headless'
+              browserEngine: config.get<string>('browserEngine') || 'headless',
+              modelPreferences: loadAllModelPreferences()
             });
             break;
           }
@@ -333,49 +340,14 @@ export class SettingsProvider {
           case 'loadLocalModel': {
             try {
               const fetch = (await import('node-fetch')).default;
-              
-              const payload: any = { model_path: data.modelId };
-              if (data.ctxSize !== undefined) payload.ctx_size = data.ctxSize;
-              if (data.nGPULayers !== undefined) payload.n_gpu_layers = data.nGPULayers;
-              if (data.nThreads !== undefined) payload.n_threads = data.nThreads;
-              if (data.nBatch !== undefined) payload.n_batch = data.nBatch;
-              if (data.nUbatch !== undefined) payload.n_ubatch = data.nUbatch;
-              if (data.backendPreference !== undefined) payload.backend_preference = data.backendPreference;
-              if (data.useMmap !== undefined) payload.use_mmap = data.useMmap;
-              if (data.flashAttn !== undefined) payload.flash_attn = data.flashAttn;
-              if (data.offloadContextToCpu !== undefined) {
-                payload.offload_context_to_cpu = data.offloadContextToCpu;
-                payload.no_kv_offload = data.offloadContextToCpu;
-              }
-              if (data.kvQuant !== undefined) payload.kv_quant = data.kvQuant;
-              if (data.cacheTypeK !== undefined) payload.cache_type_k = data.cacheTypeK;
-              if (data.cacheTypeV !== undefined) payload.cache_type_v = data.cacheTypeV;
-              if (data.target !== undefined) payload.target = data.target;
-              if (data.temperature !== undefined) {
-                payload.temperature = data.temperature;
+              const savedPref = getModelPreference(data.modelId);
+              const payload = buildDaemonLoadPayload(data.modelId, data, savedPref);
+              const effectiveCtxSize = typeof payload.ctx_size === 'number' ? payload.ctx_size : data.ctxSize;
+              const effectiveResolution = typeof payload.resolution === 'string' ? payload.resolution : data.resolution;
+              if (payload.temperature !== undefined) {
                 try {
-                  await vscode.workspace.getConfiguration('exovonhub').update('modelTemperature', data.temperature, vscode.ConfigurationTarget.Global);
+                  await vscode.workspace.getConfiguration('exovonhub').update('modelTemperature', payload.temperature, vscode.ConfigurationTarget.Global);
                 } catch {}
-              }
-              if (data.modality !== undefined) payload.modality = data.modality;
-              if (data.modelFamily !== undefined) payload.model_family = data.modelFamily;
-              if (data.steps !== undefined) payload.steps = data.steps;
-              if (data.cfgScale !== undefined) payload.cfg_scale = data.cfgScale;
-              if (data.resolution !== undefined) payload.resolution = data.resolution;
-              if (data.vaeTiling !== undefined) payload.vae_tiling = data.vaeTiling;
-              if (data.sampler !== undefined) payload.sampler = data.sampler;
-              if (data.clipPath !== undefined) payload.clip_path = data.clipPath;
-              if (data.vaePath !== undefined) payload.vae_path = data.vaePath;
-              if (data.t5Path !== undefined) payload.t5_path = data.t5Path;
-              if (data.loraPath !== undefined) payload.lora_path = data.loraPath;
-              if (data.loraScale !== undefined) payload.lora_scale = data.loraScale;
-              if (data.videoFrames !== undefined || data.video_frames !== undefined) payload.video_frames = data.videoFrames ?? data.video_frames;
-              if (data.fps !== undefined) payload.fps = data.fps;
-              if (data.flowShift !== undefined || data.flow_shift !== undefined) payload.flow_shift = data.flowShift ?? data.flow_shift;
-              if (data.temporalTiling !== undefined || data.temporal_tiling !== undefined) payload.temporal_tiling = data.temporalTiling ?? data.temporal_tiling;
-              if (data.offloadToCpu !== undefined || data.offload_to_cpu !== undefined) payload.offload_to_cpu = data.offloadToCpu ?? data.offload_to_cpu;
-              if (data.diffusionFlashAttn !== undefined || data.diffusion_flash_attn !== undefined) {
-                payload.diffusion_flash_attn = data.diffusionFlashAttn ?? data.diffusion_flash_attn;
               }
 
               await vscode.window.withProgress({
@@ -491,7 +463,7 @@ export class SettingsProvider {
                       || baseLower.includes('dit');
                     const resolvedModality = isVideo ? 'video' : (isDiffusion ? 'image' : 'llm');
 
-                    this._panel.webview.postMessage({ type: 'modelLoaded', modelId: data.modelId, ctx_size: data.ctxSize, modality: resolvedModality });
+                    this._panel.webview.postMessage({ type: 'modelLoaded', modelId: data.modelId, ctx_size: effectiveCtxSize, modality: resolvedModality });
 
                     if (data.maxTokens !== undefined) {
                       try {
@@ -501,16 +473,16 @@ export class SettingsProvider {
                     try {
                       const { ExovonSidebarProvider } = await import('./ExovonSidebarProvider');
                       if (isDiffusion) {
-                        ExovonSidebarProvider.getInstance()?.updateDiffusionModel(baseModelName, data.resolution, resolvedModality);
+                        ExovonSidebarProvider.getInstance()?.updateDiffusionModel(baseModelName, effectiveResolution, resolvedModality);
                         this._panel.webview.postMessage({
                           type: 'settingsState',
                           activeDiffusionModel: baseModelName,
-                          activeDiffusionResolution: data.resolution,
+                          activeDiffusionResolution: effectiveResolution,
                           activeDiffusionModality: resolvedModality,
                           model: `diffusion:${baseModelName}`
                         });
                       } else {
-                        ExovonSidebarProvider.getInstance()?.updateActiveModel(baseModelName, data.ctxSize);
+                        ExovonSidebarProvider.getInstance()?.updateActiveModel(baseModelName, effectiveCtxSize);
                       }
                     } catch {}
                     vscode.window.showInformationMessage(`${path.basename(data.modelId)} successfully loaded into memory.`);
@@ -630,6 +602,27 @@ export class SettingsProvider {
               }).catch(() => {});
             } catch (err: any) {
               vscode.window.showErrorMessage(`Failed to save token: ${err.message}`);
+            }
+            break;
+          }
+          case 'saveModelPreference': {
+            try {
+              if (!data?.modelId) {
+                break;
+              }
+              const updated = saveModelPreference(data.modelId, data.preference || {});
+              this._panel.webview.postMessage({
+                type: 'modelPreferencesUpdated',
+                modelPreferences: updated,
+                savedModelId: data.modelId
+              });
+              try {
+                const { ExovonSidebarProvider } = await import('./ExovonSidebarProvider');
+                ExovonSidebarProvider.getInstance()?.notifyModelPreferencesUpdated(updated);
+              } catch {}
+              vscode.window.showInformationMessage(`Saved tuning preferences for ${path.basename(String(data.modelId))}.`);
+            } catch (err: any) {
+              vscode.window.showErrorMessage(`Failed to save model preference: ${err.message}`);
             }
             break;
           }
@@ -1107,7 +1100,7 @@ export class SettingsProvider {
         this._panel.webview.postMessage({ type: 'localModels', models });
         this._panel.webview.postMessage({ type: 'daemonStatus', isRunning: true });
         try {
-          const { ExovonSidebarProvider } = await import('./ExovonSidebarProvider.js');
+          const { ExovonSidebarProvider } = await import('./ExovonSidebarProvider');
           ExovonSidebarProvider.getInstance()?.postMessage({ type: 'localModels', models });
         } catch {}
         return models;
@@ -1149,7 +1142,7 @@ export class SettingsProvider {
     // Inject __EXOVON_PAGE__ and window flags so React mounts SettingsApp full viewport
     webviewHtml = webviewHtml.replace('<head>', `<head>\n<script>window.__EXOVON_PAGE__ = "settings"; window.__IS_SEPARATE_WINDOW__ = true;</script>`);
 
-    const cspMeta = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; script-src ${webview.cspSource} 'unsafe-inline' https://sdk.cashfree.com; img-src ${webview.cspSource} https: data:; connect-src ${webview.cspSource} https: https://*.cashfree.com; frame-src ${webview.cspSource} https://*.cashfree.com;">`;
+    const cspMeta = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; font-src ${webview.cspSource} data:; script-src ${webview.cspSource} 'unsafe-inline' https://sdk.cashfree.com; img-src ${webview.cspSource} https: data:; connect-src ${webview.cspSource} https: https://*.cashfree.com; frame-src ${webview.cspSource} https://*.cashfree.com;">`;
     webviewHtml = webviewHtml.replace('<head>', `<head>\n    ${cspMeta}`);
 
     return webviewHtml;

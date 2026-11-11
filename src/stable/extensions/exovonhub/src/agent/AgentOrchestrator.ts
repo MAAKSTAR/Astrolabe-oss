@@ -11,6 +11,8 @@ import { IBrainCoordinator } from '../types/shared';
 import { McpClientRouter } from './mcp/McpClientRouter';
 import { buildOpenAiPayload } from './modelMapper';
 import { StateGraphCheckpointer, StateGraphCheckpoint } from './checkpoint/StateGraphCheckpointer';
+import { DiffusionChatService, classifyDiffusionModel, extractInitImage } from './DiffusionChatService';
+import { buildProjectMemoryIndex, queryProjectMemory, saveProjectMemorySession } from './ProjectMemoryService';
 
 let GoogleGenAIClass: any = null;
 
@@ -43,7 +45,7 @@ export interface PlanStep {
 }
 
 export interface AgentUpdate {
-  type: 'log' | 'toolStart' | 'agentToolComplete' | 'complete' | 'cancelled' | 'plan' | 'reasoning' | 'finalAnswer' | 'planReview' | 'diffs' | 'usage' | 'chat' | 'preemptingQueue' | 'agentFocusNodes' | 'promptProgress' | 'metrics' | 'checkpointCreated' | 'checkpointRollbackComplete';
+  type: 'log' | 'toolStart' | 'agentToolComplete' | 'complete' | 'cancelled' | 'plan' | 'reasoning' | 'finalAnswer' | 'planReview' | 'diffs' | 'usage' | 'chat' | 'preemptingQueue' | 'agentFocusNodes' | 'promptProgress' | 'diffusionProgress' | 'metrics' | 'checkpointCreated' | 'checkpointRollbackComplete' | 'contextAutoCompacted';
   text?: string;
   logType?: string;
   toolId?: string;
@@ -58,9 +60,52 @@ export interface AgentUpdate {
   nodeIds?: string[];
   promptTokens?: number;
   promptProcessed?: number;
+  step?: number;
+  totalSteps?: number;
+  percent?: number;
+  stage?: string;
+  elapsedSecs?: number;
+  mediaType?: 'image' | 'video';
+  generatedMedia?: { savedPath: string; mediaType: 'image' | 'video'; mimeType?: string };
   metrics?: any;
   checkpoint?: StateGraphCheckpoint;
   checkpointId?: string;
+  beforeTokens?: number;
+  afterTokens?: number;
+  savedTokens?: number;
+  maxContextTokens?: number;
+}
+
+function estimateOpenAiMessagesTokens(messages: any[], toolsChars: number): number {
+  let chars = toolsChars;
+  for (const msg of messages) {
+    if (typeof msg?.content === 'string') {
+      chars += msg.content.length;
+    } else if (Array.isArray(msg?.content)) {
+      chars += JSON.stringify(msg.content).length;
+    }
+    if (msg?.tool_calls) {
+      chars += JSON.stringify(msg.tool_calls).length;
+    }
+  }
+  return Math.round(chars / 3.8);
+}
+
+function estimateGeminiMessagesTokens(messages: any[]): number {
+  let chars = 0;
+  for (const m of messages) {
+    if (m?.parts) {
+      for (const p of m.parts) {
+        if (typeof p.text === 'string') {
+          chars += p.text.length;
+        }
+        if (p.functionResponse?.response && typeof p.functionResponse.response.result === 'string') {
+          chars += p.functionResponse.response.result.length;
+        }
+      }
+    }
+  }
+  return Math.round(chars / 3.8);
 }
 
 export class AgentOrchestrator {
@@ -211,6 +256,8 @@ export class AgentOrchestrator {
     }
   }
 
+  private _lastGeneratedMedia?: { savedPath: string; mediaType: 'image' | 'video'; mimeType?: string };
+
   private onUpdate(update: AgentUpdate) {
     if (this._currentMessageId) {
       update.messageId = this._currentMessageId;
@@ -223,6 +270,7 @@ export class AgentOrchestrator {
    */
   public cancel() {
     this._cancelled = true;
+    DiffusionChatService.cancelActive();
     if (this._activeHttpRequest) {
       try {
         this._activeHttpRequest.destroy();
@@ -356,6 +404,7 @@ export class AgentOrchestrator {
     // A1+A4: Reset per-execution state to prevent cross-prompt contamination
     this.modifiedFiles.clear();
     this._cancelled = false;
+    this._lastGeneratedMedia = undefined;
     this._currentMessageId = messageId;
 
     this.isExecuting = true;
@@ -509,6 +558,7 @@ Available tools:
 - createDoc(title: string, content: string, fileName?: string): Creates a structured Markdown document (.md), saves it, and automatically opens a live split preview in Astrolabe without cluttering chat. Use this to synthesize research findings, architectural designs, user guides, or documentation.
 - queryConstitution(topic?: string): Query the workspace or global Code Constitution for permanent rules or guidelines (pass 'all' to inspect everything).
 - updateConstitution(category: string, rule_description: string): Appends a new permanent rule or preference to the Constitution for eternity.
+- queryProjectMemory(mode?: string, count?: number, index?: number): Selectively query .vscode/project_memory.json ("count", "list", "last", "recent", or "specific" 1-based index).
 - submitPlan(plan: string): MANDATORY FIRST STEP. Before making ANY file modifications, you MUST call this tool with a markdown-formatted implementation plan. The plan will be shown to the user for approval. You may ONLY proceed with file edits AFTER the plan is approved. If rejected, ask the user for clarification.
 
 PLAN-BEFORE-EXECUTE PROTOCOL (CRITICAL):
@@ -539,6 +589,8 @@ Examples:
   <call:createDoc(title="Architecture Specification", content="# Architecture\n\n...", fileName="docs/architecture.md")>
 - To query permanent Constitution rules:
   <call:queryConstitution(topic="architecture")>
+- To inspect prior session memory selectively:
+  <call:queryProjectMemory(mode="last")>
 - To save a new permanent rule to the Constitution:
   <call:updateConstitution(category="Code Style", rule_description="Always use TypeScript strict types and export interfaces.")>
 - To submit a plan before modifying:
@@ -568,16 +620,8 @@ MANDATORY RULES:
           goalContext = `\n\n<|PROJECT_GOAL|>\n${fs.readFileSync(specPath, 'utf8')}\n</|PROJECT_GOAL|>\n`;
         }
 
-        // REF-4: Read project_memory.json
-        const memoryFile = path.join(workspaceRoot, '.vscode', 'project_memory.json');
-        if (fs.existsSync(memoryFile)) {
-          try {
-            const memoryData = JSON.parse(await fs.promises.readFile(memoryFile, 'utf8'));
-            if (memoryData.summary) {
-              memoryContext = `\n\n<|PERMANENT_PROJECT_MEMORY|>\n${memoryData.summary}\n</|PERMANENT_PROJECT_MEMORY|>\n`;
-            }
-          } catch(e) {}
-        }
+        // REF-4: Expose compact project memory index instead of dumping full history into prompt
+        memoryContext = await buildProjectMemoryIndex(workspaceRoot);
 
         // Constitution TOC Injection
         let constPath = '';
@@ -806,18 +850,7 @@ CRITICAL ENVIRONMENT STATUS: NO WORKSPACE FOLDER IS OPEN IN ASTROLABE.
         // --- Threshold-Based Context Retention (No Pruning Until 75% Capacity) ---
         // In multi-turn agent loops, keeping raw tool outputs intact maintains exact message fidelity.
         // We only compress older tool payloads once total tokens exceed 75% of model context.
-        let geminiChars = 0;
-        for (const m of messages) {
-          if (m.parts) {
-            for (const p of m.parts) {
-              if (typeof p.text === 'string') geminiChars += p.text.length;
-              if (p.functionResponse && p.functionResponse.response && typeof p.functionResponse.response.result === 'string') {
-                geminiChars += p.functionResponse.response.result.length;
-              }
-            }
-          }
-        }
-        const geminiTokens = Math.round(geminiChars / 3.8);
+        const geminiTokens = estimateGeminiMessagesTokens(messages);
         const geminiLimit = 1000000;
         if (geminiTokens >= geminiLimit * 0.75) {
           const SAFE_MESSAGES = 10;
@@ -834,6 +867,17 @@ CRITICAL ENVIRONMENT STATUS: NO WORKSPACE FOLDER IS OPEN IN ASTROLABE.
                   }
                 }
               }
+            }
+            const afterGeminiTokens = estimateGeminiMessagesTokens(messages);
+            if (afterGeminiTokens < geminiTokens) {
+              this.onUpdate({
+                type: 'contextAutoCompacted',
+                beforeTokens: geminiTokens,
+                afterTokens: afterGeminiTokens,
+                savedTokens: geminiTokens - afterGeminiTokens,
+                maxContextTokens: geminiLimit,
+                text: `Agent auto-compacted older tool payloads (~${geminiTokens.toLocaleString()} → ~${afterGeminiTokens.toLocaleString()} tokens).`,
+              });
             }
           }
         }
@@ -1064,6 +1108,18 @@ CRITICAL ENVIRONMENT STATUS: NO WORKSPACE FOLDER IS OPEN IN ASTROLABE.
                       topic: { type: 'STRING' as any, description: 'The exact topic string from the Constitution TOC.' }
                     },
                     required: ['topic']
+                  }
+                },
+                {
+                  name: 'queryProjectMemory',
+                  description: 'Query .vscode/project_memory.json selectively without loading all history. Modes: "count" (total stored sessions), "list" (indices, timestamps & previews), "last" (latest session), "recent" (last N via count), "specific" (session #index, 1-based).',
+                  parameters: {
+                    type: 'OBJECT' as any,
+                    properties: {
+                      mode: { type: 'STRING' as any, description: 'Query mode: "count", "list", "last", "recent", or "specific".' },
+                      count: { type: 'NUMBER' as any, description: 'Number of recent sessions when mode="recent".' },
+                      index: { type: 'NUMBER' as any, description: '1-based session number when mode="specific".' }
+                    }
                   }
                 },
                 {
@@ -1381,6 +1437,9 @@ CRITICAL ENVIRONMENT STATUS: NO WORKSPACE FOLDER IS OPEN IN ASTROLABE.
         }
 
         lastStreamingText = streamingText;
+        if (this._cancelled) {
+          throw new Error('AbortError: Agent execution cancelled');
+        }
 
         if (functionCalls && functionCalls.length > 0) {
           // Push integrated content chunk history
@@ -1491,7 +1550,17 @@ CRITICAL ENVIRONMENT STATUS: NO WORKSPACE FOLDER IS OPEN IN ASTROLABE.
               addconstitutionrule: 'updateConstitution',
               add_constitution_rule: 'updateConstitution',
               saveconstitution: 'updateConstitution',
-              save_constitution: 'updateConstitution'
+              save_constitution: 'updateConstitution',
+              queryprojectmemory: 'queryProjectMemory',
+              query_project_memory: 'queryProjectMemory',
+              getprojectmemory: 'queryProjectMemory',
+              get_project_memory: 'queryProjectMemory',
+              readprojectmemory: 'queryProjectMemory',
+              read_project_memory: 'queryProjectMemory',
+              projectmemory: 'queryProjectMemory',
+              querymemory: 'queryProjectMemory',
+              query_memory: 'queryProjectMemory',
+              getmemory: 'queryProjectMemory'
             };
             const lowerNoUnderscore = rawToolName.toLowerCase().replace(/[\-_]/g, '');
             const toolName = toolAliasMap[lowerNoUnderscore] || toolAliasMap[rawToolName.toLowerCase()] || rawToolName;
@@ -1812,6 +1881,7 @@ CRITICAL ENVIRONMENT STATUS: NO WORKSPACE FOLDER IS OPEN IN ASTROLABE.
                   { name: 'submitPlan', category: 'planning', description: 'Submits markdown implementation plan for user review before file modifications.' },
                   { name: 'queryConstitution', category: 'planning', description: 'Queries workspace permanent rules.' },
                   { name: 'updateConstitution', category: 'planning', description: 'Saves new permanent rules to workspace Constitution.' },
+                  { name: 'queryProjectMemory', category: 'planning', description: 'Selectively queries .vscode/project_memory.json ("count", "list", "last", "recent", or "specific" index).' },
                   { name: 'readCoordination', category: 'planning', description: 'Reads active half-work/placeholders.' },
                   { name: 'updateCoordination', category: 'planning', description: 'Logs half-work for future sessions.' },
                   { name: 'spawnSubAgent', category: 'agent', description: 'Spawns isolated sub-agent for parallel bounded tasks.' },
@@ -1956,6 +2026,10 @@ CRITICAL ENVIRONMENT STATUS: NO WORKSPACE FOLDER IS OPEN IN ASTROLABE.
                 } else {
                   result = "No Constitution found. You can add the first permanent rules using `updateConstitution(category, rule_description)`.";
                 }
+              } else if (toolName === 'queryProjectMemory') {
+                this.onUpdate({ type: 'log', text: `🧠 Querying project memory (${call.args.mode || 'auto'})...`, logType: 'info' });
+                const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
+                result = await queryProjectMemory(workspaceRoot, call.args);
               } else if (toolName === 'updateConstitution') {
                 const category = (call.args.category || 'General').trim();
                 const rule = (call.args.rule_description || call.args.rule || call.args.description || '').trim();
@@ -2093,62 +2167,38 @@ CRITICAL ENVIRONMENT STATUS: NO WORKSPACE FOLDER IS OPEN IN ASTROLABE.
               } else if (toolName === 'generateImage') {
                 this.onUpdate({ type: 'log', text: `🎨 Synthesizing visual asset with Diffusion Engine: "${call.args.prompt}"`, logType: 'info' });
                 try {
-                  const fetch = (await import('node-fetch')).default;
                   const prompt = call.args.prompt || 'Generated Graphic';
                   const outputPath = call.args.outputPath || `assets/generated_${Date.now()}.png`;
                   const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '/tmp';
-                  const fullOutputPath = path.isAbsolute(outputPath) 
-                    ? outputPath 
-                    : path.join(workspaceRoot, outputPath);
-
-                  const outDir = path.dirname(fullOutputPath);
-                  if (!fs.existsSync(outDir)) {
-                    fs.mkdirSync(outDir, { recursive: true });
-                  }
-
-                  let genRes: any;
-                  try {
-                    genRes = await fetch('http://127.0.0.1:47992/v1/images/generations', {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({
-                        prompt,
-                        size: call.args.size || '1024x1024',
-                        n: 1,
-                        response_format: 'b64_json'
-                      })
-                    });
-                  } catch {
-                    genRes = await fetch('http://127.0.0.1:47990/v1/images/generations', {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({
-                        prompt,
-                        size: call.args.size || '1024x1024',
-                        n: 1,
-                        response_format: 'b64_json'
-                      })
-                    });
-                  }
-
-                  if (genRes.ok) {
-                    const data: any = await genRes.json();
-                    const b64Data = data.data?.[0]?.b64_json;
-                    if (b64Data) {
-                      fs.writeFileSync(fullOutputPath, Buffer.from(b64Data, 'base64'));
-                      const relPath = path.relative(workspaceRoot, fullOutputPath);
-                      try {
-                        await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(fullOutputPath));
-                      } catch (imgOpenErr: any) {
-                        console.warn('[Astrolabe] Could not open generated image in editor:', imgOpenErr?.message);
-                      }
-                      result = `Image successfully generated and saved to ${relPath}.\n\n![${prompt}](file://${fullOutputPath})`;
-                    } else {
-                      result = `Diffusion engine responded without image data: ${JSON.stringify(data)}`;
+                  const genRes = await DiffusionChatService.generate(
+                    { prompt, size: call.args.size || '1024x1024', outputPath, modality: 'image' },
+                    {
+                      onProgress: (prog) => {
+                        this.onUpdate({
+                          type: 'diffusionProgress',
+                          mediaType: 'image',
+                          step: prog.step,
+                          totalSteps: prog.total_steps,
+                          percent: prog.percent,
+                          stage: prog.stage,
+                          elapsedSecs: prog.elapsed_secs,
+                        });
+                      },
+                    },
+                  );
+                  if (genRes.cancelled) {
+                    result = 'Image generation cancelled by user.';
+                  } else if (genRes.savedPath) {
+                    this._lastGeneratedMedia = { savedPath: genRes.savedPath, mediaType: genRes.mediaType, mimeType: genRes.mimeType };
+                    const relPath = path.relative(workspaceRoot, genRes.savedPath);
+                    try {
+                      await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(genRes.savedPath));
+                    } catch (imgOpenErr: any) {
+                      console.warn('[Astrolabe] Could not open generated image in editor:', imgOpenErr?.message);
                     }
+                    result = `Image successfully generated and saved to ${relPath}.\n\n![${prompt}](file://${genRes.savedPath})`;
                   } else {
-                    const errText = await genRes.text();
-                    result = `Local Diffusion Engine error (${genRes.status}): ${errText}`;
+                    result = 'Diffusion engine responded without image data.';
                   }
                 } catch (err: any) {
                   result = `Image generation error: ${err.message}. Ensure the Exovon Local Engine daemon is running.`;
@@ -2313,7 +2363,9 @@ CRITICAL ENVIRONMENT STATUS: NO WORKSPACE FOLDER IS OPEN IN ASTROLABE.
               answerText = 'Response delivered.';
             }
           }
-          this.onUpdate({ type: 'finalAnswer', text: answerText });
+          const genMedia = this._lastGeneratedMedia;
+          this._lastGeneratedMedia = undefined;
+          this.onUpdate({ type: 'finalAnswer', text: answerText, generatedMedia: genMedia });
         }
       }
 
@@ -2535,82 +2587,31 @@ CRITICAL ENVIRONMENT STATUS: NO WORKSPACE FOLDER IS OPEN IN ASTROLABE.
       const config = vscode.workspace.getConfiguration('exovonhub');
       const targetModel = activeModel || config.get<string>('preferredModel') || 'Qwen/Qwen3-235B-A22B-Instruct-2507';
 
-      this.onUpdate({ type: 'log', text: `🧠 Extracting permanent project memory in background using active model (${targetModel})...`, logType: 'info' });
-
-      const memoryDir = path.join(workspaceRoot, '.vscode');
-      const memoryFile = path.join(memoryDir, 'project_memory.json');
-
-      if (!fs.existsSync(memoryDir)) {
-        fs.mkdirSync(memoryDir, { recursive: true });
-      }
-
-      // Condense messages for the summarizer model
-      const transcript = messages.map(m => {
-        const partsText = (m.parts || []).map((p: any) => p.text || (p.functionCall ? `[Tool Call: ${p.functionCall.name}]` : (p.functionResponse ? `[Tool Result: ${p.functionResponse.name}]` : ''))).filter(Boolean).join(' ');
-        return `${m.role ? m.role.toUpperCase() : 'USER'}: ${partsText}`;
-      }).join('\n\n');
-
-      const summaryPrompt = `You are a project memory summarizer.
-Review the following transcript of an AI Agent and a Developer working on a codebase.
-Extract a concise summary of:
-1. Permanent architectural rules established.
-2. User preferences noted.
-3. New components or significant logic created.
-
-Format your response as a tight, bulleted list. Do not include markdown preamble or conversational filler.
-
-<TRANSCRIPT>
-${transcript.slice(-15000)}
-</TRANSCRIPT>`;
-
-      let rawSummaryText = '';
-
-      if ((targetModel.startsWith('gemini') || targetModel.startsWith('gemma')) && this.ai) {
-        const response = await this.ai.models.generateContent({
-          model: targetModel,
-          contents: [{ role: 'user', parts: [{ text: summaryPrompt }] }]
-        });
-        rawSummaryText = response.text || '';
-      } else {
-        // Run using the exact same working model via local daemon or OpenAI-compatible endpoint
-        const summarizerMessages = [{ role: 'user', parts: [{ text: summaryPrompt }] }];
-        const stream = this.executeOpenAiStream(targetModel, summarizerMessages, [], 'You are a concise, accurate software project memory summarizer.');
-        for await (const chunk of stream) {
-          const candidate = chunk.candidates?.[0];
-          if (candidate?.content?.parts) {
-            for (const part of candidate.content.parts) {
-              if (part.text) {
-                rawSummaryText += part.text;
+      const saved = await saveProjectMemorySession(workspaceRoot, targetModel, messages, async (summaryPrompt) => {
+        this.onUpdate({ type: 'log', text: `🧠 Extracting permanent project memory in background using active model (${targetModel})...`, logType: 'info' });
+        let rawSummaryText = '';
+        if ((targetModel.startsWith('gemini') || targetModel.startsWith('gemma')) && this.ai) {
+          const response = await this.ai.models.generateContent({
+            model: targetModel,
+            contents: [{ role: 'user', parts: [{ text: summaryPrompt }] }]
+          });
+          rawSummaryText = response.text || '';
+        } else {
+          const summarizerMessages = [{ role: 'user', parts: [{ text: summaryPrompt }] }];
+          const stream = this.executeOpenAiStream(targetModel, summarizerMessages, [], 'You are a concise, accurate software project memory summarizer.');
+          for await (const chunk of stream) {
+            const candidate = chunk.candidates?.[0];
+            if (candidate?.content?.parts) {
+              for (const part of candidate.content.parts) {
+                if (part.text) { rawSummaryText += part.text; }
               }
             }
           }
         }
-      }
+        return this.sanitizeModelOutput(rawSummaryText).cleanText || rawSummaryText;
+      });
 
-      const sanitized = this.sanitizeModelOutput(rawSummaryText);
-      const summaryText = (sanitized.cleanText || rawSummaryText).trim();
-
-      if (summaryText) {
-        let existingSessions: string[] = [];
-        if (fs.existsSync(memoryFile)) {
-          try {
-            const existing = JSON.parse(await fs.promises.readFile(memoryFile, 'utf8'));
-            if (Array.isArray(existing.sessions)) {
-              existingSessions = existing.sessions;
-            } else if (existing.summary) {
-              existingSessions = [existing.summary];
-            }
-          } catch (e) { console.error('[Exovon Error]', e); }
-        }
-
-        existingSessions.push(`[Session on ${new Date().toLocaleString()}]\n${summaryText}`);
-        if (existingSessions.length > 5) {
-          existingSessions.shift();
-        }
-
-        const combinedSummary = existingSessions.join('\n\n');
-        
-        await fs.promises.writeFile(memoryFile, JSON.stringify({ sessions: existingSessions, summary: combinedSummary, lastUpdated: new Date().toISOString() }, null, 2));
+      if (saved) {
         this.onUpdate({ type: 'log', text: '💾 Permanent project memory updated.', logType: 'success' });
       }
     } catch (e: any) {
@@ -2783,16 +2784,11 @@ ${transcript.slice(-15000)}
     // a 100% KV cache hit rate and near-zero TTFT. We strictly do NOT prune or compact until context
     // reaches 75% of model capacity.
     const config = vscode.workspace.getConfiguration('exovonhub');
-    const keepLastNTurns = Math.max(1, Math.min(50, config.get<number>('contextKeepLastNTurns') || 10));
+    const emergencyRetainTurns = 8;
 
     // Calculate total estimated tokens in messages + tools
-    let totalPayloadChars = JSON.stringify(openAiTools).length;
-    for (const msg of openAiMessages) {
-      if (typeof msg.content === 'string') totalPayloadChars += msg.content.length;
-      else if (Array.isArray(msg.content)) totalPayloadChars += JSON.stringify(msg.content).length;
-      if (msg.tool_calls) totalPayloadChars += JSON.stringify(msg.tool_calls).length;
-    }
-    const estimatedTokens = Math.round(totalPayloadChars / 3.8);
+    const openAiToolsChars = JSON.stringify(openAiTools).length;
+    const estimatedTokens = estimateOpenAiMessagesTokens(openAiMessages, openAiToolsChars);
 
     // Resolve max context limit for the active model (default to 128k for modern local models)
     let maxContextTokens = config.get<number>('localContextWindow') || 131072;
@@ -2823,12 +2819,15 @@ ${transcript.slice(-15000)}
         logType: 'info'
       });
 
-      const preservedCount = keepLastNTurns * 2;
+      const preservedCount = emergencyRetainTurns * 2;
       const cutoffIndex = Math.max(2, openAiMessages.length - preservedCount);
 
       for (let i = 1; i < cutoffIndex; i++) {
         const msg = openAiMessages[i];
         if (!msg) continue;
+        if (typeof msg.content === 'string' && msg.content.includes('[COMPACTED CONVERSATION CONTEXT')) {
+          continue;
+        }
 
         if (msg.role === 'tool') {
           // Compress older tool outputs to lightweight confirmation
@@ -2851,6 +2850,25 @@ ${transcript.slice(-15000)}
           }
         }
       }
+
+      const maxSystemChars = Math.max(12000, Math.floor(maxContextTokens * 0.55 * 3.5));
+      if (openAiMessages[0]?.role === 'system' && typeof openAiMessages[0].content === 'string' && openAiMessages[0].content.length > maxSystemChars) {
+        const rawSys = openAiMessages[0].content;
+        const headLen = Math.floor(maxSystemChars * 0.65);
+        const tailLen = maxSystemChars - headLen;
+        openAiMessages[0].content = `${rawSys.slice(0, headLen)}\n\n... [Excess system context trimmed (${rawSys.length - maxSystemChars} chars) to fit context window] ...\n\n${rawSys.slice(-tailLen)}`;
+      }
+      const afterTokens = estimateOpenAiMessagesTokens(openAiMessages, openAiToolsChars);
+      if (afterTokens < estimatedTokens) {
+        this.onUpdate({
+          type: 'contextAutoCompacted',
+          beforeTokens: estimatedTokens,
+          afterTokens,
+          savedTokens: estimatedTokens - afterTokens,
+          maxContextTokens,
+          text: `Agent auto-compacted older context (~${estimatedTokens.toLocaleString()} → ~${afterTokens.toLocaleString()} tokens).`,
+        });
+      }
     } else {
       console.log(`[EXOVON KV CACHE] Append-only mode: ${estimatedTokens}/${maxContextTokens} tokens (${Math.round(capacityRatio * 100)}%). All ${openAiMessages.length} turns preserved intact for prefix caching.`);
     }
@@ -2866,203 +2884,65 @@ ${transcript.slice(-15000)}
     let authHeaderKey = this.apiKey || 'missing-pat';
     let targetModel = model;
 
-    const modelLower = model.toLowerCase();
-    const normModelPath = modelLower.replace(/\\/g, '/');
-    const isVideoKeyword = model.startsWith('video:')
-      || normModelPath.includes('/video/')
-      || normModelPath.startsWith('video/')
-      || modelLower.includes('wan')
-      || modelLower.includes('ltx')
-      || modelLower.includes('hunyuanvideo')
-      || modelLower.includes('cogvideo')
-      || modelLower.includes('mochi');
-    const isDiffusionModel = model.startsWith('diffusion:')
-      || isVideoKeyword
-      || modelLower.includes('flux')
-      || modelLower.includes('sd-')
-      || modelLower.includes('sd_')
-      || modelLower.includes('sdxl')
-      || modelLower.includes('diffusion')
-      || (modelLower.includes('qwen') && modelLower.includes('image'))
-      || modelLower.includes('dit');
-
-    if (isDiffusionModel) {
-      const diffModelName = model.replace(/^diffusion:/i, '').replace(/^local:/i, '');
+    const { isDiffusion, isVideoHint } = classifyDiffusionModel(model);
+    if (isDiffusion) {
       try {
         const lastUserMsg = [...openAiMessages].reverse().find(m => m.role === 'user');
-        let userPrompt = typeof lastUserMsg?.content === 'string'
+        const rawUserPrompt = typeof lastUserMsg?.content === 'string'
           ? lastUserMsg.content
           : (Array.isArray(lastUserMsg?.content) ? lastUserMsg.content.map((c: any) => c.text || '').join(' ') : 'a creative artwork');
-
-        if (userPrompt.includes('You are a project memory summarizer') || userPrompt.includes('Review the following transcript')) {
-          console.log('[Astrolabe] Ignoring background summarizer prompt for diffusion model.');
+        const res = await DiffusionChatService.generate(
+          {
+            prompt: rawUserPrompt,
+            model,
+            modality: isVideoHint ? 'video' : undefined,
+            isDiffusion: true,
+            initImage: extractInitImage(messages, openAiMessages),
+          },
+          {
+            onProgress: (prog) => {
+              this.onUpdate({
+                type: 'diffusionProgress',
+                mediaType: prog.modality === 'video' ? 'video' : 'image',
+                step: prog.step,
+                totalSteps: prog.total_steps,
+                percent: prog.percent,
+                stage: prog.stage,
+                elapsedSecs: prog.elapsed_secs,
+              });
+            },
+          },
+        );
+        if (res.ignored) return;
+        if (res.cancelled) {
+          this._cancelled = true;
           return;
         }
+        this._lastGeneratedMedia = res.savedPath
+          ? { savedPath: res.savedPath, mediaType: res.mediaType, mimeType: res.mimeType }
+          : undefined;
+        const label = res.mediaType === 'video' ? 'Video' : 'Image';
+        yield {
+          candidates: [{
+            content: {
+              parts: [{
+                text: `✦ ${label} generated successfully using ${res.displayModelName || 'Astrolabe Visual Engine'}.
 
-        const actionMatch = userPrompt.match(/Developer Action Request:\s*["']?([\s\S]+?)["']?\s*$/);
-        if (actionMatch && actionMatch[1]) {
-          userPrompt = actionMatch[1].trim();
-        }
-
-        userPrompt = userPrompt.replace(/\[IDE WORKSPACE ACTIVE CONTEXT\][\s\S]*?\[\/IDE WORKSPACE ACTIVE CONTEXT\]/g, '').trim();
-
-        const diffModelLower = diffModelName.toLowerCase();
-        const isFlux = diffModelLower.includes('flux');
-        const isQwen = diffModelLower.includes('qwen');
-        const isSchnellOrTurbo = isFlux || isQwen || diffModelLower.includes('schnell') || diffModelLower.includes('turbo');
-        const defaultCfgScale = (isFlux || isQwen) ? 1.0 : 7.0;
-        const defaultSteps = isSchnellOrTurbo ? 4 : 20;
-
-        let initImage: string | undefined = undefined;
-        if (Array.isArray(lastUserMsg?.content)) {
-          const imgItem = lastUserMsg.content.find((c: any) => c.type === 'image_url');
-          if (imgItem && imgItem.image_url?.url) {
-            initImage = imgItem.image_url.url;
-          }
-        }
-        if (!initImage && Array.isArray(messages)) {
-          for (const m of [...messages].reverse()) {
-            const inline = m.parts?.find((p: any) => p.inlineData);
-            if (inline) {
-              initImage = `data:${inline.inlineData.mimeType};base64,${inline.inlineData.data}`;
-              break;
-            }
-          }
-        }
-
-        const fetch = (await import('node-fetch')).default;
-        let isVideo = isVideoKeyword;
-        let storedDiffusion: any = null;
-        try {
-          const [hRes, mRes] = await Promise.all([
-            fetch('http://127.0.0.1:47990/v1/health').catch(() => null),
-            fetch('http://127.0.0.1:47990/v1/models').catch(() => null)
-          ]);
-          if (hRes && hRes.ok) {
-            const hData = await hRes.json() as any;
-            storedDiffusion = hData?.active_diffusion || null;
-            if (storedDiffusion?.modality === 'video') {
-              isVideo = true;
-            }
-          }
-          if (!isVideo && mRes && mRes.ok) {
-            const mData = await mRes.json() as any;
-            const list = Array.isArray(mData?.data) ? mData.data : [];
-            const cleanRef = diffModelName.replace(/^(?:diffusion|video|local):/i, '');
-            const match = list.find((m: any) =>
-              m.id === cleanRef || path.basename(String(m.id || '')) === path.basename(cleanRef) || m.name === cleanRef
-            );
-            const rel = String(match?.relative_path || '').replace(/\\/g, '/').toLowerCase();
-            if (match?.modality === 'video' || rel.startsWith('video/')) {
-              isVideo = true;
-            }
-          }
-        } catch {}
-
-        const cleanDiffModel = diffModelName.replace(/^(?:diffusion|video|local):/i, '');
-        const endpoint = isVideo ? '/v1/videos/generations' : (initImage ? '/v1/images/edits' : '/v1/images/generations');
-        const requestBody: any = {
-          prompt: userPrompt,
-          model: cleanDiffModel,
-          size: storedDiffusion?.resolution || undefined,
-          cfg_scale: storedDiffusion?.cfg_scale ?? defaultCfgScale,
-          steps: storedDiffusion?.steps ?? defaultSteps
+*Saved to: \`${res.savedPath}\`*`,
+              }],
+            },
+          }],
         };
-        if (storedDiffusion?.sampler) requestBody.sampler = storedDiffusion.sampler;
-        if (storedDiffusion?.vae_tiling !== undefined) requestBody.vae_tiling = storedDiffusion.vae_tiling;
-        if (storedDiffusion?.diffusion_flash_attn !== undefined) {
-          requestBody.diffusion_flash_attn = storedDiffusion.diffusion_flash_attn;
-        }
-        if (isVideo && storedDiffusion) {
-          if (storedDiffusion.video_frames !== undefined) requestBody.video_frames = storedDiffusion.video_frames;
-          if (storedDiffusion.fps !== undefined) requestBody.fps = storedDiffusion.fps;
-          if (storedDiffusion.flow_shift !== undefined) requestBody.flow_shift = storedDiffusion.flow_shift;
-          if (storedDiffusion.temporal_tiling !== undefined) requestBody.temporal_tiling = storedDiffusion.temporal_tiling;
-          if (storedDiffusion.offload_to_cpu !== undefined) requestBody.offload_to_cpu = storedDiffusion.offload_to_cpu;
-        }
-        if (initImage) {
-          requestBody.image = initImage;
-          requestBody.strength = 0.65;
-        }
-
-        let genRes: any;
-        try {
-          genRes = await fetch(`http://127.0.0.1:47990${endpoint}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(requestBody)
-          });
-        } catch {
-          genRes = await fetch(`http://127.0.0.1:47992${endpoint}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(requestBody)
-          });
-        }
-        if (genRes.ok) {
-          const genData = await genRes.json() as any;
-          const firstItem = genData.data?.[0] || genData;
-          const b64 = firstItem?.b64_json;
-          const returnedPath = firstItem?.path || firstItem?.file_path || genData.path || genData.file_path;
-          const rawExt = String(firstItem?.ext || genData.ext || (returnedPath ? path.extname(String(returnedPath)) : '') || (isVideo ? 'mp4' : 'png'))
-            .replace(/^\./, '')
-            .toLowerCase();
-          const ext = rawExt || (isVideo ? 'mp4' : 'png');
-          const mimeType = String(firstItem?.mime_type || genData.mime_type || (
-            isVideo
-              ? (ext === 'webm' ? 'video/webm' : ext === 'mov' ? 'video/quicktime' : ext === 'avi' ? 'video/x-msvideo' : 'video/mp4')
-              : (ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : ext === 'webp' ? 'image/webp' : 'image/png')
-          ));
-
-          const fsMod = require('fs');
-          if (b64 || (returnedPath && fsMod.existsSync(String(returnedPath)))) {
-            const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '/tmp';
-            const outDir = path.join(workspaceRoot, 'assets');
-            if (!fsMod.existsSync(outDir)) fsMod.mkdirSync(outDir, { recursive: true });
-            const fileName = `generated_${Date.now()}.${ext}`;
-            const outPath = path.join(outDir, fileName);
-            if (b64) {
-              fsMod.writeFileSync(outPath, Buffer.from(b64, 'base64'));
-            } else {
-              fsMod.copyFileSync(String(returnedPath), outPath);
-            }
-
-            if (isVideo) {
-              const videoSrc = b64 ? `data:${mimeType};base64,${b64}` : vscode.Uri.file(outPath).toString();
-              yield {
-                candidates: [{
-                  content: {
-                    parts: [{
-                      text: `✦ Video generated successfully using ${cleanDiffModel} on Astrolabe Visual Engine!\n\n<video controls autoplay loop muted playsinline class="w-full max-w-md rounded-xl border border-white/10 bg-black" src="${videoSrc}"></video>\n\n*Saved to: \`${outPath}\`*`
-                    }]
-                  }
-                }]
-              };
-            } else {
-              yield {
-                candidates: [{
-                  content: {
-                    parts: [{
-                      text: `✦ Image generated successfully using ${cleanDiffModel} on Astrolabe Visual Engine!\n\n![Generated Art](data:${mimeType};base64,${b64})\n\n*Saved to: \`${outPath}\`*`
-                    }]
-                  }
-                }]
-              };
-            }
-            return;
-          }
-        }
-        const errText = await genRes.text();
-        throw new Error(`${isVideo ? 'Video' : 'Diffusion'} Engine failed: ${errText || 'Unknown error'}`);
+        return;
       } catch (err: any) {
         yield {
           candidates: [{
             content: {
               parts: [{
-                text: `${isVideoKeyword ? 'Video' : 'Image'} generation failed: ${err.message || 'Visual Engine error'}`
-              }]
-            }
-          }]
+                text: `${isVideoHint ? 'Video' : 'Image'} generation failed: ${err.message || 'Visual Engine error'}`,
+              }],
+            },
+          }],
         };
         return;
       }
@@ -3416,7 +3296,7 @@ ${transcript.slice(-15000)}
 
     // --- PATTERN 5: Plain function call invocation (e.g. listDir(relativePath=".") or semanticSearch("query")) ---
     if (toolCalls.length === 0) {
-      const plainFuncRegex = /\b(listDir|viewFile|readFile|getChatHistory|semanticSearch|grepSearch|applyPatch|multiReplaceFileContent|createFile|deleteFile|submitPlan|editPlan|updatePlan|submitPlane|editPlane|updatePlane|runCommand|searchWeb|fetchWebPage|fetchUrl|readWebPage|scrapeWebPage|queryConstitution|updateConstitution|queryGraph|querySemanticVector|readCoordination|updateCoordination|spawnSubAgent|deployToExovonCloud|openBrowserPreview|highlightBrowserElement|generateImage|getWorkspaceHash|sendTerminalInput|checkTerminalStatus|listAvailableTools)\s*\(([\s\S]*?)\)/gi;
+      const plainFuncRegex = /\b(listDir|viewFile|readFile|getChatHistory|semanticSearch|grepSearch|applyPatch|multiReplaceFileContent|createFile|deleteFile|submitPlan|editPlan|updatePlan|submitPlane|editPlane|updatePlane|runCommand|searchWeb|fetchWebPage|fetchUrl|readWebPage|scrapeWebPage|queryConstitution|updateConstitution|queryProjectMemory|queryGraph|querySemanticVector|readCoordination|updateCoordination|spawnSubAgent|deployToExovonCloud|openBrowserPreview|highlightBrowserElement|generateImage|getWorkspaceHash|sendTerminalInput|checkTerminalStatus|listAvailableTools)\s*\(([\s\S]*?)\)/gi;
       while ((match = plainFuncRegex.exec(cleanedText)) !== null) {
         const name = match[1];
         const argsStr = match[2].trim();
@@ -3440,6 +3320,14 @@ ${transcript.slice(-15000)}
             toolCalls.push({ name, args: { command: rawVal } });
           } else if (name === 'queryConstitution') {
             toolCalls.push({ name, args: { topic: rawVal } });
+          } else if (name === 'queryProjectMemory') {
+            const idxNum = Number(rawVal);
+            toolCalls.push({
+              name,
+              args: Number.isInteger(idxNum) && idxNum > 0
+                ? { mode: 'specific', index: idxNum }
+                : { mode: rawVal || 'list' }
+            });
           } else if (name === 'queryGraph') {
             toolCalls.push({ name, args: { symbolName: rawVal } });
           } else if (name === 'querySemanticVector') {

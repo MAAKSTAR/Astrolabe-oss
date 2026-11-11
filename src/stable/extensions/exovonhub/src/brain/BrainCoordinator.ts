@@ -1491,7 +1491,12 @@ export class BrainCoordinator implements IBrainCoordinator {
           generatedMediaMime: message.generatedMediaMime,
           // CRITICAL: NEVER store full message.checkpoint object or megabyte b64 strings in SQLite; savedPath restores media on load.
           promptTokens: message.promptTokens,
-          promptProcessed: message.promptProcessed
+          promptProcessed: message.promptProcessed,
+          contextFiles: message.contextFiles,
+          contextMarkerType: message.contextMarkerType,
+          beforeTokens: message.beforeTokens,
+          afterTokens: message.afterTokens,
+          autoCompaction: message.autoCompaction
         })
       );
       
@@ -1502,7 +1507,7 @@ export class BrainCoordinator implements IBrainCoordinator {
         .replace(/^[#*`\s]+/, '')
         .trim();
 
-      if (message.sender === 'user' && cleanText) {
+      if (message.sender === 'user' && !message.contextMarkerType && cleanText) {
         // Strip common greetings to find actual intent
         let titleCandidate = cleanText
           .replace(/^(?:hi|hello|hey|yo|sup|greeting|greetings|please|can you|could you|help me)\s*[,.:;!-]?\s*/i, '')

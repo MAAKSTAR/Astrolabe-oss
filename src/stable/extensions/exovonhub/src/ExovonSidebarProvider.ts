@@ -13,6 +13,15 @@ import { InspectorProxy } from './agent/InspectorProxy';
 import { DaemonManager } from './agent/DaemonManager';
 import { WorkspacePreparer } from './agent/WorkspacePreparer';
 import { DevServerManager } from './agent/DevServerManager';
+import { DiffusionChatService, classifyDiffusionModel, inferDiffusionModality } from './agent/DiffusionChatService';
+import { compactConversationWithLlm } from './agent/ContextCompactionService';
+import { resolveContextFilesContent } from './agent/ContextFileResolver';
+import {
+  buildDaemonLoadPayload,
+  getModelPreference,
+  loadAllModelPreferences,
+  stripModelPrefix
+} from './agent/ModelPreferencesStore';
 
 import { IBrainCoordinator } from './types/shared';
 
@@ -33,6 +42,10 @@ export class ExovonSidebarProvider implements vscode.WebviewViewProvider {
   private _view?: vscode.WebviewView;
   private _activeOrchestrator?: AgentOrchestrator;
 
+  public notifyModelPreferencesUpdated(modelPreferences: Record<string, any>) {
+    this._view?.webview.postMessage({ type: 'modelPreferencesUpdated', modelPreferences });
+  }
+
   private _pendingApprovals = new Map<string, (approved: boolean) => void>();
   private _watchdog?: DiagnosticsWatchdog;
   private _isInspectorActive: boolean = false;
@@ -46,35 +59,7 @@ export class ExovonSidebarProvider implements vscode.WebviewViewProvider {
   private _cachedLocalModels: any[] = [];
 
   private _inferDiffusionModality(modelIdOrName: string, explicitModality?: string, activeDiffusion?: any): 'video' | 'image' {
-    const exp = String(explicitModality || activeDiffusion?.modality || '').toLowerCase();
-    if (exp === 'video') return 'video';
-    if (exp === 'image') return 'image';
-
-    const raw = String(modelIdOrName || '').replace(/^(?:diffusion|video|local):/i, '');
-    const base = path.basename(raw);
-    const matched = this._cachedLocalModels.find((m: any) =>
-      m.id === raw || m.path === raw || path.basename(String(m.id || '')) === base || m.name === base
-    );
-    const matchedMod = String(matched?.modality || '').toLowerCase();
-    if (matchedMod === 'video') return 'video';
-    if (matchedMod === 'image') return 'image';
-
-    const matchedRel = String(matched?.relative_path || '').replace(/\\/g, '/').toLowerCase();
-    if (matchedRel.startsWith('video/')) return 'video';
-
-    const norm = raw.replace(/\\/g, '/').toLowerCase();
-    if (
-      norm.includes('/video/')
-      || norm.startsWith('video/')
-      || norm.includes('wan')
-      || norm.includes('ltx')
-      || norm.includes('hunyuanvideo')
-      || norm.includes('cogvideo')
-      || norm.includes('mochi')
-    ) {
-      return 'video';
-    }
-    return 'image';
+    return inferDiffusionModality(modelIdOrName, explicitModality, activeDiffusion, this._cachedLocalModels);
   }
 
   public updateActiveModel(modelName: string | null, ctxSize?: number) {
@@ -501,11 +486,13 @@ export class ExovonSidebarProvider implements vscode.WebviewViewProvider {
             this._activeOrchestrator.dispose();
             this._activeOrchestrator = undefined;
           }
-          webviewView.webview.postMessage({ 
+          webviewView.webview.postMessage({
             type: 'contextCleared',
-            text: 'KV Cache and agent conversational context have been reset.'
+            threadId: data.threadId,
+            anchorMessageId: data.anchorMessageId,
+            text: 'Active model context has been reset for upcoming turns.'
           });
-          vscode.window.showInformationMessage('Exovon Engine: KV Cache & Agent Context Cleared.');
+          vscode.window.showInformationMessage('Exovon Engine: Active Context Cleared.');
           break;
         }
 
@@ -553,24 +540,51 @@ export class ExovonSidebarProvider implements vscode.WebviewViewProvider {
           break;
         }
 
-        case 'setContextKeepLastNTurns': {
-          const turns = Math.max(1, Math.min(20, Number(data.turns) || 3));
-          const config = vscode.workspace.getConfiguration('exovonhub');
-          await config.update('contextKeepLastNTurns', turns, vscode.ConfigurationTarget.Global);
-          break;
-        }
-
+        case 'compactContext':
         case 'pruneKvCache': {
           const config = vscode.workspace.getConfiguration('exovonhub');
-          const turns = config.get<number>('contextKeepLastNTurns') || 3;
-          // Approximate pruned tokens (~800 tokens per kept turn)
-          const estimatedTokens = Math.max(400, turns * 850);
-          webviewView.webview.postMessage({ 
-            type: 'contextPruned',
-            keptTurns: turns,
-            estimatedTokens
+          const localModelName = this._cachedLocalModelName || config.get<string>('localLlmModelName') || '';
+          const activeModel = data.model || (localModelName ? `local:${localModelName}` : (config.get<string>('preferredModel') || ''));
+          let sourceMessages = Array.isArray(data.messages) ? data.messages : [];
+          if (sourceMessages.length === 0 && data.threadId && this._brainCoordinator) {
+            sourceMessages = this._brainCoordinator.loadChatThread(data.threadId);
+          }
+
+          webviewView.webview.postMessage({
+            type: 'contextCompactingStart',
+            threadId: data.threadId
           });
-          vscode.window.showInformationMessage(`Exovon Engine: KV Cache Pruned to last ${turns} turns.`);
+
+          const result = await compactConversationWithLlm({
+            model: activeModel,
+            messages: sourceMessages,
+            context: this._context,
+            maxContextTokens: typeof data.maxContextTokens === 'number' ? data.maxContextTokens : undefined,
+            reportedContextTokens: typeof data.currentContextTokens === 'number' ? data.currentContextTokens : undefined,
+          });
+
+          if (result.success) {
+            webviewView.webview.postMessage({
+              type: 'contextPruned',
+              threadId: data.threadId,
+              compactedSummary: result.compactedSummary,
+              beforeTokens: result.beforeTokens,
+              afterTokens: result.afterTokens,
+              estimatedTokens: result.afterTokens,
+              anchorMessageId: result.anchorMessageId,
+              modelUsed: result.modelUsed,
+            });
+            vscode.window.showInformationMessage(
+              `Exovon Engine: Context compacted (~${result.beforeTokens.toLocaleString()} → ~${result.afterTokens.toLocaleString()} tokens).`
+            );
+          } else {
+            webviewView.webview.postMessage({
+              type: 'contextCompactionFailed',
+              threadId: data.threadId,
+              error: result.error || 'Failed to compact context.'
+            });
+            vscode.window.showWarningMessage(`Context compaction skipped: ${result.error || 'Unable to reach active LLM.'}`);
+          }
           break;
         }
 
@@ -651,8 +665,8 @@ export class ExovonSidebarProvider implements vscode.WebviewViewProvider {
             activeDiffusionModality: resolvedDiffusionModality || undefined,
             availableLocalModels,
             localModelsDirectory: config.get<string>('localModelsDirectory') || '~/.exovon/models',
-            contextKeepLastNTurns: config.get<number>('contextKeepLastNTurns') || 3,
-            ctx_size: activeCtxSize
+            ctx_size: activeCtxSize,
+            modelPreferences: loadAllModelPreferences()
           });
           break;
         }
@@ -661,18 +675,16 @@ export class ExovonSidebarProvider implements vscode.WebviewViewProvider {
           try {
             const fetch = (await import('node-fetch')).default;
             const targetPort = 47990; // Unified Rust daemon handles both LLM and Diffusion models on Port 47990
-            const payload: any = { ...data, model_path: data.modelId };
-            if (data.modality !== undefined) payload.modality = data.modality;
-            if (data.ctxSize !== undefined) payload.ctx_size = data.ctxSize;
-            if (data.nGPULayers !== undefined) payload.n_gpu_layers = data.nGPULayers;
-            if (data.cfgScale !== undefined) payload.cfg_scale = data.cfgScale;
-            if (data.vaeTiling !== undefined) payload.vae_tiling = data.vaeTiling;
-            if (data.modelFamily !== undefined) payload.model_family = data.modelFamily;
-            if (data.videoFrames !== undefined || data.video_frames !== undefined) payload.video_frames = data.videoFrames ?? data.video_frames;
-            if (data.fps !== undefined) payload.fps = data.fps;
-            if (data.flowShift !== undefined || data.flow_shift !== undefined) payload.flow_shift = data.flowShift ?? data.flow_shift;
-            if (data.temporalTiling !== undefined || data.temporal_tiling !== undefined) payload.temporal_tiling = data.temporalTiling ?? data.temporal_tiling;
-            if (data.offloadToCpu !== undefined || data.offload_to_cpu !== undefined) payload.offload_to_cpu = data.offloadToCpu ?? data.offload_to_cpu;
+            const cleanModelId = stripModelPrefix(data.modelId);
+            const savedPref = getModelPreference(cleanModelId);
+            const payload = buildDaemonLoadPayload(cleanModelId, data, savedPref);
+            if (payload.temperature !== undefined) {
+              try {
+                await vscode.workspace.getConfiguration('exovonhub').update('modelTemperature', payload.temperature, vscode.ConfigurationTarget.Global);
+              } catch {}
+            }
+            const effectiveCtxSize = Number(payload.ctx_size ?? data.ctxSize ?? 8192);
+            const effectiveResolution = typeof payload.resolution === 'string' ? payload.resolution : data.resolution;
 
             const res = await fetch(`http://127.0.0.1:${targetPort}/v1/models/load`, {
               method: 'POST',
@@ -682,16 +694,16 @@ export class ExovonSidebarProvider implements vscode.WebviewViewProvider {
             if (res.ok) {
               let loadBody: any = {};
               try { loadBody = await res.json(); } catch {}
-              const baseName = path.basename(data.modelId);
+              const baseName = path.basename(cleanModelId);
               const baseLower = baseName.toLowerCase();
-              const normPath = String(data.modelId || '').replace(/\\/g, '/').toLowerCase();
-              const explicitMod = String(loadBody?.modality || data.modality || '').toLowerCase();
+              const normPath = cleanModelId.replace(/\\/g, '/').toLowerCase();
+              const explicitMod = String(loadBody?.modality || payload.modality || '').toLowerCase();
               const matched = this._cachedLocalModels.find((m: any) =>
-                m.id === data.modelId || m.path === data.modelId || path.basename(String(m.id || '')) === baseName
+                m.id === cleanModelId || m.path === cleanModelId || m.id === data.modelId || path.basename(String(m.id || '')) === baseName
               );
               const matchedMod = String(matched?.modality || '').toLowerCase();
               const isDiff = data.target === 'diffusion'
-                || data.modelFamily === 'diffusion_flow'
+                || payload.model_family === 'diffusion_flow'
                 || explicitMod === 'video'
                 || explicitMod === 'image'
                 || matchedMod === 'video'
@@ -714,19 +726,19 @@ export class ExovonSidebarProvider implements vscode.WebviewViewProvider {
                 || baseLower.includes('dit');
 
               if (isDiff) {
-                const resolvedModality = this._inferDiffusionModality(data.modelId, loadBody?.modality || data.modality);
+                const resolvedModality = this._inferDiffusionModality(cleanModelId, loadBody?.modality || payload.modality);
                 this._cachedLocalModelName = '';
                 this._cachedDiffusionModelName = baseName;
-                if (data.resolution) this._cachedDiffusionResolution = data.resolution;
+                if (effectiveResolution) this._cachedDiffusionResolution = effectiveResolution;
                 this._cachedDiffusionModality = resolvedModality;
-                this.updateDiffusionModel(baseName, data.resolution, resolvedModality);
-                vscode.window.showInformationMessage(`${resolvedModality === 'video' ? 'Video' : 'Diffusion'} Model ${baseName} active${data.resolution ? ` (${data.resolution})` : ''}`);
+                this.updateDiffusionModel(baseName, effectiveResolution, resolvedModality);
+                vscode.window.showInformationMessage(`${resolvedModality === 'video' ? 'Video' : 'Diffusion'} Model ${baseName} active${effectiveResolution ? ` (${effectiveResolution})` : ''}`);
                 this._view?.webview.postMessage({
                   type: 'settingsState',
                   model: `diffusion:${baseName}`,
                   localLlmModelName: '',
                   activeDiffusionModel: baseName,
-                  activeDiffusionResolution: this._cachedDiffusionResolution || data.resolution,
+                  activeDiffusionResolution: this._cachedDiffusionResolution || effectiveResolution,
                   activeDiffusionModality: resolvedModality
                 });
               } else {
@@ -734,14 +746,15 @@ export class ExovonSidebarProvider implements vscode.WebviewViewProvider {
                 this._cachedDiffusionResolution = '';
                 this._cachedDiffusionModality = '';
                 this._cachedLocalModelName = baseName;
-                this.updateActiveModel(baseName, data.ctxSize || 8192);
+                this.updateActiveModel(baseName, effectiveCtxSize);
                 vscode.window.showInformationMessage(`Loaded ${baseName} into memory.`);
                 this._view?.webview.postMessage({
                   type: 'settingsState',
                   model: `local:${baseName}`,
                   localLlmModelName: baseName,
                   activeDiffusionModel: '',
-                  activeDiffusionModality: ''
+                  activeDiffusionModality: '',
+                  ctx_size: effectiveCtxSize
                 });
               }
             } else {
@@ -837,189 +850,96 @@ export class ExovonSidebarProvider implements vscode.WebviewViewProvider {
         case 'initiateAgent': {
           const { mode, prompt, contextFiles, threadId, messageId } = data;
 
-          const modelLower = (data.model || '').toLowerCase();
-          const cleanModel = (data.model || '').replace(/^(?:diffusion|video|local):/i, '');
-          const cleanLower = cleanModel.toLowerCase();
-          const matchedLocal = this._cachedLocalModels.find((m: any) =>
-            m.id === cleanModel || m.path === cleanModel || path.basename(String(m.id || '')) === path.basename(cleanModel) || m.name === cleanModel
-          );
-          const matchedMod = String(matchedLocal?.modality || '').toLowerCase();
-          const matchedRel = String(matchedLocal?.relative_path || '').replace(/\\/g, '/').toLowerCase();
-          const isVideoHint = data.modality === 'video'
-            || data.model?.startsWith('video:')
-            || matchedMod === 'video'
-            || matchedRel.startsWith('video/')
-            || (this._cachedDiffusionModality === 'video' && (!cleanModel || cleanModel === this._cachedDiffusionModelName || Boolean(data.isDiffusion)))
-            || cleanLower.includes('wan')
-            || cleanLower.includes('ltx')
-            || cleanLower.includes('hunyuanvideo')
-            || cleanLower.includes('cogvideo')
-            || cleanLower.includes('mochi');
-          const isDiffusion = data.model?.startsWith('diffusion') ||
-            data.model?.startsWith('video:') ||
-            data.isDiffusion ||
-            isVideoHint ||
-            data.modality === 'image' ||
-            matchedMod === 'image' ||
-            matchedRel.startsWith('image/') ||
-            modelLower.includes('flux') ||
-            modelLower.includes('sd-') ||
-            modelLower.includes('sd_') ||
-            modelLower.includes('sdxl') ||
-            modelLower.includes('diffusion') ||
-            (modelLower.includes('qwen') && modelLower.includes('image')) ||
-            modelLower.includes('dit');
+          const { isDiffusion } = classifyDiffusionModel(data.model || '', {
+            modality: data.modality,
+            isDiffusion: data.isDiffusion,
+            cachedLocalModels: this._cachedLocalModels,
+            cachedDiffusionModality: this._cachedDiffusionModality,
+            cachedDiffusionModelName: this._cachedDiffusionModelName,
+          });
 
           if (isDiffusion) {
-            const fetch = (await import('node-fetch')).default;
-            let storedDiffusion: any = null;
             try {
-              const healthRes = await fetch('http://127.0.0.1:47990/v1/health');
-              if (healthRes.ok) {
-                const healthData = await healthRes.json() as any;
-                storedDiffusion = healthData?.active_diffusion || null;
-                if (storedDiffusion?.model_path) {
-                  this._cachedDiffusionModelName = path.basename(storedDiffusion.model_path);
-                  if (storedDiffusion.resolution) this._cachedDiffusionResolution = storedDiffusion.resolution;
-                  if (storedDiffusion.modality) this._cachedDiffusionModality = storedDiffusion.modality;
-                }
+              const genResult = await DiffusionChatService.generate(
+                {
+                  ...data,
+                  initImage: Array.isArray(data.images) && data.images.length > 0 ? data.images[0] : undefined,
+                  cachedLocalModels: this._cachedLocalModels,
+                  cachedDiffusionModelName: this._cachedDiffusionModelName,
+                  cachedDiffusionModality: this._cachedDiffusionModality,
+                },
+                {
+                  onStart: ({ mediaType, displayModelName, prompt }) => {
+                    webviewView.webview.postMessage({
+                      type: 'imageGeneratingStart',
+                      messageId: data.messageId,
+                      prompt,
+                      modelName: displayModelName,
+                      mediaType,
+                    });
+                  },
+                  onProgress: (prog) => {
+                    webviewView.webview.postMessage({
+                      type: 'diffusionProgress',
+                      messageId: data.messageId,
+                      modality: prog.modality,
+                      model: prog.model,
+                      step: prog.step,
+                      totalSteps: prog.total_steps,
+                      percent: prog.percent,
+                      stage: prog.stage,
+                      elapsedSecs: prog.elapsed_secs,
+                    });
+                  },
+                },
+              );
+
+              if (genResult.updatedCache) {
+                if (genResult.updatedCache.modelName) this._cachedDiffusionModelName = genResult.updatedCache.modelName;
+                if (genResult.updatedCache.resolution) this._cachedDiffusionResolution = genResult.updatedCache.resolution;
+                if (genResult.updatedCache.modality) this._cachedDiffusionModality = genResult.updatedCache.modality;
               }
-            } catch {}
-
-            const isVideo = isVideoHint
-              || storedDiffusion?.modality === 'video'
-              || this._inferDiffusionModality(cleanModel || storedDiffusion?.model_path || this._cachedDiffusionModelName, data.modality, storedDiffusion) === 'video';
-            const mediaType = isVideo ? 'video' : 'image';
-            const displayModelName = cleanModel
-              || (storedDiffusion?.model_path ? path.basename(storedDiffusion.model_path) : '')
-              || this._cachedDiffusionModelName;
-
-            webviewView.webview.postMessage({
-              type: 'imageGeneratingStart',
-              messageId: data.messageId,
-              prompt: data.prompt,
-              modelName: displayModelName,
-              mediaType
-            });
-            try {
-              const isFlux = cleanLower.includes('flux');
-              const isQwen = cleanLower.includes('qwen');
-              const isTurbo = cleanLower.includes('turbo') || cleanLower.includes('schnell');
-              const fallbackCfg = isFlux ? 1.0 : (isQwen ? 1.0 : (isTurbo ? 1.8 : 7.0));
-              const fallbackSteps = isTurbo ? 4 : 20;
-
-              const hasAttachedImage = Array.isArray(data.images) && data.images.length > 0;
-              const initImage = hasAttachedImage ? data.images[0] : undefined;
-              const endpoint = isVideo
-                ? '/v1/videos/generations'
-                : (hasAttachedImage ? '/v1/images/edits' : '/v1/images/generations');
-              const requestBody: any = {
-                prompt: data.prompt,
-                model: cleanModel || undefined,
-                size: data.size || data.resolution || storedDiffusion?.resolution || undefined,
-                steps: data.steps ?? storedDiffusion?.steps ?? fallbackSteps,
-                cfg_scale: data.cfg_scale ?? storedDiffusion?.cfg_scale ?? fallbackCfg
-              };
-              const samplerVal = data.sampler ?? storedDiffusion?.sampler;
-              if (samplerVal !== undefined) requestBody.sampler = samplerVal;
-              const vaeTilingVal = data.vae_tiling ?? storedDiffusion?.vae_tiling;
-              if (vaeTilingVal !== undefined) requestBody.vae_tiling = vaeTilingVal;
-              const diffusionFlashAttn =
-                data.diffusion_flash_attn ?? data.diffusionFlashAttn ?? storedDiffusion?.diffusion_flash_attn;
-              if (diffusionFlashAttn !== undefined) requestBody.diffusion_flash_attn = diffusionFlashAttn;
-              if (isVideo) {
-                const videoFrames = data.video_frames ?? data.videoFrames ?? storedDiffusion?.video_frames;
-                const fpsVal = data.fps ?? storedDiffusion?.fps;
-                const flowShift = data.flow_shift ?? data.flowShift ?? storedDiffusion?.flow_shift;
-                const temporalTiling = data.temporal_tiling ?? data.temporalTiling ?? storedDiffusion?.temporal_tiling;
-                const offloadToCpu = data.offload_to_cpu ?? data.offloadToCpu ?? storedDiffusion?.offload_to_cpu;
-                if (videoFrames !== undefined) requestBody.video_frames = videoFrames;
-                if (fpsVal !== undefined) requestBody.fps = fpsVal;
-                if (flowShift !== undefined) requestBody.flow_shift = flowShift;
-                if (temporalTiling !== undefined) requestBody.temporal_tiling = temporalTiling;
-                if (offloadToCpu !== undefined) requestBody.offload_to_cpu = offloadToCpu;
-              }
-              if (initImage) {
-                requestBody.image = initImage;
-                requestBody.strength = data.strength || 0.65;
-              }
-
-              let genRes: any;
-              try {
-                genRes = await fetch(`http://127.0.0.1:47990${endpoint}`, {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify(requestBody)
+              if (genResult.cancelled) {
+                webviewView.webview.postMessage({
+                  type: 'agentCancelled',
+                  messageId: data.messageId,
+                  text: 'Generation stopped by user.',
                 });
-              } catch {
-                genRes = await fetch(`http://127.0.0.1:47992${endpoint}`, {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify(requestBody)
+                return;
+              }
+              if (genResult.savedPath) {
+                this._ensureResourceRoot(webviewView.webview, path.dirname(genResult.savedPath));
+                const mediaUrl = webviewView.webview.asWebviewUri(vscode.Uri.file(genResult.savedPath)).toString();
+                webviewView.webview.postMessage({
+                  type: 'imageGeneratingComplete',
+                  messageId: data.messageId,
+                  mediaType: genResult.mediaType,
+                  mimeType: genResult.mimeType,
+                  ext: genResult.ext,
+                  mediaUrl,
+                  videoUrl: genResult.mediaType === 'video' ? mediaUrl : undefined,
+                  b64_json: genResult.mediaType === 'video' ? undefined : genResult.b64,
+                  savedPath: genResult.savedPath,
+                  modelName: genResult.displayModelName,
+                  prompt: genResult.prompt,
                 });
+                return;
               }
-              if (genRes.ok) {
-                const genData = await genRes.json() as any;
-                const firstItem = genData.data?.[0] || genData;
-                const b64 = firstItem?.b64_json;
-                const returnedPath = firstItem?.path || firstItem?.file_path || genData.path || genData.file_path;
-                const rawExt = String(firstItem?.ext || genData.ext || (returnedPath ? path.extname(String(returnedPath)) : '') || (isVideo ? 'mp4' : 'png'))
-                  .replace(/^\./, '')
-                  .toLowerCase();
-                const ext = rawExt || (isVideo ? 'mp4' : 'png');
-                const mimeType = String(firstItem?.mime_type || genData.mime_type || (
-                  isVideo
-                    ? (ext === 'webm' ? 'video/webm' : ext === 'mov' ? 'video/quicktime' : ext === 'avi' ? 'video/x-msvideo' : 'video/mp4')
-                    : (ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : ext === 'webp' ? 'image/webp' : 'image/png')
-                ));
-
-                if (b64 || (returnedPath && fs.existsSync(String(returnedPath)))) {
-                  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || os.tmpdir();
-                  const outDir = path.join(workspaceRoot, 'assets');
-                  if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
-                  const fileName = `generated_${Date.now()}.${ext}`;
-                  const outPath = path.join(outDir, fileName);
-                  if (b64) {
-                    fs.writeFileSync(outPath, Buffer.from(b64, 'base64'));
-                  } else if (returnedPath && fs.existsSync(String(returnedPath))) {
-                    fs.copyFileSync(String(returnedPath), outPath);
-                  }
-
-                  this._ensureResourceRoot(webviewView.webview, outDir);
-                  const mediaUrl = webviewView.webview.asWebviewUri(vscode.Uri.file(outPath)).toString();
-                  webviewView.webview.postMessage({
-                    type: 'imageGeneratingComplete',
-                    messageId: data.messageId,
-                    mediaType,
-                    mimeType,
-                    ext,
-                    mediaUrl,
-                    videoUrl: isVideo ? mediaUrl : undefined,
-                    b64_json: isVideo ? undefined : b64,
-                    savedPath: outPath,
-                    modelName: displayModelName,
-                    prompt: data.prompt
-                  });
-                  return;
-                }
-              }
-              const errText = await genRes.text();
-              throw new Error(errText || `${isVideo ? 'Video' : 'Diffusion'} worker returned an error`);
             } catch (err: any) {
               webviewView.webview.postMessage({
                 type: 'imageGeneratingFailed',
                 messageId: data.messageId,
-                error: err.message || `${isVideo ? 'Video' : 'Diffusion'} Engine generation failed on Port 47990`
+                error: err.message || 'Diffusion Engine generation failed on Port 47990',
               });
               return;
             }
           }
 
           let previousMessages: any[] = [];
-          if (data.messages && Array.isArray(data.messages) && data.messages.length > 0) {
+          if (Array.isArray(data.messages)) {
             previousMessages = data.messages;
           } else if (threadId && this._brainCoordinator) {
-            previousMessages = this._brainCoordinator.getChatMessages(threadId);
+            previousMessages = this._brainCoordinator.loadChatThread(threadId);
           }
 
           // 1. Gather Rich Active Editor Context (surrounding 200 lines to preserve token boundaries)
@@ -1079,25 +999,9 @@ ${warningLines.join('\n')}
 `;
           }
 
-          // 3. Read user-selected context files
-          let contextFilesContent = '';
-          if (contextFiles && Array.isArray(contextFiles) && contextFiles.length > 0) {
-            const contextParts: string[] = [];
-            for (const fileName of contextFiles.slice(0, 5)) { // Cap at 5 files to prevent token bloat
-              try {
-                const fileUris = await vscode.workspace.findFiles(`**/${fileName}`, '**/node_modules/**', 1);
-                if (fileUris.length > 0) {
-                  const content = await vscode.workspace.fs.readFile(fileUris[0]);
-                  const decoded = new TextDecoder('utf-8').decode(content);
-                  const truncated = decoded.length > 5000 ? decoded.slice(0, 5000) + '\n[TRUNCATED...]' : decoded;
-                  contextParts.push(`[Context File: ${fileName}]\n\`\`\`\n${truncated}\n\`\`\``);
-                }
-              } catch (e) { console.error('[Exovon Error]', e); }
-            }
-            if (contextParts.length > 0) {
-              contextFilesContent = `\n[USER-SELECTED CONTEXT FILES]\n${contextParts.join('\n\n')}\n[/USER-SELECTED CONTEXT FILES]\n`;
-            }
-          }
+          // 3. Read user-selected/dropped context files
+          const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
+          const contextFilesContent = await resolveContextFilesContent(workspaceRoot, contextFiles);
 
           // 4. Diagnostic Injection (Problem reporting)
           let finalPrompt = prompt;
@@ -1203,10 +1107,35 @@ Developer Action Request: "${finalPrompt}"
                   promptProcessed: update.promptProcessed, 
                   messageId 
                 });
+              } else if (update.type === 'diffusionProgress') {
+                webviewView.webview.postMessage({
+                  type: 'diffusionProgress',
+                  messageId,
+                  modality: update.mediaType,
+                  step: update.step,
+                  totalSteps: update.totalSteps,
+                  percent: update.percent,
+                  stage: update.stage,
+                  elapsedSecs: update.elapsedSecs
+                });
               } else if (update.type === 'metrics') {
                 webviewView.webview.postMessage({ type: 'agentMetrics', metrics: update.metrics, messageId });
               } else if (update.type === 'finalAnswer') {
-                webviewView.webview.postMessage({ type: 'agentFinalAnswer', text: update.text, messageId });
+                if (update.generatedMedia?.savedPath) {
+                  this._ensureResourceRoot(webviewView.webview, path.dirname(update.generatedMedia.savedPath));
+                  const generatedMediaUrl = webviewView.webview.asWebviewUri(vscode.Uri.file(update.generatedMedia.savedPath)).toString();
+                  webviewView.webview.postMessage({
+                    type: 'agentFinalAnswer',
+                    text: update.text,
+                    messageId,
+                    generatedMediaUrl,
+                    generatedMediaType: update.generatedMedia.mediaType,
+                    generatedMediaMime: update.generatedMedia.mimeType,
+                    savedPath: update.generatedMedia.savedPath
+                  });
+                } else {
+                  webviewView.webview.postMessage({ type: 'agentFinalAnswer', text: update.text, messageId });
+                }
               } else if (update.type === 'log') {
                 webviewView.webview.postMessage({ type: 'agentLog', text: update.text, logType: update.logType, messageId });
               } else if (update.type === 'toolStart') {
@@ -1260,6 +1189,16 @@ Developer Action Request: "${finalPrompt}"
                 webviewView.webview.postMessage({ type: 'agentSpeculativeDiffs', diffs: diffsPayload, messageId });
               } else if (update.type === 'usage') {
                 webviewView.webview.postMessage({ type: 'agentUsage', totalTokens: update.totalTokens, messageId });
+              } else if (update.type === 'contextAutoCompacted') {
+                webviewView.webview.postMessage({
+                  type: 'agentContextCompacted',
+                  beforeTokens: update.beforeTokens,
+                  afterTokens: update.afterTokens,
+                  savedTokens: update.savedTokens,
+                  maxContextTokens: update.maxContextTokens,
+                  text: update.text,
+                  messageId
+                });
               } else if (update.type === ('chat' as any)) {
                 webviewView.webview.postMessage({ type: 'agentChat', text: update.text, messageId });
               } else if (update.type === ('preemptingQueue' as any)) {
@@ -1340,6 +1279,7 @@ Developer Action Request: "${finalPrompt}"
         }
 
         case 'cancelAgent': {
+          DiffusionChatService.cancelActive();
           if (this._activeOrchestrator) {
             this._activeOrchestrator.cancel();
             // A5: Keep orchestrator alive so user can still accept/reject diffs after cancel
@@ -2010,8 +1950,8 @@ Developer Action Request: "${finalPrompt}"
     // Strip crossorigin attributes which can cause load blocks in Webviews due to protocol restrictions
     webviewHtml = webviewHtml.replace(/\scrossorigin(="")?/g, '');
 
-    // Inject compatible CSP meta tag
-    const cspMeta = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src ${webview.cspSource} 'unsafe-inline'; img-src ${webview.cspSource} https: data: blob:; media-src ${webview.cspSource} https: data: blob:; connect-src ${webview.cspSource} https:;">`;
+    // Inject compatible CSP meta tag (allows locally bundled .woff2 fonts from webview.cspSource)
+    const cspMeta = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; font-src ${webview.cspSource} data:; script-src ${webview.cspSource} 'unsafe-inline'; img-src ${webview.cspSource} https: data: blob:; media-src ${webview.cspSource} https: data: blob:; connect-src ${webview.cspSource} https:;">`;
     webviewHtml = webviewHtml.replace('<head>', `<head>\n    ${cspMeta}`);
 
     return webviewHtml;

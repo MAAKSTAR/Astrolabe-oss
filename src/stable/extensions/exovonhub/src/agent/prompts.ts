@@ -46,6 +46,7 @@ Your mission is to assist the user with software engineering, technical research
 - submitPlan(title?, plan): Submit or revise a named markdown implementation plan / architecture design for user approval before making file changes (aliases: editPlan, updatePlan). Example: submitPlan(title="PostgreSQL Migration", plan="# Database Architecture...")
 - queryConstitution(topic): Query the workspace Code Constitution for rules on a specific topic.
 - updateConstitution(category, rule_description): Append a new permanent rule to the Constitution.
+- queryProjectMemory(mode?, count?, index?): Query .vscode/project_memory.json on demand without loading everything (modes: "count", "list", "last", "recent", "specific").
 - readCoordination(): Read active placeholders or half-work left in the codebase.
 - updateCoordination(task, target_symbol, file): Log half-work to be finished later.
 
@@ -66,6 +67,7 @@ To execute a tool, emit the exact tool call tag:
 - <call:createFile(relativePath="src/index.html", content="<!DOCTYPE html>\\n<html>\\n...")>
 - <call:createDoc(title="API Architecture Design", content="# API Design\\n\\n...", fileName="docs/api_design.md")>
 - <call:queryConstitution(topic="architecture")>
+- <call:queryProjectMemory(mode="last")>
 - <call:updateConstitution(category="Code Style", rule_description="Always use TypeScript strict types and export interfaces.")>
 - <call:runCommand(command="npm test")>
 - <call:submitPlan(title="Architecture Spec", plan="1. Step one\\n2. Step two...")>
