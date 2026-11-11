@@ -1,0 +1,204 @@
+diff --git a/src/vs/workbench/contrib/webview/browser/webviewElement.ts b/src/vs/workbench/contrib/webview/browser/webviewElement.ts
+index f46a5ab1642..1273b8c7a9a 100644
+--- a/src/vs/workbench/contrib/webview/browser/webviewElement.ts
++++ b/src/vs/workbench/contrib/webview/browser/webviewElement.ts
+@@ -526,7 +526,7 @@ export class WebviewElement extends Disposable implements IWebview, WebviewFindD
+ 
+ 	private _startBlockingIframeDragEvents() {
+ 		if (this.element) {
+-			this.element.style.pointerEvents = 'auto';
++			this.element.style.pointerEvents = 'none';
+ 		}
+ 	}
+ 
+diff --git a/src/vs/workbench/contrib/webviewView/browser/webviewViewPane.ts b/src/vs/workbench/contrib/webviewView/browser/webviewViewPane.ts
+index ba6f82e391b..0db08b260ba 100644
+--- a/src/vs/workbench/contrib/webviewView/browser/webviewViewPane.ts
++++ b/src/vs/workbench/contrib/webviewView/browser/webviewViewPane.ts
+@@ -4,13 +4,17 @@
+  *--------------------------------------------------------------------------------------------*/
+ 
+ import { addDisposableListener, Dimension, EventType, findParentWithClass, getWindow } from '../../../../base/browser/dom.js';
++import { DataTransfers } from '../../../../base/browser/dnd.js';
+ import { CancellationTokenSource } from '../../../../base/common/cancellation.js';
+ import { Emitter } from '../../../../base/common/event.js';
+ import { DisposableStore, IDisposable, MutableDisposable, toDisposable } from '../../../../base/common/lifecycle.js';
++import { Schemas } from '../../../../base/common/network.js';
++import { URI } from '../../../../base/common/uri.js';
+ import { MenuId } from '../../../../platform/actions/common/actions.js';
+ import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
+ import { IContextKeyService } from '../../../../platform/contextkey/common/contextkey.js';
+ import { IContextMenuService } from '../../../../platform/contextview/browser/contextView.js';
++import { CodeDataTransfers, containsDragType, extractEditorsDropData } from '../../../../platform/dnd/browser/dnd.js';
+ import { ExtensionIdentifier } from '../../../../platform/extensions/common/extensions.js';
+ import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
+ import { IKeybindingService } from '../../../../platform/keybinding/common/keybinding.js';
+@@ -36,6 +40,54 @@ const storageKeys = {
+ 	webviewState: 'webviewState',
+ } as const;
+ 
++const CHAT_WEBVIEW_VIEW_ID = 'exovonhub.sidebar';
++
++function isChatResourceDragEvent(e: DragEvent): boolean {
++	return containsDragType(
++		e,
++		DataTransfers.FILES,
++		CodeDataTransfers.FILES,
++		DataTransfers.RESOURCES,
++		CodeDataTransfers.EDITORS,
++		DataTransfers.INTERNAL_URI_LIST,
++		'text/uri-list',
++		DataTransfers.TEXT,
++	) || (e.dataTransfer?.files?.length ?? 0) > 0;
++}
++
++function extractChatDropPayload(e: DragEvent): { paths: string[]; snippetText?: string } {
++	const seen = new Set<string>();
++	const paths: string[] = [];
++	const pushPath = (raw: string | undefined) => {
++		const trimmed = raw?.trim();
++		if (trimmed && !seen.has(trimmed)) {
++			seen.add(trimmed);
++			paths.push(trimmed);
++		}
++	};
++
++	for (const editor of extractEditorsDropData(e)) {
++		if (!editor.resource) {
++			continue;
++		}
++		const resource = URI.isUri(editor.resource) ? editor.resource : URI.revive(editor.resource);
++		pushPath(resource.scheme === Schemas.file ? resource.fsPath : resource.toString());
++	}
++
++	if (paths.length === 0) {
++		const rawUriList = e.dataTransfer?.getData('text/uri-list') || e.dataTransfer?.getData(DataTransfers.INTERNAL_URI_LIST) || '';
++		for (const line of rawUriList.split(/\r?\n/)) {
++			const trimmed = line.trim();
++			if (trimmed && !trimmed.startsWith('#')) {
++				pushPath(trimmed);
++			}
++		}
++	}
++
++	const snippetText = paths.length === 0 ? e.dataTransfer?.getData(DataTransfers.TEXT) : undefined;
++	return snippetText && snippetText.trim() ? { paths, snippetText } : { paths };
++}
++
+ export class WebviewViewPane extends ViewPane {
+ 
+ 	private static _originStore?: ExtensionKeyedWebviewOriginStore;
+@@ -197,13 +249,110 @@ export class WebviewViewPane extends ViewPane {
+ 			this.viewState[storageKeys.webviewState] = webview.state;
+ 		}));
+ 
+-		// Re-dispatch all drag events back to the drop target to support view drag drop
+-		for (const event of []) {
+-			this._webviewDisposables.add(addDisposableListener(this._webview.value.container, event, e => {
++		const webviewEntry = this._webview.value;
++		const webviewContainer = webviewEntry.container;
++		if (this.id === CHAT_WEBVIEW_VIEW_ID) {
++			let chatDragDepth = 0;
++			let chatDragActive = false;
++
++			const setChatDragActive = (active: boolean) => {
++				if (chatDragActive === active) {
++					return;
++				}
++				chatDragActive = active;
++				void webviewEntry.postMessage({ type: 'externalDragState', active });
++			};
++
++			const resetChatDrag = () => {
++				chatDragDepth = 0;
++				setChatDragActive(false);
++			};
++
++			const acceptChatDrag = (e: DragEvent) => {
++				e.preventDefault();
++				e.stopImmediatePropagation();
++				if (e.dataTransfer) {
++					e.dataTransfer.dropEffect = 'copy';
++				}
++			};
++
++			const forwardViewDrag = (e: DragEvent) => {
+ 				e.preventDefault();
+ 				e.stopImmediatePropagation();
+ 				this.dropTargetElement.dispatchEvent(new DragEvent(e.type, e));
++			};
++
++			this._webviewDisposables.add(addDisposableListener(webviewContainer, EventType.DRAG_ENTER, (e: DragEvent) => {
++				if (!isChatResourceDragEvent(e)) {
++					forwardViewDrag(e);
++					return;
++				}
++				acceptChatDrag(e);
++				chatDragDepth += 1;
++				setChatDragActive(true);
+ 			}));
++
++			this._webviewDisposables.add(addDisposableListener(webviewContainer, EventType.DRAG_OVER, (e: DragEvent) => {
++				if (!chatDragActive && !isChatResourceDragEvent(e)) {
++					return;
++				}
++				acceptChatDrag(e);
++				if (chatDragDepth === 0) {
++					chatDragDepth = 1;
++				}
++				setChatDragActive(true);
++			}));
++
++			this._webviewDisposables.add(addDisposableListener(webviewContainer, EventType.DRAG_LEAVE, (e: DragEvent) => {
++				if (!chatDragActive && !isChatResourceDragEvent(e)) {
++					forwardViewDrag(e);
++					return;
++				}
++				e.preventDefault();
++				e.stopImmediatePropagation();
++				chatDragDepth = Math.max(0, chatDragDepth - 1);
++				if (chatDragDepth === 0) {
++					setChatDragActive(false);
++				}
++			}));
++
++			this._webviewDisposables.add(addDisposableListener(webviewContainer, EventType.DROP, (e: DragEvent) => {
++				if (!chatDragActive && !isChatResourceDragEvent(e)) {
++					return;
++				}
++				e.preventDefault();
++				e.stopImmediatePropagation();
++				resetChatDrag();
++				const payload = extractChatDropPayload(e);
++				if (payload.paths.length > 0 || (payload.snippetText && payload.snippetText.trim())) {
++					void webviewEntry.postMessage({ type: 'externalDropFiles', ...payload });
++				}
++				webviewEntry.windowDidDragEnd();
++			}));
++
++			for (const event of [EventType.DRAG, EventType.DRAG_START]) {
++				this._webviewDisposables.add(addDisposableListener(webviewContainer, event, (e: DragEvent) => {
++					forwardViewDrag(e);
++				}));
++			}
++
++			this._webviewDisposables.add(addDisposableListener(webviewContainer, EventType.DRAG_END, (e: DragEvent) => {
++				resetChatDrag();
++				webviewEntry.windowDidDragEnd();
++				forwardViewDrag(e);
++			}));
++
++			this._webviewDisposables.add(addDisposableListener(getWindow(this.element), EventType.DRAG_END, resetChatDrag));
++			this._webviewDisposables.add(toDisposable(resetChatDrag));
++		} else {
++			// Re-dispatch all drag events back to the drop target to support view drag drop
++			for (const event of [EventType.DRAG, EventType.DRAG_END, EventType.DRAG_ENTER, EventType.DRAG_LEAVE, EventType.DRAG_START]) {
++				this._webviewDisposables.add(addDisposableListener(webviewContainer, event, e => {
++					e.preventDefault();
++					e.stopImmediatePropagation();
++					this.dropTargetElement.dispatchEvent(new DragEvent(e.type, e));
++				}));
++			}
+ 		}
+ 
+ 		this._webviewDisposables.add(new WebviewWindowDragMonitor(getWindow(this.element), () => this._webview.value));

@@ -1,0 +1,35 @@
+diff --git a/src/vs/workbench/browser/layout.ts b/src/vs/workbench/browser/layout.ts
+index fc33edf3294..a49ef8676f9 100644
+--- a/src/vs/workbench/browser/layout.ts
++++ b/src/vs/workbench/browser/layout.ts
+@@ -2588,7 +2588,7 @@ const LayoutStateKeys = {
+ 	}),
+ 
+ 	// Part Sizing
+-	SIDEBAR_SIZE: new InitializationStateKey<number>('sideBar.size', StorageScope.PROFILE, StorageTarget.MACHINE, 200),
++	SIDEBAR_SIZE: new InitializationStateKey<number>('sideBar.size', StorageScope.PROFILE, StorageTarget.MACHINE, 460),
+ 	AUXILIARYBAR_SIZE: new InitializationStateKey<number>('auxiliaryBar.size', StorageScope.PROFILE, StorageTarget.MACHINE, 200),
+ 	PANEL_SIZE: new InitializationStateKey<number>('panel.size', StorageScope.PROFILE, StorageTarget.MACHINE, 300),
+ 
+@@ -2696,7 +2696,7 @@ class LayoutStateModel extends Disposable {
+ 
+ 		// Set dynamic defaults: part sizing and side bar visibility
+ 		LayoutStateKeys.PANEL_POSITION.defaultValue = positionFromString(this.configurationService.getValue(WorkbenchLayoutSettings.PANEL_POSITION) ?? 'bottom');
+-		LayoutStateKeys.SIDEBAR_SIZE.defaultValue = Math.min(300, mainContainerDimension.width / 4);
++		LayoutStateKeys.SIDEBAR_SIZE.defaultValue = Math.min(Math.round(mainContainerDimension.width * 0.45), 460);
+ 		LayoutStateKeys.AUXILIARYBAR_SIZE.defaultValue = Math.min(300, mainContainerDimension.width / 4);
+ 		LayoutStateKeys.PANEL_SIZE.defaultValue = (this.stateCache.get(LayoutStateKeys.PANEL_POSITION.name) ?? isHorizontal(LayoutStateKeys.PANEL_POSITION.defaultValue)) ? mainContainerDimension.height / 3 : mainContainerDimension.width / 4;
+ 		LayoutStateKeys.SIDEBAR_HIDDEN.defaultValue = this.contextService.getWorkbenchState() === WorkbenchState.EMPTY;
+diff --git a/src/vs/workbench/browser/parts/sidebar/sidebarPart.ts b/src/vs/workbench/browser/parts/sidebar/sidebarPart.ts
+index 1b1f83b23ce..92507d55283 100644
+--- a/src/vs/workbench/browser/parts/sidebar/sidebarPart.ts
++++ b/src/vs/workbench/browser/parts/sidebar/sidebarPart.ts
+@@ -59,7 +59,7 @@ export class SidebarPart extends AbstractPaneCompositePart {
+ 			return;
+ 		}
+ 
+-		return Math.max(width, 300);
++		return Math.max(width, 460);
+ 	}
+ 
+ 	private readonly activityBarPart = this._register(this.instantiationService.createInstance(ActivitybarPart, this));

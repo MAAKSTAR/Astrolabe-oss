@@ -14,6 +14,7 @@ on:
 permissions:
   contents: write
   packages: write
+  actions: write
 
 jobs:
   # ============================================================================
@@ -129,8 +130,9 @@ jobs:
             cp -r src/stable/extensions/exovonhub/media dist-linux/astrolabe/resources/app/extensions/exovonhub/
           fi
           
-          # Inject Motion Studio & icons
-          cp -r apps/astrolabe-motion-studio dist-linux/astrolabe/
+          # Inject Motion Studio & icons (exclude heavyweight node_modules)
+          mkdir -p dist-linux/astrolabe/astrolabe-motion-studio
+          cp -r apps/astrolabe-motion-studio/dist apps/astrolabe-motion-studio/electron apps/astrolabe-motion-studio/package.json dist-linux/astrolabe/astrolabe-motion-studio/
           cp -r icons dist-linux/astrolabe/
           cp icons/stable/astrolabe.png dist-linux/astrolabe/astrolabe.png
           mkdir -p dist-linux/astrolabe/resources/linux dist-linux/astrolabe/resources/app/resources/linux
@@ -192,6 +194,7 @@ jobs:
           fi
           sed -i 's/Get started with VSCodium/Get started with Astrolabe/g' dist-linux/astrolabe/resources/app/out/vs/workbench/workbench.desktop.main.js 2>/dev/null || true
           sed -i 's/VSCodium Announcements/Astrolabe Announcements/g' dist-linux/astrolabe/resources/app/out/vs/workbench/workbench.desktop.main.js 2>/dev/null || true
+          node scripts/patch-workbench-runtime.mjs dist-linux/astrolabe/resources/app/out/vs/workbench/workbench.desktop.main.js
 
           # Generate universal astrolabe.desktop file for Linux dock/taskbar integration
           printf "[Desktop Entry]\nVersion=1.0\nName=Astrolabe\nGenericName=AI-Native IDE\nComment=The Sovereign AI-Native IDE with Built-In Local GPU Inference\nExec=astrolabe --no-sandbox %%F\nIcon=astrolabe\nType=Application\nStartupNotify=true\nStartupWMClass=astrolabe\nCategories=Development;IDE;TextEditor;\nMimeType=text/plain;inode/directory;\nActions=new-empty-window;\nKeywords=astrolabe;exovon;ai;ide;code;developer;\n\n[Desktop Action new-empty-window]\nName=New Empty Window\nExec=astrolabe --no-sandbox --new-window %%F\nIcon=astrolabe\n" > dist-linux/astrolabe/astrolabe.desktop
@@ -209,6 +212,7 @@ jobs:
         with:
           name: astrolabe-linux-x64
           path: astrolabe-linux-x64.tar.gz
+          retention-days: 3
 
   # ============================================================================
   # 2. WINDOWS BUILD (Windows x64 zip / exe)
@@ -316,8 +320,9 @@ jobs:
             cp -r src/stable/extensions/exovonhub/media dist-win/astrolabe/resources/app/extensions/exovonhub/
           fi
           
-          # Inject Motion Studio & icons & docs
-          cp -r apps/astrolabe-motion-studio dist-win/astrolabe/
+          # Inject Motion Studio & icons & docs (exclude heavyweight node_modules)
+          mkdir -p dist-win/astrolabe/astrolabe-motion-studio
+          cp -r apps/astrolabe-motion-studio/dist apps/astrolabe-motion-studio/electron apps/astrolabe-motion-studio/package.json dist-win/astrolabe/astrolabe-motion-studio/
           cp -r icons dist-win/astrolabe/
           cp icons/stable/astrolabe.png dist-win/astrolabe/astrolabe.png
           cp README.md LICENSE dist-win/astrolabe/
@@ -375,6 +380,7 @@ jobs:
           fi
           sed -i 's/Get started with VSCodium/Get started with Astrolabe/g' dist-win/astrolabe/resources/app/out/vs/workbench/workbench.desktop.main.js 2>/dev/null || true
           sed -i 's/VSCodium Announcements/Astrolabe Announcements/g' dist-win/astrolabe/resources/app/out/vs/workbench/workbench.desktop.main.js 2>/dev/null || true
+          node scripts/patch-workbench-runtime.mjs dist-win/astrolabe/resources/app/out/vs/workbench/workbench.desktop.main.js
 
           # Create real clean Windows zip archive
           cd dist-win
@@ -386,6 +392,7 @@ jobs:
         with:
           name: astrolabe-windows-x64
           path: astrolabe-windows-x64.zip
+          retention-days: 3
 
   # ============================================================================
   # 3. PUBLISH GITHUB RELEASE
@@ -420,3 +427,16 @@ jobs:
           files: |
             **/*.tar.gz
             **/*.zip
+
+      - name: Delete Temporary Workflow Artifacts
+        if: success()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          artifacts_json=$(curl -sf -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts")
+          for id in $(echo "$artifacts_json" | python3 -c "import sys, json; [print(a['id']) for a in json.load(sys.stdin).get('artifacts', [])]"); do
+            echo "Deleting temporary workflow artifact $id"
+            curl -sf -X DELETE -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts/$id" || true
+          done
