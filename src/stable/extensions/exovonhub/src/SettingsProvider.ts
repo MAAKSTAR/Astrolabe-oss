@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import * as cp from 'child_process';
+import { LlamaUpdateService } from './agent/LlamaUpdateService';
 
 export class SettingsProvider {
   public static readonly viewType = 'exovonhubSettings';
@@ -67,6 +68,20 @@ export class SettingsProvider {
     this._update();
 
     this._panel.onDidDispose(() => this.dispose(), null, this._disposables);
+
+    const llamaUpdateService = LlamaUpdateService.initialize(this._context);
+    this._disposables.push(
+      llamaUpdateService.onStateChange((state) => {
+        try {
+          this._panel.webview.postMessage({
+            type: 'llamaUpdateStatus',
+            ...state,
+          });
+        } catch {
+          // Ignore disposed panel post errors
+        }
+      })
+    );
 
     this._panel.webview.onDidReceiveMessage(
       async (data) => {
@@ -1021,6 +1036,39 @@ export class SettingsProvider {
                 });
               }
             });
+            break;
+          }
+          case 'checkLlamaUpdate': {
+            const service = LlamaUpdateService.initialize(this._context);
+            const current = service.getState();
+            if (data.silent === true && current.status && !current.status.error) {
+              this._panel.webview.postMessage({
+                type: 'llamaUpdateStatus',
+                ...current,
+              });
+            } else {
+              await service.checkForUpdates({
+                interactive: data.silent !== true,
+                respectCooldown: false,
+              });
+            }
+            break;
+          }
+          case 'installLlamaUpdate': {
+            await LlamaUpdateService.initialize(this._context).installUpdate(
+              data.expectedTag,
+              data.downloadUrl
+            );
+            break;
+          }
+          case 'clearSkippedLlamaBuild': {
+            await LlamaUpdateService.initialize(this._context).clearSkippedBuild();
+            break;
+          }
+          case 'openExternalUrl': {
+            if (typeof data.url === 'string' && /^https:\/\//i.test(data.url)) {
+              await vscode.env.openExternal(vscode.Uri.parse(data.url));
+            }
             break;
           }
         }

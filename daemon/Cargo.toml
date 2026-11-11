@@ -33,9 +33,9 @@ sysinfo = "0.33"
 # -- CLI --
 clap = { version = "4", features = ["derive"] }
 
-# -- llama.cpp Rust Bindings (Vulkan GPU acceleration) --
-llama-cpp-4 = { version = "0.4", features = ["vulkan", "native"] }
-llama-cpp-sys-4 = { version = "0.4", features = ["vulkan", "native"] }
+# -- llama.cpp Rust Bindings (Vulkan GPU acceleration, statically linked so llama-server .so updates cannot conflict) --
+llama-cpp-4 = { version = "0.11", default-features = false, features = ["openmp", "ggml", "vulkan", "native"] }
+llama-cpp-sys-4 = { version = "0.11", default-features = false, features = ["openmp", "vulkan", "native"] }
 
 [profile.release]
 opt-level = 3

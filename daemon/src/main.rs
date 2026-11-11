@@ -13,6 +13,9 @@ mod models;
 
 mod sglang;
 mod llama_server;
+mod llama_updater;
+mod llama_updater_fs;
+mod llama_updater_match;
 
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -206,13 +209,54 @@ async fn main() {
         active_diffusion: RwLock::new(ActiveDiffusionConfig::default()),
     });
 
-    let app = api::build_router(state);
+    let app = api::build_router(state.clone());
 
     let addr = format!("127.0.0.1:{}", args.port);
     tracing::info!("✅ Listening on http://{}", addr);
 
     let listener = tokio::net::TcpListener::bind(&addr).await.expect("Failed to bind");
-    axum::serve(listener, app).await.expect("Server crashed");
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal(state))
+        .await
+        .expect("Server crashed");
+}
+
+async fn shutdown_signal(state: Arc<AppState>) {
+    let ctrl_c = async {
+        let _ = tokio::signal::ctrl_c().await;
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        if let Ok(mut sig) = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+            sig.recv().await;
+        }
+    };
+
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        _ = ctrl_c => {},
+        _ = terminate => {},
+    }
+
+    tracing::info!("Shutdown signal received; cleaning up active inference engine...");
+    let engine = {
+        let mut guard = state.engine.write().await;
+        guard.take()
+    };
+    {
+        let mut active = state.active_model.write().await;
+        *active = None;
+    }
+    if let Some(eng) = engine {
+        match eng {
+            ActiveEngine::LlamaServer(mut ls) => ls.unload().await,
+            ActiveEngine::Sglang(mut sg) => sg.unload().await,
+            ActiveEngine::Llama(_) => {}
+        }
+    }
 }
 
 /// Expand ~ in paths to the user home directory.

@@ -40,20 +40,25 @@ export class DaemonManager {
         this.isStarting = true;
 
         try {
-            // Clean up any stale or orphaned daemon processes holding port 47990
+            // Clean up any stale or orphaned daemon processes holding port 47990.
+            // Send SIGTERM first so exovon-daemon can cleanly unload llama-server children.
             if (this.daemonProcess) {
-                try { this.daemonProcess.kill('SIGKILL'); } catch {}
+                try { this.daemonProcess.kill('SIGTERM'); } catch {}
                 this.daemonProcess = null;
             }
             try {
                 const cp = require('child_process');
                 if (process.platform === 'win32') {
+                    cp.execSync('taskkill /IM exovon-daemon.exe 2>nul || exit 0', { stdio: 'ignore' });
+                    await new Promise(r => setTimeout(r, 350));
                     cp.execSync('taskkill /F /IM exovon-daemon.exe 2>nul || exit 0', { stdio: 'ignore' });
                 } else {
-                    cp.execSync('pkill -9 -f "exovon-daemon" 2>/dev/null || true', { stdio: 'ignore' });
+                    cp.execSync('pkill -TERM -x "exovon-daemon" 2>/dev/null || true', { stdio: 'ignore' });
+                    await new Promise(r => setTimeout(r, 350));
+                    cp.execSync('pkill -KILL -x "exovon-daemon" 2>/dev/null || true', { stdio: 'ignore' });
                 }
             } catch {}
-            await new Promise(r => setTimeout(r, 200));
+            await new Promise(r => setTimeout(r, 150));
 
             const isWin = process.platform === 'win32';
             const binName = isWin ? 'exovon-daemon.exe' : 'exovon-daemon';
@@ -260,9 +265,9 @@ export class DaemonManager {
         try {
             const cp = require('child_process');
             if (process.platform === 'win32') {
-                cp.execSync('taskkill /F /IM exovon-daemon.exe 2>nul || exit 0', { stdio: 'ignore' });
+                cp.execSync('taskkill /IM exovon-daemon.exe 2>nul || exit 0', { stdio: 'ignore' });
             } else {
-                cp.execSync('pkill -9 -f "exovon-daemon" 2>/dev/null || true', { stdio: 'ignore' });
+                cp.execSync('pkill -TERM -x "exovon-daemon" 2>/dev/null || true', { stdio: 'ignore' });
             }
         } catch {}
         try {

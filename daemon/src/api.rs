@@ -57,6 +57,8 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/v1/health", get(health_check))
         .route("/v1/system/config", get(get_system_config).post(update_system_config))
         .route("/v1/system/install_sglang", post(install_sglang))
+        .route("/v1/system/llama-version", get(crate::llama_updater::check_llama_update_handler))
+        .route("/v1/system/llama-update", post(crate::llama_updater::install_llama_update_handler))
         .layer(DefaultBodyLimit::max(64 * 1024 * 1024))
         .with_state(state)
 }

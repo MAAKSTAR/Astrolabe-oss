@@ -116,6 +116,10 @@
         "icon": "$(settings-gear)"
       },
       {
+        "command": "exovon.checkLlamaUpdate",
+        "title": "Exovon: Check for llama.cpp Engine Updates"
+      },
+      {
         "command": "exovon.openHistory",
         "title": "Past Chats",
         "icon": "$(history)"

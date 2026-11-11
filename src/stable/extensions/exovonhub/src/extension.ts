@@ -14,6 +14,7 @@ import { ApiService } from './agent/ApiService';
 
 import { EngineStatusBarManager } from './agent/EngineStatusBarManager';
 import { DaemonManager } from './agent/DaemonManager';
+import { LlamaUpdateService } from './agent/LlamaUpdateService';
 
 let sidebarProvider: ExovonSidebarProvider | undefined;
 let brainCoordinator: BrainCoordinator | undefined;
@@ -31,6 +32,11 @@ export async function activate(context: vscode.ExtensionContext) {
 	DaemonManager.getInstance().startDaemon(context).catch(e => {
 		console.warn('Initial daemon startup:', e);
 	});
+
+	// Monitor upstream llama.cpp (llama-server) releases and show an actionable toast when newer builds exist
+	const llamaUpdateService = LlamaUpdateService.initialize(context);
+	context.subscriptions.push(llamaUpdateService);
+	llamaUpdateService.startBackgroundMonitor();
 
 	// Auto-set default theme on first run (non-blocking)
 	const isFirstRun = context.globalState.get<boolean>('astrolabe.isFirstThemeRun', true);
@@ -430,6 +436,11 @@ export async function activate(context: vscode.ExtensionContext) {
 		await server.startAndOpen();
 	});
 	context.subscriptions.push(openMotionStudioDisposable);
+
+	const checkLlamaUpdateDisposable = vscode.commands.registerCommand('exovon.checkLlamaUpdate', async () => {
+		await LlamaUpdateService.initialize(context).checkForUpdates({ interactive: true });
+	});
+	context.subscriptions.push(checkLlamaUpdateDisposable);
 
 	// Incremental Graph/Vector indexer on save
 	context.subscriptions.push(vscode.workspace.onDidSaveTextDocument(async (doc) => {

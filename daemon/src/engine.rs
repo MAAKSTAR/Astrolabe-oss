@@ -336,7 +336,7 @@ impl InferenceEngine {
                 LlamaSampler::temp(temperature),
                 LlamaSampler::top_k(top_k),
                 LlamaSampler::top_p(top_p, 1),
-                LlamaSampler::penalties_simple(64, repeat_penalty),
+                LlamaSampler::penalties_simple(model.n_vocab(), 64, repeat_penalty),
                 LlamaSampler::dist(seed),
             ]);
 

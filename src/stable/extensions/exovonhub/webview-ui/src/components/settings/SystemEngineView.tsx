@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { LlamaEngineUpdaterCard } from './LlamaEngineUpdaterCard';
 
 export interface SystemEngineViewProps {
   daemonRunning: boolean;
@@ -362,6 +363,9 @@ export function SystemEngineView({
           </div>
         )}
       </div>
+
+      {/* Card 5: llama.cpp Inference Runtime Updater */}
+      <LlamaEngineUpdaterCard vscodeApi={vscodeApi} daemonRunning={daemonRunning} />
     </div>
   );
 }

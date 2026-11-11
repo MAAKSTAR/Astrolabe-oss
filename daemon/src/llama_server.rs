@@ -25,36 +25,50 @@ pub struct LlamaServerEngine {
 }
 
 impl LlamaServerEngine {
+    pub fn binary_name() -> &'static str {
+        if cfg!(windows) {
+            "llama-server.exe"
+        } else {
+            "llama-server"
+        }
+    }
+
+    pub fn binary_path() -> Option<PathBuf> {
+        Self::find_binary()
+    }
+
     /// Find the llama-server binary in candidate locations.
     fn find_binary() -> Option<PathBuf> {
+        let bin = Self::binary_name();
         let mut candidates = Vec::new();
 
         // 1. Current executable directory (and bin/ subfolder)
         if let Ok(exe) = std::env::current_exe() {
             if let Some(parent) = exe.parent() {
-                candidates.push(parent.join("llama-server"));
-                candidates.push(parent.join("bin").join("llama-server"));
+                candidates.push(parent.join(bin));
+                candidates.push(parent.join("bin").join(bin));
             }
         }
 
         // 2. Relative to workspace / daemon directory
-        candidates.push(PathBuf::from("daemon/bin/llama-server"));
-        candidates.push(PathBuf::from("bin/llama-server"));
+        candidates.push(PathBuf::from("daemon/bin").join(bin));
+        candidates.push(PathBuf::from("bin").join(bin));
 
         // 3. User local share & application data paths
         if let Ok(home) = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")) {
             let home_path = PathBuf::from(&home);
-            candidates.push(home_path.join(".local/share/astrolabe/daemon/llama-server"));
-            candidates.push(home_path.join(".local/share/astrolabe/resources/app/daemon/llama-server"));
-            candidates.push(home_path.join(".local/share/astrolabe/llama-server"));
-            candidates.push(home_path.join(".local/share/astrolabe/bin/llama-server"));
-            candidates.push(home_path.join("AppData/Local/astrolabe/daemon/llama-server.exe"));
+            candidates.push(home_path.join(".local/share/astrolabe/daemon").join(bin));
+            candidates.push(home_path.join(".local/share/astrolabe/resources/app/daemon").join(bin));
+            candidates.push(home_path.join(".local/share/astrolabe").join(bin));
+            candidates.push(home_path.join(".local/share/astrolabe/bin").join(bin));
+            candidates.push(home_path.join("AppData/Local/astrolabe/daemon").join(bin));
         }
 
         // 4. System PATH
         if let Ok(path_var) = std::env::var("PATH") {
-            for dir in path_var.split(':') {
-                candidates.push(Path::new(dir).join("llama-server"));
+            let sep = if cfg!(windows) { ';' } else { ':' };
+            for dir in path_var.split(sep) {
+                candidates.push(Path::new(dir).join(bin));
             }
         }
 
@@ -385,6 +399,12 @@ impl LlamaServerEngine {
         tracing::info!("🗑️  Killing llama-server process for: {}", self.model_name);
         let _ = self.child.kill().await;
         let _ = self.child.wait().await;
+    }
+}
+
+impl Drop for LlamaServerEngine {
+    fn drop(&mut self) {
+        let _ = self.child.start_kill();
     }
 }
 
