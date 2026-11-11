@@ -23,51 +23,62 @@ function buildSidebarDropBridge(wv, containerVar, fwdVar) {
   ].join('');
 }
 
+const LEGACY_WEBVIEW_DRAG_RE = /(this\._webviewDisposables\.add\(([A-Za-z0-9_$]+)\.onDidUpdateState\(\(\)=>\{this\.viewState\[[A-Za-z0-9_$]+\.webviewState\]=\2\.state\}\)\);let\s+([A-Za-z0-9_$]+)=\2\.container,([A-Za-z0-9_$]+)=\(?([A-Za-z0-9_$]+)\)?=>[\({]?\5\.preventDefault\(\),\5\.stopImmediatePropagation\(\),this\.dropTargetElement\.dispatchEvent\(new DragEvent\(\5\.type,\5\)\)[\)}]?);(for\(let\s+[A-Za-z0-9_$]+\s+of\[[^\]]+\]\)this\._webviewDisposables\.add\([^;]+\))/;
+
+const MODERN_WEBVIEW_DRAG_RE = /(this\._webviewDisposables\.add\(([A-Za-z0-9_$]+)\.onDidUpdateState\(\(\)=>\{this\.viewState\[[A-Za-z0-9_$]+\.webviewState\]=\2\.state\}\)\);)(for\(let\s+[A-Za-z0-9_$]+\s+of\[[^\]]+\]\)this\._webviewDisposables\.add\([^,]+,[A-Za-z0-9_$]+,\(?([A-Za-z0-9_$]+)\)?=>[\({]?\4\.preventDefault\(\),\4\.stopImmediatePropagation\(\),this\.dropTargetElement\.dispatchEvent\(new DragEvent\(\4\.type,\4\)\)[\)}]?\)\))/;
+
+function makeRegexPatch(name, alreadyRe, patternRe, replacer) {
+  return {
+    name,
+    alreadyRe,
+    apply(src) {
+      if (!patternRe.test(src)) return null;
+      return src.replace(patternRe, replacer);
+    },
+  };
+}
+
 const PATCHES = [
-  {
-    name: 'SIDEBAR_SIZE default 200 -> 460',
-    alreadyRe: /SIDEBAR_SIZE:new\s+[A-Za-z0-9_$]+\("sideBar\.size",0,1,460\)/,
-    unpatchedRe: /(SIDEBAR_SIZE:new\s+[A-Za-z0-9_$]+\("sideBar\.size",0,1,)200(\))/,
-    apply: (src) => src.replace(
-      /(SIDEBAR_SIZE:new\s+[A-Za-z0-9_$]+\("sideBar\.size",0,1,)200(\))/,
-      '$1460$2',
-    ),
-  },
-  {
-    name: 'SIDEBAR_SIZE.defaultValue formula -> 45% capped at 460',
-    alreadyRe: /\.SIDEBAR_SIZE\.defaultValue=Math\.min\(Math\.round\([A-Za-z0-9_$]+\.width\*\.45\),460\)/,
-    unpatchedRe: /(\.SIDEBAR_SIZE\.defaultValue=)Math\.min\(300,([A-Za-z0-9_$]+\.width)\/4\)/,
-    apply: (src) => src.replace(
-      /(\.SIDEBAR_SIZE\.defaultValue=)Math\.min\(300,([A-Za-z0-9_$]+\.width)\/4\)/,
-      '$1Math.min(Math.round($2*.45),460)',
-    ),
-  },
-  {
-    name: 'SidebarPart.preferredWidth floor 300 -> 460',
-    alreadyRe: /fontSizeSettingsKey="workbench\.sideBar\.experimental\.fontSize"\}get snap\(\)\{return!0\}get preferredWidth\(\)\{[^}]*?return Math\.max\([A-Za-z0-9_$]+,460\)\}/,
-    unpatchedRe: /(fontSizeSettingsKey="workbench\.sideBar\.experimental\.fontSize"\}get snap\(\)\{return!0\}get preferredWidth\(\)\{[^}]*?return Math\.max\([A-Za-z0-9_$]+,)300(\)\})/,
-    apply: (src) => src.replace(
-      /(fontSizeSettingsKey="workbench\.sideBar\.experimental\.fontSize"\}get snap\(\)\{return!0\}get preferredWidth\(\)\{[^}]*?return Math\.max\([A-Za-z0-9_$]+,)300(\)\})/,
-      '$1460$2',
-    ),
-  },
-  {
-    name: 'WebviewElement._startBlockingIframeDragEvents pointerEvents -> none',
-    alreadyRe: /_startBlockingIframeDragEvents\(\)\{this\.element&&\(this\.element\.style\.pointerEvents="none"\)\}/,
-    unpatchedRe: /(_startBlockingIframeDragEvents\(\)\{this\.element&&\(this\.element\.style\.pointerEvents=)"auto"(\)\})/,
-    apply: (src) => src.replace(
-      /(_startBlockingIframeDragEvents\(\)\{this\.element&&\(this\.element\.style\.pointerEvents=)"auto"(\)\})/,
-      '$1"none"$2',
-    ),
-  },
+  makeRegexPatch(
+    'SIDEBAR_SIZE default 200/300 -> 460',
+    /SIDEBAR_SIZE:new\s+[A-Za-z0-9_$]+\("sideBar\.size",0,1,460\)/,
+    /(SIDEBAR_SIZE:new\s+[A-Za-z0-9_$]+\("sideBar\.size",0,1,)(?:200|300)(\))/,
+    '$1460$2',
+  ),
+  makeRegexPatch(
+    'SIDEBAR_SIZE.defaultValue formula -> 45% capped at 460',
+    /\.SIDEBAR_SIZE\.defaultValue=Math\.min\(Math\.round\([A-Za-z0-9_$]+\.width\*\.45\),460\)/,
+    /(\.SIDEBAR_SIZE\.defaultValue=)Math\.min\(300,([A-Za-z0-9_$]+\.width)\/4\)/,
+    '$1Math.min(Math.round($2*.45),460)',
+  ),
+  makeRegexPatch(
+    'SidebarPart.preferredWidth floor 300 -> 460',
+    /fontSizeSettingsKey="workbench\.sideBar\.experimental\.fontSize"\}get snap\(\)\{return!0\}get preferredWidth\(\)\{[^}]*?return Math\.max\([A-Za-z0-9_$]+,460\)\}/,
+    /(fontSizeSettingsKey="workbench\.sideBar\.experimental\.fontSize"\}get snap\(\)\{return!0\}get preferredWidth\(\)\{[^}]*?return Math\.max\([A-Za-z0-9_$]+,)300(\)\})/,
+    '$1460$2',
+  ),
+  makeRegexPatch(
+    'WebviewElement._startBlockingIframeDragEvents pointerEvents -> none',
+    /_startBlockingIframeDragEvents\(\)\{this\.element&&\(this\.element\.style\.pointerEvents="none"\)\}/,
+    /(_startBlockingIframeDragEvents\(\)\{this\.element&&\(this\.element\.style\.pointerEvents=)"auto"(\)\})/,
+    '$1"none"$2',
+  ),
   {
     name: 'WebviewViewPane.activate exovonhub.sidebar drop bridge',
     alreadyRe: /this\.id==="exovonhub\.sidebar"/,
-    unpatchedRe: /(this\._webviewDisposables\.add\(([A-Za-z0-9_$]+)\.onDidUpdateState\(\(\)=>\{this\.viewState\[[A-Za-z0-9_$]+\.webviewState\]=\2\.state\}\)\);let\s+([A-Za-z0-9_$]+)=\2\.container,([A-Za-z0-9_$]+)=\(?([A-Za-z0-9_$]+)\)?=>[\({]?\5\.preventDefault\(\),\5\.stopImmediatePropagation\(\),this\.dropTargetElement\.dispatchEvent\(new DragEvent\(\5\.type,\5\)\)[\)}]?);(for\(let\s+[A-Za-z0-9_$]+\s+of\[[^\]]+\]\)this\._webviewDisposables\.add\([^;]+\))/,
     apply(src) {
-      return src.replace(this.unpatchedRe, (_full, prefix, wv, containerVar, fwdVar, _ev, elseLoop) => (
-        `${prefix};if(this.id==="exovonhub.sidebar"){${buildSidebarDropBridge(wv, containerVar, fwdVar)}}else ${elseLoop}`
-      ));
+      if (LEGACY_WEBVIEW_DRAG_RE.test(src)) {
+        return src.replace(LEGACY_WEBVIEW_DRAG_RE, (_full, prefix, wv, containerVar, fwdVar, _ev, elseLoop) => (
+          `${prefix};if(this.id==="exovonhub.sidebar"){${buildSidebarDropBridge(wv, containerVar, fwdVar)}}else ${elseLoop}`
+        ));
+      }
+      if (MODERN_WEBVIEW_DRAG_RE.test(src)) {
+        return src.replace(MODERN_WEBVIEW_DRAG_RE, (_full, prefix, wv, elseLoop) => {
+          const inlineBridge = `const __xb_c=${wv}.container,__xb_f=__xb_fe=>{__xb_fe.preventDefault(),__xb_fe.stopImmediatePropagation(),this.dropTargetElement.dispatchEvent(new DragEvent(__xb_fe.type,__xb_fe))};${buildSidebarDropBridge(wv, '__xb_c', '__xb_f')}`;
+          return `${prefix}if(this.id==="exovonhub.sidebar"){${inlineBridge}}else ${elseLoop}`;
+        });
+      }
+      return null;
     },
   },
 ];
@@ -81,10 +92,10 @@ function patchWorkbench(filePath) {
       console.log(`[already-applied] ${patch.name}`);
       continue;
     }
-    if (!patch.unpatchedRe.test(content)) {
+    const next = patch.apply(content);
+    if (next === null) {
       throw new Error(`Pattern not found for workbench runtime patch: ${patch.name}`);
     }
-    const next = patch.apply(content);
     if (next === content) {
       throw new Error(`Patch made no change: ${patch.name}`);
     }
