@@ -34,8 +34,6 @@ const extensionConfig = {
     'web-tree-sitter': 'commonjs web-tree-sitter',
     'typescript': 'commonjs typescript',
     'ts-morph': 'commonjs ts-morph',
-    'node-llama-cpp': 'commonjs node-llama-cpp',
-    '@exovon/core': 'commonjs @exovon/core',
     '@exovon/sdk': 'commonjs @exovon/sdk'
   },
   resolve: {

@@ -397,14 +397,13 @@
     "@vscode/test-cli": "^0.0.12",
     "@vscode/test-electron": "^2.5.2",
     "copy-webpack-plugin": "^14.0.0",
-    "electron-rebuild": "^3.2.9",
     "eslint": "^9.39.3",
     "ts-loader": "^9.5.4",
     "typescript-eslint": "^8.56.1",
     "vitest": "^4.1.9",
     "webpack": "^5.105.3",
     "webpack-cli": "^6.0.1",
-    "@exovon/sdk": "file:../EXOVON/packages/exovon-sdk"
+    "@exovon/sdk": "file:../../../../packages/exovon-sdk"
   },
   "dependencies": {
     "@google/genai": "^2.6.0",
@@ -412,7 +411,6 @@
     "@xenova/transformers": "^2.17.2",
     "better-sqlite3": "^12.10.0",
     "diff": "^9.0.0",
-    "node-llama-cpp": "^3.18.1",
     "sqlite-vec": "^0.1.9",
     "tar": "^6.2.0",
     "tree-sitter-javascript": "^0.25.0",

@@ -85,6 +85,7 @@ jobs:
         with:
           name: astrolabe-visual-screenshot
           path: astrolabe-gui-screenshot.png
+          retention-days: 3
 
   test-windows-package:
     name: 🪟 Test Windows Standalone Zip Archive
@@ -96,7 +97,7 @@ jobs:
       - name: Download and Test Windows Release Package
         run: |
           echo "==> Downloading latest Windows release package..."
-          curl -L -f "https://github.com/MAAKSTAR/Astrolabe-oss/releases/download/v1.0.0/astrolabe-windows-x64.zip" -o "astrolabe-windows-x64.zip"
+          curl -L -f "https://github.com/MAAKSTAR/Astrolabe-oss/releases/latest/download/astrolabe-windows-x64.zip" -o "astrolabe-windows-x64.zip"
           echo "✓ Downloaded archive successfully ($(du -h astrolabe-windows-x64.zip | cut -f1))"
 
           echo "==> Testing native Windows zip extraction..."

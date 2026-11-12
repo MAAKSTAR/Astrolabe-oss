@@ -433,14 +433,21 @@ jobs:
             **/*.zip
 
       - name: Delete Temporary Workflow Artifacts
-        if: success()
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          artifacts_json=$(curl -sf -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts")
-          for id in $(echo "$artifacts_json" | python3 -c "import sys, json; [print(a['id']) for a in json.load(sys.stdin).get('artifacts', [])]"); do
-            echo "Deleting temporary workflow artifact $id"
-            curl -sf -X DELETE -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
-              "https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts/$id" || true
-          done
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const run_id = context.runId;
+            const artifacts = await github.paginate(
+              github.rest.actions.listWorkflowRunArtifacts,
+              { owner, repo, run_id, per_page: 100 }
+            );
+            for (const artifact of artifacts) {
+              core.info(`Deleting temporary artifact ${artifact.id} (${artifact.name})`);
+              await github.rest.actions.deleteArtifact({
+                owner,
+                repo,
+                artifact_id: artifact.id,
+              });
+            }

@@ -92,6 +92,7 @@ async fn install_sglang() -> Result<Json<serde_json::Value>, (StatusCode, String
 // =============================================================================
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)] // OpenAI request payload fields kept for schema compatibility
 struct ChatCompletionRequest {
     model: Option<String>,
     messages: Vec<ChatMessage>,
@@ -190,8 +191,6 @@ pub struct ModelInfo {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model_family: Option<String>,
 }
-
-pub type ModelEntry = ModelInfo;
 
 #[derive(Deserialize, Debug, Clone)]
 pub struct LoadRequest {

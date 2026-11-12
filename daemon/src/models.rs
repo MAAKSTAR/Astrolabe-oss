@@ -11,37 +11,6 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use tokio::io::{AsyncWriteExt, BufWriter};
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct LoadModelRequest {
-    pub model_path: String,
-    #[serde(default = "default_ctx")]
-    pub ctx_size: u32,
-    #[serde(default = "default_gpu_layers")]
-    pub n_gpu_layers: i32,
-    #[serde(default = "default_zero")]
-    pub n_threads: u32,
-    #[serde(default = "default_batch")]
-    pub n_batch: u32,
-    #[serde(default = "default_ubatch")]
-    pub n_ubatch: u32,
-    pub backend_preference: Option<String>,
-    #[serde(default = "default_true")]
-    pub use_mmap: bool,
-    #[serde(default = "default_true")]
-    pub flash_attn: bool,
-    #[serde(default)]
-    pub offload_context_to_cpu: Option<bool>,
-    #[serde(default)]
-    pub no_kv_offload: Option<bool>,
-}
-
-fn default_ctx() -> u32 { 131072 }
-fn default_gpu_layers() -> i32 { -1 }
-fn default_zero() -> u32 { 0 }
-fn default_batch() -> u32 { 2048 }
-fn default_ubatch() -> u32 { 512 }
-fn default_true() -> bool { true }
-
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ModelFamily {
@@ -56,9 +25,6 @@ impl Default for ModelFamily {
         ModelFamily::TextLlm
     }
 }
-
-pub const CANONICAL_MODALITIES: &[&str] = &["llm", "image", "video", "music", "component"];
-pub const CANONICAL_COMPONENT_ROLES: &[&str] = &["vae", "encoders", "mmproj", "loras"];
 
 pub fn normalize_modality(raw: &str) -> Option<&'static str> {
     match raw.trim().to_lowercase().as_str() {
@@ -1227,35 +1193,6 @@ pub async fn search_huggingface(query: &str) -> Result<Vec<HfModelResult>, Strin
     Ok(results)
 }
 
-/// Search HuggingFace for GGUF models.
-pub async fn search_models(query: &str) -> Result<Vec<HfModelResult>, String> {
-    let url = if query.is_empty() {
-        "https://huggingface.co/api/models?filter=gguf&sort=downloads&direction=-1&limit=50".to_string()
-    } else {
-        format!(
-            "https://huggingface.co/api/models?search={}&filter=gguf&sort=downloads&direction=-1&limit=500",
-            query
-        )
-    };
-
-    let client = reqwest::Client::new();
-    let resp = client.get(&url)
-        .header("User-Agent", "exovon-daemon/0.1.0")
-        .send()
-        .await
-        .map_err(|e| format!("HuggingFace search request failed: {}", e))?;
-
-    if !resp.status().is_success() {
-        return Err(format!("HuggingFace API returned status {}", resp.status()));
-    }
-
-    let models: Vec<HfModelResult> = resp.json()
-        .await
-        .map_err(|e| format!("Failed to parse HuggingFace search response: {}", e))?;
-
-    Ok(models)
-}
-
 /// Resolve the final download URL. If a regional mirror is enabled, rewrite huggingface.co to hf-mirror.com.
 /// If an authenticated Hugging Face token is provided, perform a 302/307 resolution with redirects disabled
 /// to obtain the pre-signed priority AWS S3/CloudFront URL (bypassing anonymous throttles).
@@ -1317,6 +1254,7 @@ pub struct DownloadRoutePlan {
     pub filename: String,
     pub relative_path: String,
     pub modality: String,
+    #[allow(dead_code)]
     pub component_role: Option<String>,
     pub family: ModelFamily,
     pub repo_id: Option<String>,

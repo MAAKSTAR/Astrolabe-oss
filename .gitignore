@@ -47,3 +47,10 @@ node_modules/
 .DS_Store
 Thumbs.db
 dist-linux/
+
+# Cleanup: never track build outputs, sourcemaps in src, or test harnesses
+**/dist/
+vite-test/
+apps/astrolabe-motion-studio/electron/main.js
+apps/astrolabe-motion-studio/electron/preload.js
+src/stable/extensions/exovonhub/src/**/*.js.map
